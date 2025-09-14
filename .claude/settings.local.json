@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(python:*)",
+      "Bash(uvicorn:*)",
+      "Bash(pip install:*)",
+      "Bash(npm start)",
+      "Bash(set PORT=3001)",
+      "Bash(taskkill:*)",
+      "Bash(cmd /c:*)",
+      "Bash(npm start:*)",
+      "Bash(set BROWSER=none)",
+      "Bash(set PORT=3002)",
+      "Bash(curl:*)",
+      "Bash(timeout 60 python:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist)",
+      "Bash(tasklist:*)",
+      "Bash(start.bat)",
+      "Bash(set PYTHONIOENCODING=utf-8)",
+      "Bash(powershell:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
