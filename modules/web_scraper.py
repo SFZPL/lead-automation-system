@@ -43,8 +43,8 @@ class WebScraper:
             except Exception as e:
                 logger.warning(f"LLM extractor unavailable: {e}")
     
-    def search_person_info(self, full_name: str, company_name: str = "", email: str = "") -> Dict[str, Any]:
-        """Search for information about a person using web search"""
+    async def search_person_info(self, full_name: str, company_name: str = "", email: str = "") -> Dict[str, Any]:
+        """Search for information about a person using web search with concurrent requests"""
         try:
             import urllib.parse
             
@@ -74,56 +74,27 @@ class WebScraper:
                         f'{first_name} {last_name} site:{domain} founder CEO director'
                     ])
             
-            # Only one general search for speed
+            # Add general search
             search_queries.append(f'"{full_name}" linkedin profile')
             
             results = {}
             
-            for query in search_queries[:2]:  # Further limit queries for speed
+            # Process all queries concurrently
+            for query in search_queries:  # Remove slice restriction - process all queries
                 logger.info(f"Searching for person info: {query}")
                 
-                try:
-                    # Try multiple search engines and methods
-                    search_engines = [
-                        ("DuckDuckGo", f"https://duckduckgo.com/html/?q={urllib.parse.quote(query)}"),
-                        ("Bing", f"https://www.bing.com/search?q={urllib.parse.quote(query)}"),
-                        ("Google", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
-                    ]
-                    
-                    headers = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5',
-                        'Accept-Encoding': 'gzip, deflate',
-                        'Connection': 'keep-alive'
-                    }
-                    
-                    # Try only the first search engine for speed
-                    for engine_name, search_url in search_engines[:1]:  # Only try DuckDuckGo
-                        try:
-                            logger.debug(f"Trying {engine_name} search: {query}")
-                            response = requests.get(search_url, headers=headers, timeout=8)  # Reduced timeout
-                            response.raise_for_status()
-                            
-                            soup = BeautifulSoup(response.text, 'html.parser')
-                            
-                            # Different parsing for different engines
-                            if self._parse_search_results(soup, engine_name, full_name, company_name, results):
-                                logger.info(f"Found results using {engine_name}")
-                                # Quick exit after first success
-                                return results
-                                
-                        except Exception as e:
-                            logger.debug(f"{engine_name} search failed: {e}")
-                            continue
-                    
+                # Search all engines concurrently
+                search_results = await self._search_all_engines_async(query, full_name, company_name)
                 
-                except Exception as e:
-                    logger.warning(f"All search engines failed for query '{query}': {e}")
-                    continue
-                    
-                # Add minimal delay to be respectful but faster
-                time.sleep(0.5)
+                # Merge results from all engines
+                for engine_name, engine_results in search_results.items():
+                    if engine_results:
+                        results.update(engine_results)
+                        logger.info(f"Found results from {engine_name}: {engine_results}")
+                
+                # If we found what we need, can break early
+                if results.get('linkedin_url') and results.get('job_title'):
+                    break
             
             # If we didn't find specific job info but have email domain, try to infer from web scraping quickly
             if not results.get('job_title') and email_domain:
@@ -131,17 +102,19 @@ class WebScraper:
                 # Try to scrape the company website to understand the business
                 try:
                     company_url = f"https://{email_domain}"
-                    response = requests.get(company_url, timeout=5)  # Reduced timeout
-                    if response.status_code == 200:
-                        company_context = self._extract_company_context(response.text)
-                        if company_context.get('company_type'):
-                            inferred_role = self._infer_job_role_from_company_type(
-                                company_context['company_type'], email_domain
-                            )
-                            if inferred_role:
-                                results['job_title'] = inferred_role
-                                results['job_title_source'] = 'inferred_from_company_type'
-                                logger.info(f"Inferred job role '{inferred_role}' from company type '{company_context['company_type']}'")
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(company_url, timeout=5) as response:
+                            if response.status == 200:
+                                content = await response.text()
+                                company_context = self._extract_company_context(content)
+                                if company_context.get('company_type'):
+                                    inferred_role = self._infer_job_role_from_company_type(
+                                        company_context['company_type'], email_domain
+                                    )
+                                    if inferred_role:
+                                        results['job_title'] = inferred_role
+                                        results['job_title_source'] = 'inferred_from_company_type'
+                                        logger.info(f"Inferred job role '{inferred_role}' from company type '{company_context['company_type']}'")
                 except Exception as e:
                     logger.debug(f"Could not infer role from company website: {e}")
             
@@ -155,6 +128,117 @@ class WebScraper:
         except Exception as e:
             logger.error(f"Error searching for person info {full_name}: {e}")
             return {}
+
+    async def _search_all_engines_async(self, query: str, full_name: str, company_name: str) -> Dict[str, Dict[str, Any]]:
+        """Search all engines concurrently for the given query"""
+        import urllib.parse
+        
+        # Define all search engines
+        search_engines = [
+            ("DuckDuckGo", f"https://duckduckgo.com/html/?q={urllib.parse.quote(query)}"),
+            ("Bing", f"https://www.bing.com/search?q={urllib.parse.quote(query)}"),
+            ("Google", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive'
+        }
+        
+        async def search_single_engine(session, engine_name, search_url):
+            """Search a single engine"""
+            try:
+                logger.debug(f"Searching {engine_name}: {query}")
+                
+                async with session.get(search_url, timeout=8, headers=headers) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        soup = BeautifulSoup(content, 'html.parser')
+                        
+                        results = {}
+                        if self._parse_search_results(soup, engine_name, full_name, company_name, results):
+                            logger.info(f"Found results from {engine_name}")
+                            return {engine_name: results}
+                        
+                        # Check for LinkedIn URLs and follow top result links
+                        await self._parse_and_follow_links(session, soup, engine_name, full_name, company_name, results)
+                        
+                        if results:
+                            return {engine_name: results}
+                    
+                return {engine_name: {}}
+                        
+            except Exception as e:
+                logger.debug(f"{engine_name} search failed: {e}")
+                return {engine_name: {}}
+        
+        # Execute all searches concurrently
+        async with aiohttp.ClientSession() as session:
+            tasks = [search_single_engine(session, engine_name, search_url) 
+                    for engine_name, search_url in search_engines]
+            
+            search_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Combine results
+        combined_results = {}
+        for result in search_results:
+            if isinstance(result, dict):
+                combined_results.update(result)
+        
+        return combined_results
+    
+    async def _parse_and_follow_links(self, session, soup: BeautifulSoup, engine_name: str, 
+                                     full_name: str, company_name: str, results: dict) -> None:
+        """Parse search results and follow top result links for additional information"""
+        try:
+            # Get top N search result links to follow
+            result_links = []
+            
+            if engine_name == "DuckDuckGo":
+                search_result_divs = soup.find_all('div', class_='result__body') or soup.find_all('div', class_='web-result')
+                for div in search_result_divs[:3]:  # Top 3 results
+                    link_elem = div.find('a', href=True)
+                    if link_elem:
+                        result_links.append(link_elem['href'])
+            elif engine_name == "Bing":
+                search_result_divs = soup.find_all('li', class_='b_algo')[:3]
+                for div in search_result_divs:
+                    link_elem = div.find('a', href=True)
+                    if link_elem:
+                        result_links.append(link_elem['href'])
+            elif engine_name == "Google":
+                search_result_divs = soup.find_all('div', class_='g')[:3]
+                for div in search_result_divs:
+                    link_elem = div.find('a', href=True)
+                    if link_elem:
+                        result_links.append(link_elem['href'])
+            
+            # Follow promising links that might contain job info
+            for link in result_links:
+                if any(keyword in link.lower() for keyword in ['linkedin', 'about', 'team', 'biography', 'profile']):
+                    try:
+                        async with session.get(link, timeout=5) as response:
+                            if response.status == 200:
+                                content = await response.text()
+                                page_soup = BeautifulSoup(content, 'html.parser')
+                                page_text = page_soup.get_text()[:2000]  # First 2000 chars
+                                
+                                # Extract job title and industry info from the linked page
+                                if self._contains_job_info(page_text, full_name):
+                                    person_info = self._extract_person_info(page_text, full_name, company_name)
+                                    if person_info:
+                                        results.update(person_info)
+                                        logger.info(f"Found person info from linked page ({engine_name}): {person_info}")
+                                        
+                    except Exception as e:
+                        logger.debug(f"Failed to follow link {link}: {e}")
+                        continue
+                        
+        except Exception as e:
+            logger.debug(f"Error following links for {engine_name}: {e}")
     
     def _parse_search_results(self, soup: BeautifulSoup, engine_name: str, full_name: str, company_name: str, results: dict) -> bool:
         """Parse search results from different search engines"""

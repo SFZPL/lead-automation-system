@@ -218,7 +218,7 @@ class EnrichmentPipeline:
             
             if full_name and 'linkedin' not in enrichment_sources:
                 logger.debug(f"Searching LinkedIn for {full_name}")
-                linkedin_info = self.linkedin_enricher.search_linkedin_profile(full_name, company_name)
+                linkedin_info = await self.linkedin_enricher.search_linkedin_profile(full_name, company_name)
                 
                 if linkedin_info:
                     self._merge_linkedin_data(enriched_lead, linkedin_info)
@@ -227,7 +227,7 @@ class EnrichmentPipeline:
             
             # 3. Person-specific web search (aggressive approach - always try)
             logger.debug(f"Searching web for person info: {lead.get('Full Name', '')}")
-            person_info = self.web_scraper.search_person_info(
+            person_info = await self.web_scraper.search_person_info(
                 lead.get('Full Name', ''),
                 lead.get('Company Name', ''),
                 lead.get('email') or lead.get('email_from', '')

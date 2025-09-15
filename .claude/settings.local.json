@@ -22,7 +22,10 @@
       "Bash(start.bat)",
       "Bash(set PYTHONIOENCODING=utf-8)",
       "Bash(powershell:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []

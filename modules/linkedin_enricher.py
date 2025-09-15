@@ -103,15 +103,15 @@ class LinkedInEnricher:
             logger.error(f"Error enriching LinkedIn company {company_linkedin_url}: {e}")
             return {}
     
-    def search_linkedin_profile(self, full_name: str, company_name: str = "") -> Dict[str, Any]:
-        """Search for LinkedIn profile by name and company using web search"""
+    async def search_linkedin_profile(self, full_name: str, company_name: str = "") -> Dict[str, Any]:
+        """Search for LinkedIn profile by name and company using web search with parallel requests"""
         try:
-            import requests
-            from bs4 import BeautifulSoup
+            import aiohttp
             import re
             import urllib.parse
+            from bs4 import BeautifulSoup
             
-            # Construct more aggressive search queries
+            # Construct comprehensive search queries
             search_queries = [
                 f'"{full_name}" {company_name} site:linkedin.com/in',
                 f'{full_name} {company_name} linkedin',
@@ -127,78 +127,123 @@ class LinkedInEnricher:
                     f'"{full_name}" linkedin'
                 ]
             
+            # Search all engines in parallel for each query
             for query in search_queries:
                 logger.info(f"Searching for LinkedIn profile: {query}")
                 
-                # Use multiple search approaches
-                search_engines = [
-                    f"https://duckduckgo.com/html/?q={urllib.parse.quote(query)}",
-                    f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
-                ]
+                linkedin_urls = await self._search_linkedin_parallel(query)
                 
-                for search_url in search_engines:
+                # Deduplicate URLs and validate them
+                unique_urls = list(set(linkedin_urls))
+                valid_urls = [url for url in unique_urls if self.validate_linkedin_url(url)]
+                
+                # Try to enrich each valid URL
+                for linkedin_url in valid_urls[:3]:  # Try up to 3 URLs per query
+                    logger.info(f"Found potential LinkedIn profile: {linkedin_url}")
                     try:
-                        headers = {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                        }
-                        
-                        response = requests.get(search_url, headers=headers, timeout=15)
-                        response.raise_for_status()
-                        
-                        # Search for LinkedIn URLs in the entire response text
-                        linkedin_pattern = r'https?://(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-_]+)/?'
-                        matches = re.findall(linkedin_pattern, response.text, re.IGNORECASE)
-                        
-                        if matches:
-                            # Try each match to see if it's valid
-                            for match in matches[:3]:  # Try up to 3 matches
-                                linkedin_url = f"https://www.linkedin.com/in/{match}"
-                                logger.info(f"Found potential LinkedIn profile: {linkedin_url}")
-                                
-                                # Validate the URL format
-                                if self.validate_linkedin_url(linkedin_url):
-                                    # Now scrape this LinkedIn profile using our actor
-                                    profile_data = self.enrich_linkedin_profile(linkedin_url)
-                                    if profile_data:
-                                        logger.info(f"Successfully enriched LinkedIn profile: {linkedin_url}")
-                                        return profile_data
-                        
-                        # Also try parsing with BeautifulSoup as backup
-                        try:
-                            soup = BeautifulSoup(response.text, 'html.parser')
-                            
-                            # Look for LinkedIn profile URLs in search results
-                            all_text = soup.get_text()
-                            linkedin_matches = re.findall(linkedin_pattern, all_text, re.IGNORECASE)
-                            
-                            for match in linkedin_matches[:2]:  # Try up to 2 more matches
-                                linkedin_url = f"https://www.linkedin.com/in/{match}"
-                                if self.validate_linkedin_url(linkedin_url):
-                                    profile_data = self.enrich_linkedin_profile(linkedin_url)
-                                    if profile_data:
-                                        return profile_data
-                        except Exception as e:
-                            logger.debug(f"BeautifulSoup parsing failed: {e}")
-                    
-                    except requests.RequestException as e:
-                        logger.debug(f"Search engine '{search_url}' failed: {e}")
+                        profile_data = self.enrich_linkedin_profile(linkedin_url)
+                        if profile_data:
+                            logger.info(f"Successfully enriched LinkedIn profile: {linkedin_url}")
+                            profile_data['linkedin_url'] = linkedin_url  # Ensure URL is included
+                            return profile_data
+                    except Exception as e:
+                        logger.debug(f"Failed to enrich LinkedIn profile {linkedin_url}: {e}")
                         continue
-                    
-                    # Add small delay between search engines
-                    time.sleep(0.3)
                 
-                # Add minimal delay between queries
-                time.sleep(0.5)
+                # Small delay between queries to be respectful
+                await asyncio.sleep(0.3)
             
             logger.info(f"No LinkedIn profile found for {full_name}")
             return {}
             
         except ImportError:
-            logger.error("beautifulsoup4 not installed. Install with: pip install beautifulsoup4")
+            logger.error("aiohttp not installed. Install with: pip install aiohttp")
             return {}
         except Exception as e:
             logger.error(f"Error searching LinkedIn for {full_name}: {e}")
             return {}
+
+    async def _search_linkedin_parallel(self, query: str) -> List[str]:
+        """Search for LinkedIn URLs using multiple search engines in parallel"""
+        import urllib.parse
+        import re
+        
+        # Define search engines including Google
+        search_engines = [
+            ("DuckDuckGo", f"https://duckduckgo.com/html/?q={urllib.parse.quote(query)}"),
+            ("Bing", f"https://www.bing.com/search?q={urllib.parse.quote(query)}"),
+            ("Google", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        async def search_single_engine(session, engine_name, search_url):
+            """Search a single engine for LinkedIn URLs"""
+            try:
+                logger.debug(f"Searching {engine_name} for LinkedIn URLs: {query}")
+                
+                # Add throttling between requests to avoid being blocked
+                await asyncio.sleep(0.1 * hash(engine_name) % 3)  # Stagger requests
+                
+                async with session.get(search_url, headers=headers, timeout=15) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        
+                        # Search for LinkedIn URLs in response text
+                        linkedin_pattern = r'https?://(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-_]+)/?'
+                        matches = re.findall(linkedin_pattern, content, re.IGNORECASE)
+                        
+                        linkedin_urls = []
+                        for match in matches[:5]:  # Top 5 matches per engine
+                            url = f"https://www.linkedin.com/in/{match}"
+                            linkedin_urls.append(url)
+                        
+                        # Also try BeautifulSoup parsing for better results
+                        try:
+                            soup = BeautifulSoup(content, 'html.parser')
+                            all_text = soup.get_text()
+                            additional_matches = re.findall(linkedin_pattern, all_text, re.IGNORECASE)
+                            
+                            for match in additional_matches[:3]:
+                                url = f"https://www.linkedin.com/in/{match}"
+                                if url not in linkedin_urls:
+                                    linkedin_urls.append(url)
+                                    
+                        except Exception as e:
+                            logger.debug(f"BeautifulSoup parsing failed for {engine_name}: {e}")
+                        
+                        if linkedin_urls:
+                            logger.info(f"Found {len(linkedin_urls)} LinkedIn URLs from {engine_name}")
+                        
+                        return linkedin_urls
+                    else:
+                        logger.debug(f"{engine_name} returned status {response.status}")
+                        return []
+                        
+            except Exception as e:
+                logger.debug(f"{engine_name} search failed: {e}")
+                return []
+        
+        # Execute all searches concurrently
+        linkedin_urls = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                tasks = [search_single_engine(session, engine_name, search_url) 
+                        for engine_name, search_url in search_engines]
+                
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Combine all URLs from all engines
+                for result in results:
+                    if isinstance(result, list):
+                        linkedin_urls.extend(result)
+                        
+        except Exception as e:
+            logger.error(f"Error in parallel LinkedIn search: {e}")
+        
+        return linkedin_urls
     
     def _extract_linkedin_url(self, search_result_url: str) -> Optional[str]:
         """Extract clean LinkedIn URL from search result"""
