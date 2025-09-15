@@ -96,10 +96,10 @@ class WebScraper:
                 if results.get('linkedin_url') and results.get('job_title'):
                     break
             
-            # If we didn't find specific job info but have email domain, try to infer from web scraping quickly
+            # If we didn't find specific job info but have email domain, try to infer from web scraping carefully
             if not results.get('job_title') and email_domain:
-                logger.info(f"Attempting to infer job role from company website for {email_domain}")
-                # Try to scrape the company website to understand the business
+                logger.info(f"Attempting to find job role from company website for {email_domain}")
+                # Try to scrape the company website to understand the business, but don't make assumptions
                 try:
                     company_url = f"https://{email_domain}"
                     async with aiohttp.ClientSession() as session:
@@ -108,15 +108,11 @@ class WebScraper:
                                 content = await response.text()
                                 company_context = self._extract_company_context(content)
                                 if company_context.get('company_type'):
-                                    inferred_role = self._infer_job_role_from_company_type(
-                                        company_context['company_type'], email_domain
-                                    )
-                                    if inferred_role:
-                                        results['job_title'] = inferred_role
-                                        results['job_title_source'] = 'inferred_from_company_type'
-                                        logger.info(f"Inferred job role '{inferred_role}' from company type '{company_context['company_type']}'")
+                                    # Only log what we found, don't make role assumptions
+                                    logger.info(f"Identified company type as '{company_context['company_type']}' but not inferring specific job role")
+                                    results['company_type_detected'] = company_context['company_type']
                 except Exception as e:
-                    logger.debug(f"Could not infer role from company website: {e}")
+                    logger.debug(f"Could not analyze company website: {e}")
             
             if results:
                 logger.info(f"Successfully found person info for {full_name}: {results}")

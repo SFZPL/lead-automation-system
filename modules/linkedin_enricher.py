@@ -111,21 +111,28 @@ class LinkedInEnricher:
             import urllib.parse
             from bs4 import BeautifulSoup
             
-            # Construct comprehensive search queries
-            search_queries = [
-                f'"{full_name}" {company_name} site:linkedin.com/in',
-                f'{full_name} {company_name} linkedin',
-                f'"{full_name}" linkedin profile',
-                f'{full_name} site:linkedin.com'
-            ]
+            # Construct comprehensive search queries with better regional coverage
+            search_queries = []
             
-            # Remove empty company name from queries if not provided
-            if not company_name:
-                search_queries = [
-                    f'"{full_name}" site:linkedin.com/in', 
+            # Generate username variations (remove spaces, lowercase)
+            username_variation = full_name.lower().replace(' ', '')
+            
+            if company_name:
+                search_queries.extend([
+                    f'"{full_name}" {company_name} site:linkedin.com',  # Catches all subdomains
+                    f'"{full_name}" {company_name} site:linkedin.com/in',
+                    f'{full_name} {company_name} linkedin profile',
+                    f'{username_variation} {company_name} site:linkedin.com',  # Username variation
+                    f'"{full_name}" {company_name} linkedin'
+                ])
+            else:
+                search_queries.extend([
+                    f'"{full_name}" site:linkedin.com',  # Catches all regional domains
+                    f'"{full_name}" site:linkedin.com/in',
                     f'{full_name} linkedin profile',
+                    f'{username_variation} site:linkedin.com',  # Username variation
                     f'"{full_name}" linkedin'
-                ]
+                ])
             
             # Search all engines in parallel for each query
             for query in search_queries:
@@ -191,25 +198,49 @@ class LinkedInEnricher:
                     if response.status == 200:
                         content = await response.text()
                         
-                        # Search for LinkedIn URLs in response text
-                        linkedin_pattern = r'https?://(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-_]+)/?'
-                        matches = re.findall(linkedin_pattern, content, re.IGNORECASE)
+                        # Search for LinkedIn URLs in response text - include regional domains
+                        linkedin_patterns = [
+                            r'https?://(?:[a-z]{2}\.)?linkedin\.com/in/([a-zA-Z0-9\-_]+)/?',  # Includes regional domains
+                            r'https?://(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-_]+)/?',      # Standard domains
+                            r'linkedin\.com/in/([a-zA-Z0-9\-_]+)/?'                          # Relative URLs
+                        ]
                         
                         linkedin_urls = []
-                        for match in matches[:5]:  # Top 5 matches per engine
-                            url = f"https://www.linkedin.com/in/{match}"
-                            linkedin_urls.append(url)
+                        # First try to extract full URLs with domains preserved
+                        full_url_pattern = r'https?://(?:[a-z]{2}\.)?(?:www\.)?linkedin\.com/in/[a-zA-Z0-9\-_]+/?'
+                        full_urls = re.findall(full_url_pattern, content, re.IGNORECASE)
+                        linkedin_urls.extend(full_urls[:5])  # Take first 5 full URLs
+                        
+                        # If no full URLs found, extract usernames and build standard URLs
+                        if not linkedin_urls:
+                            for pattern in linkedin_patterns:
+                                matches = re.findall(pattern, content, re.IGNORECASE)
+                                for match in matches[:3]:  # Top 3 matches per pattern
+                                    linkedin_urls.append(f"https://www.linkedin.com/in/{match}")
+                        
+                        # Remove duplicates and clean up
+                        linkedin_urls = list(set(linkedin_urls))
                         
                         # Also try BeautifulSoup parsing for better results
                         try:
                             soup = BeautifulSoup(content, 'html.parser')
                             all_text = soup.get_text()
-                            additional_matches = re.findall(linkedin_pattern, all_text, re.IGNORECASE)
                             
-                            for match in additional_matches[:3]:
-                                url = f"https://www.linkedin.com/in/{match}"
+                            # Try to find full URLs first
+                            full_url_pattern = r'https?://(?:[a-z]{2}\.)?(?:www\.)?linkedin\.com/in/[a-zA-Z0-9\-_]+/?'
+                            additional_full_urls = re.findall(full_url_pattern, all_text, re.IGNORECASE)
+                            for url in additional_full_urls[:3]:
                                 if url not in linkedin_urls:
                                     linkedin_urls.append(url)
+                            
+                            # If still no URLs, try username patterns
+                            if not linkedin_urls:
+                                for pattern in linkedin_patterns:
+                                    additional_matches = re.findall(pattern, all_text, re.IGNORECASE)
+                                    for match in additional_matches[:2]:
+                                        url = f"https://www.linkedin.com/in/{match}"
+                                        if url not in linkedin_urls:
+                                            linkedin_urls.append(url)
                                     
                         except Exception as e:
                             logger.debug(f"BeautifulSoup parsing failed for {engine_name}: {e}")
