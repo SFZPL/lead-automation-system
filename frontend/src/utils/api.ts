@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Create axios instance with base configuration
 export const apiClient = axios.create({
-  baseURL: process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8000',
+  baseURL: process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000',
   timeout: 300000, // 5 minutes for long operations
   headers: {
     'Content-Type': 'application/json',
@@ -60,6 +60,9 @@ export const api = {
   getOperation: (operationId: string) => apiClient.get(`/api/operations/${operationId}`),
   getAllOperations: () => apiClient.get('/api/operations'),
   cancelOperation: (operationId: string) => apiClient.delete(`/api/operations/${operationId}`),
+
+  // Export
+  exportCSV: () => apiClient.get('/api/export/csv', { responseType: 'blob' }),
 
   // Health
   healthCheck: () => apiClient.get('/api/health'),

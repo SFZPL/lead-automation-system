@@ -12,6 +12,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { StarIcon } from '@heroicons/react/24/solid';
 import { apiClient } from '../utils/api';
+import api from '../utils/api';
 import { useWebSocket } from '../hooks/useWebSocket';
 
 interface Lead {
@@ -98,6 +99,35 @@ export default function LeadsPage() {
       setSelectedLeads([]);
     } else {
       setSelectedLeads(filteredLeads.map(lead => lead.id));
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const response = await api.exportCSV();
+
+      // Create blob and download file
+      const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      // Get filename from response headers or use default
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'leads_export.csv';
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="(.+)"/);
+        if (match) filename = match[1];
+      }
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Export failed. Please try again.');
     }
   };
 
@@ -196,7 +226,10 @@ export default function LeadsPage() {
                 <option value="unenriched">Unenriched</option>
               </select>
               
-              <button className="btn-secondary flex items-center gap-2">
+              <button
+                className="btn-secondary flex items-center gap-2"
+                onClick={handleExportCSV}
+              >
                 <ArrowDownTrayIcon className="h-4 w-4" />
                 Export
               </button>

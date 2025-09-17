@@ -44,10 +44,10 @@ export default function Dashboard() {
 
   // Fetch leads count
   const { data: leadsCount, refetch: refetchLeadsCount } = useQuery('leadsCount',
-    () => apiClient.get('/api/leads/count').then(res => res.data.count),
-    { 
+    () => apiClient.get('/api/leads/count').then(res => res.data),
+    {
       refetchInterval: 30000, // Refetch every 30 seconds
-      enabled: !isExtractingLeads && !isRunningPipeline 
+      enabled: !isExtractingLeads && !isRunningPipeline
     }
   );
 
@@ -109,21 +109,21 @@ export default function Dashboard() {
   };
 
   const handleEnrichLeads = async () => {
-    console.log('🔥 FRONTEND: Enrich button clicked!');
-    console.log('🔥 FRONTEND: isEnrichingLeads:', isEnrichingLeads);
-    console.log('🔥 FRONTEND: isOperationRunning:', isOperationRunning);
-    console.log('🔥 FRONTEND: currentOperation:', currentOperation);
-    
+    console.log('FRONTEND: Enrich button clicked!');
+    console.log('FRONTEND: isEnrichingLeads:', isEnrichingLeads);
+    console.log('FRONTEND: isOperationRunning:', isOperationRunning);
+    console.log('FRONTEND: currentOperation:', currentOperation);
+
     if (isEnrichingLeads) {
-      console.log('🔥 FRONTEND: Already enriching, returning early');
+      console.log('FRONTEND: Already enriching, returning early');
       return;
     }
-    
+
     setIsEnrichingLeads(true);
-    console.log('🔥 FRONTEND: About to call API...');
+    console.log('FRONTEND: About to call API...');
     try {
       const response = await apiClient.post('/api/operations/enrich-leads');
-      console.log('🔥 FRONTEND: API call successful!', response.data);
+      console.log('FRONTEND: API call successful!', response.data);
       toast.success('Started enriching leads');
       setCurrentOperation({
         id: response.data.operation_id,
@@ -193,7 +193,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <StatsCard
           title="Unenriched Leads"
-          value={leadsCount || 0}
+          value={leadsCount?.unenriched || 0}
           icon={UserGroupIcon}
           color="blue"
           trend="+12%"
