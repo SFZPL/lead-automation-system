@@ -13,7 +13,6 @@ import {
 import { StarIcon } from '@heroicons/react/24/solid';
 import { apiClient } from '../utils/api';
 import api from '../utils/api';
-import { useWebSocket } from '../hooks/useWebSocket';
 
 interface Lead {
   id: number;
@@ -44,7 +43,6 @@ export default function LeadsPage() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'enriched' | 'unenriched'>('all');
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
   
-  const { lastMessage } = useWebSocket();
 
   // Fetch leads data
   const { data: leadsData, isLoading, refetch } = useQuery('leads',
@@ -57,22 +55,6 @@ export default function LeadsPage() {
   const leads: Lead[] = leadsData?.leads || [];
   const totalLeads = leadsData?.total || 0;
   
-  // Handle WebSocket messages to refetch leads when operations complete
-  useEffect(() => {
-    if (lastMessage) {
-      try {
-        const message = JSON.parse(lastMessage.data);
-        if (message.type === 'operation_update' && 
-            (message.data.status === 'completed' || message.data.status === 'failed')) {
-          // Refetch leads when any operation completes
-          refetch();
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    }
-  }, [lastMessage, refetch]);
-
   // Filter leads based on search term and status
   const filteredLeads = leads.filter(lead => {
     const matchesSearch = lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
