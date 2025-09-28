@@ -8,6 +8,7 @@ import {
   Bars3Icon,
   XMarkIcon,
   ChartBarIcon,
+  GlobeAltIcon,
 } from '@heroicons/react/24/outline';
 
 interface LayoutProps {
@@ -15,9 +16,8 @@ interface LayoutProps {
 }
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: HomeIcon },
-  { name: 'Leads', href: '/leads', icon: UserGroupIcon },
-  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
+  { name: 'Perplexity Enrichment', href: '/', icon: GlobeAltIcon },
+  { name: 'Leads Overview', href: '/leads', icon: UserGroupIcon },
   { name: 'Settings', href: '/config', icon: CogIcon },
 ];
 
@@ -98,8 +98,8 @@ function Sidebar() {
               <UserGroupIcon className="h-8 w-8 text-white" />
             </div>
             <div className="ml-3">
-              <h1 className="text-xl font-bold text-gray-900">Lead Automation</h1>
-              <p className="text-sm text-gray-500">System v2.0</p>
+              <h1 className="text-xl font-bold text-gray-900">Prezlab Lead Center</h1>
+              <p className="text-sm text-gray-500">AI-Powered Enrichment</p>
             </div>
           </div>
         </div>

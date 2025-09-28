@@ -258,37 +258,80 @@ class OdooClient:
     def update_lead(self, lead_id: int, values: Dict[str, Any]) -> bool:
         """Update a lead in Odoo with enriched data"""
         try:
-            # Map our column names to Odoo field names
+            # Map our column names to Odoo field names based on your requirements
             odoo_fields = {}
-            
-            if 'Quality (Out of 5)' in values:
-                quality = values['Quality (Out of 5)']
-                if quality and str(quality).strip():
-                    odoo_fields['x_studio_quality'] = str(quality)
-            
-            if 'Company Size' in values:
-                # You might want to create a custom field for company size
-                pass
-            
-            if 'Industry' in values:
-                # You might want to create a custom field for industry
-                pass
-            
-            if 'Company Revenue Estimated' in values:
-                # You might want to create a custom field for revenue
-                pass
-            
-            if 'Company year EST' in values:
-                # You might want to create a custom field for company year
-                pass
-            
+
+            # Company Name (partner_name in crm.lead)
+            if 'Company Name' in values and values['Company Name']:
+                odoo_fields['partner_name'] = str(values['Company Name']).strip()
+
+            # Website (website in crm.lead)
+            if 'website' in values and values['website']:
+                website = str(values['website']).strip()
+                if website and not website.startswith(('http://', 'https://')):
+                    website = f'https://{website}'
+                odoo_fields['website'] = website
+
+            # Language (lang_id in crm.lead) - would need to map to language ID
+            # For now, we'll skip this as it requires language code mapping
+
+            # Email (email_from in crm.lead)
+            if 'email' in values and values['email']:
+                email = str(values['email']).strip()
+                if '@' in email:
+                    odoo_fields['email_from'] = email
+
+            # Job Position (function in crm.lead)
+            if 'Job Role' in values and values['Job Role']:
+                odoo_fields['function'] = str(values['Job Role']).strip()
+
+            # Phone (phone in crm.lead)
+            if 'Phone' in values and values['Phone']:
+                phone = str(values['Phone']).strip()
+                if phone and phone.lower() not in ['not found', 'n/a', 'none']:
+                    odoo_fields['phone'] = phone
+
+            # Mobile (mobile in crm.lead)
+            if 'Mobile' in values and values['Mobile']:
+                mobile = str(values['Mobile']).strip()
+                if mobile and mobile.lower() not in ['not found', 'n/a', 'none']:
+                    odoo_fields['mobile'] = mobile
+
+            # LinkedIn Profile (x_studio_linkedin_profile)
+            if 'LinkedIn Link' in values and values['LinkedIn Link']:
+                linkedin = str(values['LinkedIn Link']).strip()
+                if linkedin and linkedin.lower() not in ['not found', 'n/a', 'none']:
+                    # Store as HTML link for the HTML field
+                    linkedin_html = f'<a href="{linkedin}" target="_blank">{linkedin}</a>'
+                    odoo_fields['x_studio_linkedin_profile'] = linkedin_html
+
+            # Quality (x_studio_quality) - selection field with keys like "[0/5]", "[1/5]", etc.
+            if 'Quality (Out of 5)' in values and values['Quality (Out of 5)']:
+                quality = str(values['Quality (Out of 5)']).strip()
+                if quality and quality.isdigit():
+                    # Map quality to the selection key format used in Odoo (e.g. '4/5')
+                    quality_key = f"{quality}/5"
+                    odoo_fields['x_studio_quality'] = quality_key
+
+            # City and Country fields if available
+            if 'City' in values and values['City']:
+                city = str(values['City']).strip()
+                if city and city.lower() not in ['not found', 'n/a', 'none']:
+                    odoo_fields['city'] = city
+
+            # For country, we would need to map to country_id, which requires looking up the country ID
+            # We'll store it in a notes field or create a custom field for now
+
+            # Log what we're updating
             if odoo_fields:
+                logger.info(f"Updating lead {lead_id} with fields: {list(odoo_fields.keys())}")
                 self._call_kw('crm.lead', 'write', [[lead_id], odoo_fields])
-                logger.info(f"Updated lead {lead_id} with enriched data")
+                logger.info(f"Successfully updated lead {lead_id} with enriched data")
                 return True
-            
-            return True
-            
+            else:
+                logger.warning(f"No valid fields to update for lead {lead_id}")
+                return True
+
         except Exception as e:
             logger.error(f"Error updating lead {lead_id}: {e}")
             return False
@@ -317,3 +360,25 @@ class OdooClient:
             return text
         except Exception:
             return html_text
+
+    def _map_language_to_code(self, language: str) -> Optional[str]:
+        """Map language name to Odoo language code"""
+        language_mapping = {
+            'english': 'en_US',
+            'arabic': 'ar_001',
+            'french': 'fr_FR',
+            'spanish': 'es_ES',
+            'german': 'de_DE',
+            'italian': 'it_IT',
+            'portuguese': 'pt_PT',
+            'russian': 'ru_RU',
+            'chinese': 'zh_CN',
+            'japanese': 'ja_JP',
+            'korean': 'ko_KR',
+            'dutch': 'nl_NL',
+            'turkish': 'tr_TR',
+            'hebrew': 'he_IL',
+            'hindi': 'hi_IN'
+        }
+
+        return language_mapping.get(language.lower())

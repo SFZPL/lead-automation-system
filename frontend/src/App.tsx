@@ -6,7 +6,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import LeadsPage from './pages/LeadsPage';
 import ConfigPage from './pages/ConfigPage';
-import { WebSocketProvider } from './hooks/useWebSocket';
+import PerplexityPage from './pages/PerplexityPage';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -22,12 +22,11 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <WebSocketProvider>
         <Router>
           <div className="App">
             <Layout>
               <Routes>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<PerplexityPage />} />
                 <Route path="/leads" element={<LeadsPage />} />
                 <Route path="/config" element={<ConfigPage />} />
               </Routes>
@@ -54,7 +53,6 @@ function App() {
             />
           </div>
         </Router>
-      </WebSocketProvider>
     </QueryClientProvider>
   );
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Lead Automation System - Startup Script
-Launches both the backend API and builds the frontend
+Perplexity Lead Enrichment - Startup Script
+Launches the FastAPI backend and (optionally) the frontend build
 """
 
 import os
@@ -30,14 +30,11 @@ def print_colored(text, color):
 def print_banner():
     """Print startup banner"""
     banner = """
-    ╔══════════════════════════════════════════════════════════════╗
-    ║                                                              ║
-    ║              🚀 LEAD AUTOMATION SYSTEM v2.0 🚀               ║
-    ║                                                              ║
-    ║                    Modern Web Interface                      ║
-    ║                                                              ║
-    ╚══════════════════════════════════════════════════════════════╝
-    """
+==============================================
+  PERPLEXITY LEAD ENRICHMENT LAUNCHER
+  Generate prompt -> query Perplexity -> parse results
+==============================================
+"""
     print_colored(banner, Colors.HEADER)
 
 def check_requirements():

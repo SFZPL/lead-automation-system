@@ -1,6 +1,6 @@
 {
-  "name": "lead-automation-frontend",
-  "version": "1.0.0",
+  "name": "prezlab-lead-automation-center",
+  "version": "3.0.0",
   "private": true,
   "dependencies": {
     "@testing-library/jest-dom": "^5.17.0",

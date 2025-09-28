@@ -22,6 +22,7 @@ wheels/
 MANIFEST
 
 # Virtual Environment
+.venv/
 venv/
 env/
 ENV/
@@ -98,3 +99,8 @@ tmp/
 # API keys and secrets
 apify_token.txt
 openai_key.txt
+# Generated exports
+leads_export_*.csv
+nul
+frontend/nul
+cache/
