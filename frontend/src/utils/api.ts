@@ -61,6 +61,22 @@ export const api = {
   getAllOperations: () => apiClient.get('/api/operations'),
   cancelOperation: (operationId: string) => apiClient.delete(`/api/operations/${operationId}`),
 
+  // Apollo Follow-ups
+  getApolloFollowUps: (params?: { limit?: number; lookback_hours?: number }) => apiClient.get('/apollo/followups', { params }),
+
+  // Lost lead insights
+  getLostLeads: (params?: { limit?: number; salesperson?: string; type_filter?: string }) => apiClient.get('/lost-leads', { params }),
+  analyzeLostLead: (leadId: number, data?: { max_internal_notes?: number; max_emails?: number }) =>
+    apiClient.post(`/lost-leads/${leadId}/analysis`, data),
+
+  // Email / Outlook OAuth
+  startOutlookAuth: () => apiClient.get('/auth/outlook/start'),
+  outlookAuthCallback: (data: { code: string; state: string; user_identifier?: string }) =>
+    apiClient.post('/auth/outlook/callback', data),
+  getEmailAuthStatus: (userIdentifier: string) => apiClient.get(`/auth/outlook/status/${userIdentifier}`),
+  revokeEmailAuth: (userIdentifier: string) => apiClient.delete(`/auth/outlook/${userIdentifier}`),
+  listAuthorizedUsers: () => apiClient.get('/auth/outlook/users'),
+
   // Export
   exportCSV: () => apiClient.get('/api/export/csv', { responseType: 'blob' }),
 

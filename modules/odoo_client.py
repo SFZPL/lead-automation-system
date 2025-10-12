@@ -2,7 +2,7 @@ import sys
 import os
 import re
 import html
-from typing import Dict, List, Any, Tuple, Optional
+from typing import Dict, List, Any, Tuple, Optional, Iterable
 import requests
 from itertools import count
 from config import Config
@@ -133,6 +133,166 @@ class OdooClient:
             logger.error(f"Error finding user '{name}': {e}")
             return None
     
+
+    def get_leads_by_emails(
+        self,
+        emails: List[str],
+        fields: Optional[List[str]] = None,
+        salesperson_name: Optional[str] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Fetch CRM leads keyed by email address."""
+
+        if not emails:
+            return {}
+
+        unique_emails = sorted({(email or '').strip().lower() for email in emails if email})
+        if not unique_emails:
+            return {}
+
+        fields_to_fetch = fields or [
+            'id',
+            'name',
+            'contact_name',
+            'partner_name',
+            'email_from',
+            'phone',
+            'mobile',
+            'function',
+            'stage_id',
+            'user_id',
+            'description',
+            'expected_revenue',
+        ]
+
+        results: Dict[str, Dict[str, Any]] = {}
+        user_id: Optional[int] = None
+        if salesperson_name:
+            user_id = self.find_user_id(salesperson_name)
+            if not user_id:
+                logger.warning("Salesperson '%s' not found while filtering leads by email", salesperson_name)
+
+        chunk_size = 50
+        for start_index in range(0, len(unique_emails), chunk_size):
+            chunk = unique_emails[start_index:start_index + chunk_size]
+            if user_id:
+                domain: List[Any] = [['user_id', '=', user_id], ['email_from', 'in', chunk]]
+            else:
+                domain = [['email_from', 'in', chunk]]
+
+            try:
+                records = self._call_kw(
+                    'crm.lead',
+                    'search_read',
+                    [domain],
+                    {'fields': fields_to_fetch, 'limit': len(chunk)},
+                )
+            except Exception as exc:
+                logger.error("Error fetching leads by email chunk: %s", exc)
+                continue
+
+            for record in records or []:
+                email_value = (record.get('email_from') or '').strip().lower()
+                if not email_value:
+                    continue
+
+                processed = dict(record)
+                stage_id = record.get('stage_id')
+                if isinstance(stage_id, (list, tuple)) and len(stage_id) == 2:
+                    processed['stage_name'] = stage_id[1]
+                user_ref = record.get('user_id')
+                if isinstance(user_ref, (list, tuple)) and len(user_ref) == 2:
+                    processed['salesperson_name'] = user_ref[1]
+                name_source = record.get('contact_name') or record.get('name') or ''
+                processed['first_name'] = name_source.split()[0] if name_source else ''
+                results[email_value] = processed
+
+        return results
+
+    def get_leads_by_names(
+        self,
+        names: List[str],
+        fields: Optional[List[str]] = None,
+        salesperson_name: Optional[str] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Fetch CRM leads by contact name (for cases where email is missing)."""
+
+        if not names:
+            return {}
+
+        unique_names = sorted({(name or '').strip() for name in names if name})
+        if not unique_names:
+            return {}
+
+        fields_to_fetch = fields or [
+            'id',
+            'name',
+            'contact_name',
+            'partner_name',
+            'email_from',
+            'phone',
+            'mobile',
+            'function',
+            'stage_id',
+            'user_id',
+            'description',
+            'expected_revenue',
+        ]
+
+        results: Dict[str, Dict[str, Any]] = {}
+        user_id: Optional[int] = None
+        if salesperson_name:
+            user_id = self.find_user_id(salesperson_name)
+            if not user_id:
+                logger.warning("Salesperson '%s' not found while filtering leads by name", salesperson_name)
+
+        chunk_size = 50
+        for start_index in range(0, len(unique_names), chunk_size):
+            chunk = unique_names[start_index:start_index + chunk_size]
+            name_filters: List[Any] = []
+            for i, name in enumerate(chunk):
+                if i > 0:
+                    name_filters.insert(0, '|')
+                name_filters.extend([
+                    '|',
+                    ['contact_name', 'ilike', name],
+                    ['name', 'ilike', name]
+                ])
+
+            if user_id:
+                domain: List[Any] = [['user_id', '=', user_id]] + name_filters
+            else:
+                domain = name_filters
+
+            try:
+                records = self._call_kw(
+                    'crm.lead',
+                    'search_read',
+                    [domain],
+                    {'fields': fields_to_fetch, 'limit': len(chunk) * 5},
+                )
+            except Exception as exc:
+                logger.error("Error fetching leads by name chunk: %s", exc)
+                continue
+
+            for record in records or []:
+                contact_name = (record.get('contact_name') or record.get('name') or '').strip()
+                if not contact_name:
+                    continue
+
+                processed = dict(record)
+                stage_id = record.get('stage_id')
+                if isinstance(stage_id, (list, tuple)) and len(stage_id) == 2:
+                    processed['stage_name'] = stage_id[1]
+                user_ref = record.get('user_id')
+                if isinstance(user_ref, (list, tuple)) and len(user_ref) == 2:
+                    processed['salesperson_name'] = user_ref[1]
+                processed['first_name'] = contact_name.split()[0] if contact_name else ''
+
+                # Key by normalized name for matching
+                results[contact_name.lower()] = processed
+
+        return results
+
     def get_unenriched_leads(self, salesperson_name: str = None, batch_size: int = 500) -> List[Dict[str, Any]]:
         """Extract unenriched leads from Odoo"""
         salesperson_name = salesperson_name or self.config.SALESPERSON_NAME
@@ -343,6 +503,230 @@ class OdooClient:
             if self.update_lead(lead_id, values):
                 success_count += 1
         return success_count
+
+    def append_internal_note(self, lead_id: int, note: str, subject: Optional[str] = None) -> bool:
+        """Append an internal note to a lead via message_post."""
+        cleaned = (note or "").strip()
+        if not cleaned:
+            logger.debug("append_internal_note called with empty note for lead %s", lead_id)
+            return False
+
+        try:
+            kwargs = {'subtype_xmlid': 'mail.mt_note'}
+            if subject:
+                kwargs['subject'] = subject
+            self._call_kw('crm.lead', 'message_post', [[lead_id], cleaned], kwargs)
+            logger.info("Appended internal note to lead %s", lead_id)
+            return True
+        except Exception as exc:
+            logger.error("Failed to append internal note to lead %s: %s", lead_id, exc)
+            return False
+
+    def get_lead_details(self, lead_id: int, fields: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Fetch a single lead/opportunity record by ID."""
+        default_fields = fields or [
+            'id',
+            'name',
+            'type',
+            'stage_id',
+            'probability',
+            'active',
+            'won_status',
+            'lost_reason_id',
+            'expected_revenue',
+            'prorated_revenue',
+            'recurring_revenue',
+            'partner_id',
+            'partner_name',
+            'contact_name',
+            'email_from',
+            'phone',
+            'mobile',
+            'function',
+            'title',
+            'user_id',
+            'team_id',
+            'campaign_id',
+            'medium_id',
+            'source_id',
+            'referred',
+            'tag_ids',
+            'description',
+            'lead_properties',
+            'message_ids',
+            'message_partner_ids',
+            'date_deadline',
+            'date_closed',
+            'date_open',
+            'date_conversion',
+            'date_last_stage_update',
+            'create_date',
+            'write_date',
+            'company_id',
+            'priority',
+            'kanban_state',
+            # Address fields
+            'street',
+            'street2',
+            'city',
+            'state_id',
+            'zip',
+            'country_id',
+            'website',
+            'lang_id',
+            # Custom studio fields (x_studio_*)
+            'x_studio_service',
+            'x_studio_agreement_type',
+            'x_studio_quality',
+            'x_studio_linkedin_profile',
+        ]
+        try:
+            records = self._call_kw(
+                'crm.lead',
+                'read',
+                [[lead_id]],
+                {'fields': default_fields},
+            )
+        except Exception as exc:
+            logger.error("Error fetching lead %s: %s", lead_id, exc)
+            return {}
+        if not records:
+            return {}
+        record = records[0]
+        # Flatten many2one tuples for convenience
+        for key in list(record.keys()):
+            value = record[key]
+            if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], int):
+                record[f"{key}_id"] = value[0]
+                record[key] = value[1]
+        return record
+
+    def get_lost_leads(
+        self,
+        limit: int = 20,
+        salesperson_name: Optional[str] = None,
+        fields: Optional[List[str]] = None,
+        type_filter: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return recently lost leads/opportunities.
+        Fetches leads with probability = 0, regardless of active status.
+        Optionally filter by type: 'lead' or 'opportunity'.
+        """
+        user_id: Optional[int] = None
+        if salesperson_name:
+            user_id = self.find_user_id(salesperson_name)
+            if not user_id:
+                logger.warning("Salesperson '%s' not found while fetching lost leads", salesperson_name)
+
+        # Build domain with type filter
+        if type_filter and type_filter.lower() in ['lead', 'opportunity']:
+            domain: List[Any] = [
+                ['type', '=', type_filter.lower()],
+                ['probability', '=', 0],
+            ]
+            logger.info(f"Filtering lost leads by type: {type_filter.lower()}")
+        else:
+            domain = [
+                ['type', 'in', ['lead', 'opportunity']],
+                ['probability', '=', 0],
+            ]
+            logger.info("Fetching all lost leads (both leads and opportunities)")
+
+        if user_id:
+            domain.append(['user_id', '=', user_id])
+
+        fields_to_fetch = fields or [
+            'id', 'name', 'stage_id', 'lost_reason_id',
+            'expected_revenue', 'probability', 'partner_name', 'email_from',
+            'phone', 'mobile', 'user_id', 'create_date', 'write_date', 'contact_name',
+            'type', 'campaign_id', 'source_id', 'tag_ids', 'description', 'active',
+        ]
+
+        try:
+            records = self._call_kw(
+                'crm.lead',
+                'search_read',
+                [domain],
+                {
+                    'fields': fields_to_fetch,
+                    'limit': limit,
+                    'order': 'write_date desc',
+                    'context': {'active_test': False},
+                },
+            ) or []
+        except Exception as exc:
+            logger.error("Error fetching lost leads: %s", exc)
+            return []
+
+        for record in records:
+            for key, value in list(record.items()):
+                if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], int):
+                    record[f"{key}_id"] = value[0]
+                    record[key] = value[1]
+
+        if records:
+            logger.info(f"Found {len(records)} lost leads. Sample type values: {[r.get('type') for r in records[:3]]}")
+
+        return records
+
+    def get_lead_messages(
+        self,
+        lead_id: int,
+        limit: int = 20,
+        message_types: Optional[Iterable[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch chatter messages (emails, notes, notifications) for a lead."""
+        """Fetch chatter messages (emails, notes, notifications) for a lead."""
+        domain: List[Any] = [
+            ['model', '=', 'crm.lead'],
+            ['res_id', '=', lead_id],
+        ]
+        message_types_list = list(message_types) if message_types else None
+        if message_types_list:
+            domain.append(['message_type', 'in', message_types_list])
+
+        fields = [
+            'id',
+            'date',
+            'author_id',
+            'email_from',
+            'body',
+            'subject',
+            'message_type',
+            'subtype_id',
+            'partner_ids',
+            'model',
+            'res_id',
+            'tracking_value_ids',
+            'reply_to',
+            'parent_id',
+        ]
+
+        try:
+            messages = self._call_kw(
+                'mail.message',
+                'search_read',
+                [domain],
+                {
+                    'fields': fields,
+                    'limit': limit,
+                    'order': 'date desc',
+                },
+            ) or []
+        except Exception as exc:
+            logger.error("Error fetching messages for lead %s: %s", lead_id, exc)
+            return []
+
+        for message in messages:
+            subtype = message.get('subtype_id')
+            if isinstance(subtype, (list, tuple)) and len(subtype) == 2:
+                message['subtype_name'] = subtype[1]
+                message['subtype_id'] = subtype[0]
+            author = message.get('author_id')
+            if isinstance(author, (list, tuple)) and len(author) == 2:
+                message['author_name'] = author[1]
+                message['author_id'] = author[0]
+        return messages
     
     def _extract_first_url_from_html(self, html_text: str) -> str:
         """Extract first URL from HTML text"""
@@ -382,3 +766,4 @@ class OdooClient:
         }
 
         return language_mapping.get(language.lower())
+

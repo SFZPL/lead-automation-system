@@ -342,7 +342,9 @@ class PerplexityWorkflow:
 
             except Exception as e:
                 results['failed'] += 1
-                results['errors'].append(f"Error updating lead {lead.get('Full Name', 'Unknown')}: {str(e)}")
+                error_msg = f"Error updating lead {lead.get('Full Name', 'Unknown')}: {str(e)}"
+                # Encode to ASCII to avoid Windows console encoding issues
+                results['errors'].append(error_msg.encode('ascii', 'replace').decode('ascii'))
 
         return results
 

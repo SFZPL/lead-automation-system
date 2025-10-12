@@ -104,3 +104,4 @@ leads_export_*.csv
 nul
 frontend/nul
 cache/
+.email_tokens/

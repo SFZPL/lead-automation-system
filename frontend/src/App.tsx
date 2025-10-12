@@ -4,9 +4,13 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { Toaster } from 'react-hot-toast';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
-import LeadsPage from './pages/LeadsPage';
 import ConfigPage from './pages/ConfigPage';
 import PerplexityPage from './pages/PerplexityPage';
+import ApolloFollowUpsPage from './pages/ApolloFollowUpsPage';
+import LostLeadsPage from './pages/LostLeadsPage';
+import EmailSettingsPage from './pages/EmailSettingsPage';
+import EmailCallbackPage from './pages/EmailCallbackPage';
+import CallFlowPage from './pages/CallFlowPage';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -27,7 +31,11 @@ function App() {
             <Layout>
               <Routes>
                 <Route path="/" element={<PerplexityPage />} />
-                <Route path="/leads" element={<LeadsPage />} />
+                <Route path="/lost-leads" element={<LostLeadsPage />} />
+                <Route path="/followups" element={<ApolloFollowUpsPage />} />
+                <Route path="/call-flow" element={<CallFlowPage />} />
+                <Route path="/email-settings" element={<EmailSettingsPage />} />
+                <Route path="/auth/outlook/callback" element={<EmailCallbackPage />} />
                 <Route path="/config" element={<ConfigPage />} />
               </Routes>
             </Layout>
@@ -58,3 +66,7 @@ function App() {
 }
 
 export default App;
+
+
+
+

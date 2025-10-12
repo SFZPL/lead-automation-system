@@ -25,7 +25,21 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "WebSearch",
+      "Bash(del test_csv_export_direct.py test_enriched_leads.csv)",
+      "Bash(serve:*)",
+      "Bash(npm install:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(start http://localhost:3002)",
+      "Bash(set PORT=3000)",
+      "Bash(timeout:*)",
+      "Bash(set PORT=3456)",
+      "Bash(npx serve:*)",
+      "Bash(grep:*)",
+      "Bash(pkill:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
