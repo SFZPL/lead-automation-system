@@ -291,6 +291,8 @@ class PerplexityWorkflow:
             'Mobile': r'Mobile:\s*(.+?)(?:\n|$)',
             'email': r'Professional Email:\s*(.+?)(?:\n|$)',
             'Language': r'Language:\s*(.+?)(?:\n|$)',
+            'Company Description': r'Company Description:\s*(.+?)(?:\n|$)',
+            'Notes': r'Notes:\s*(.+?)(?:\n|$)',
             'Quality (Out of 5)': r'Quality Rating:\s*(\d+)'
         }
 

@@ -487,10 +487,65 @@ class OdooClient:
                 logger.info(f"Updating lead {lead_id} with fields: {list(odoo_fields.keys())}")
                 self._call_kw('crm.lead', 'write', [[lead_id], odoo_fields])
                 logger.info(f"Successfully updated lead {lead_id} with enriched data")
-                return True
-            else:
-                logger.warning(f"No valid fields to update for lead {lead_id}")
-                return True
+
+            # Build internal note with additional enrichment info
+            note_parts = []
+            note_parts.append("📊 **Enrichment Data**\n")
+
+            # Company LinkedIn
+            if 'Company LinkedIn' in values and values['Company LinkedIn']:
+                company_linkedin = str(values['Company LinkedIn']).strip()
+                if company_linkedin and company_linkedin.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Company LinkedIn:** {company_linkedin}")
+
+            # Industry
+            if 'Industry' in values and values['Industry']:
+                industry = str(values['Industry']).strip()
+                if industry and industry.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Industry:** {industry}")
+
+            # Company Size
+            if 'Company Size' in values and values['Company Size']:
+                company_size = str(values['Company Size']).strip()
+                if company_size and company_size.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Company Size:** {company_size}")
+
+            # Revenue Estimate
+            if 'Company Revenue Estimated' in values and values['Company Revenue Estimated']:
+                revenue = str(values['Company Revenue Estimated']).strip()
+                if revenue and revenue.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Revenue Estimate:** {revenue}")
+
+            # Founded
+            if 'Company year EST' in values and values['Company year EST']:
+                founded = str(values['Company year EST']).strip()
+                if founded and founded.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Founded:** {founded}")
+
+            # Location
+            if 'Location' in values and values['Location']:
+                location = str(values['Location']).strip()
+                if location and location.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Location:** {location}")
+
+            # Company Description
+            if 'Company Description' in values and values['Company Description']:
+                description = str(values['Company Description']).strip()
+                if description and description.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Company Description:** {description}")
+
+            # Notes
+            if 'Notes' in values and values['Notes']:
+                notes = str(values['Notes']).strip()
+                if notes and notes.lower() not in ['not found', 'n/a', 'none']:
+                    note_parts.append(f"**Notes:** {notes}")
+
+            # Append internal note if we have any data
+            if len(note_parts) > 1:  # More than just the header
+                internal_note = "\n".join(note_parts)
+                self.append_internal_note(lead_id, internal_note, subject="Perplexity Enrichment Data")
+
+            return True
 
         except Exception as e:
             logger.error(f"Error updating lead {lead_id}: {e}")
