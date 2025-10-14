@@ -212,17 +212,47 @@ class PerplexityWorkflow:
 
         enriched_leads = []
 
+        # Create a map of original leads by name for matching
+        original_leads_map = {}
+        for lead in original_leads:
+            # Try multiple name fields to create the map
+            name = lead.get('Full Name') or lead.get('name') or lead.get('contact_name', '')
+            if name:
+                # Normalize name for matching (lowercase, strip whitespace)
+                normalized_name = name.lower().strip()
+                original_leads_map[normalized_name] = lead
+
         # Split into individual lead sections
         lead_sections = re.split(r'\*\*LEAD \d+:', perplexity_output)
 
         for i, section in enumerate(lead_sections[1:], 1):  # Skip the first empty section
             try:
-                # Check if we have an original lead for this index
-                if i-1 < len(original_leads):
-                    lead_data = self._parse_single_lead_section(section, original_leads[i-1])
-                    enriched_leads.append(lead_data)
+                # Extract name from this section first
+                name_match = re.search(r'^([^*]+)\*', section.strip())
+                if name_match:
+                    perplexity_name = name_match.group(1).strip()
+                    normalized_perplexity_name = perplexity_name.lower().strip()
+
+                    # Find matching original lead by name
+                    matching_lead = original_leads_map.get(normalized_perplexity_name)
+
+                    if matching_lead:
+                        lead_data = self._parse_single_lead_section(section, matching_lead)
+                        enriched_leads.append(lead_data)
+                    else:
+                        print(f"Warning: Could not find original lead for name '{perplexity_name}'. Available names: {list(original_leads_map.keys())}")
+                        # Fallback to position-based matching if name not found
+                        if i-1 < len(original_leads):
+                            print(f"Falling back to position-based matching for lead {i}")
+                            lead_data = self._parse_single_lead_section(section, original_leads[i-1])
+                            enriched_leads.append(lead_data)
                 else:
-                    print(f"Warning: Perplexity output has more leads ({i}) than original leads ({len(original_leads)}). Skipping lead {i}.")
+                    print(f"Warning: Could not extract name from Perplexity section {i}")
+                    # Fallback to position-based matching
+                    if i-1 < len(original_leads):
+                        lead_data = self._parse_single_lead_section(section, original_leads[i-1])
+                        enriched_leads.append(lead_data)
+
             except Exception as e:
                 print(f"Error parsing lead {i}: {e}")
                 # Add original lead with error note if it exists
