@@ -2,15 +2,15 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  UserGroupIcon,
   CogIcon,
   Bars3Icon,
   XMarkIcon,
   GlobeAltIcon,
   EnvelopeIcon,
-  SparklesIcon,
   ClipboardDocumentListIcon,
+  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -90,6 +90,7 @@ export default function Layout({ children }: LayoutProps) {
 
 function Sidebar() {
   const location = useLocation();
+  const { logout } = useAuth();
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-r border-gray-200 bg-white">
@@ -141,6 +142,19 @@ function Sidebar() {
             );
           })}
         </nav>
+
+        {/* Logout button */}
+        <div className="px-2 pb-4">
+          <button
+            onClick={logout}
+            className="relative group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-all duration-200"
+          >
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-400 group-hover:border-gray-300 group-hover:text-gray-500 transition-colors">
+              <ArrowRightOnRectangleIcon className="h-5 w-5" />
+            </span>
+            <span>Logout</span>
+          </button>
+        </div>
       </div>
 
       {/* System status */}
