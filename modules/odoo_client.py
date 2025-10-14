@@ -425,6 +425,10 @@ class OdooClient:
             if 'Company Name' in values and values['Company Name']:
                 odoo_fields['partner_name'] = str(values['Company Name']).strip()
 
+            # Contact Name (contact_name in crm.lead)
+            if 'Full Name' in values and values['Full Name']:
+                odoo_fields['contact_name'] = str(values['Full Name']).strip()
+
             # Website (website in crm.lead)
             if 'website' in values and values['website']:
                 website = str(values['website']).strip()
@@ -543,7 +547,10 @@ class OdooClient:
             # Append internal note if we have any data
             if len(note_parts) > 1:  # More than just the header
                 internal_note = "\n".join(note_parts)
+                logger.info(f"Appending internal note to lead {lead_id} with {len(note_parts)-1} fields")
                 self.append_internal_note(lead_id, internal_note, subject="Perplexity Enrichment Data")
+            else:
+                logger.info(f"No enrichment data to add as internal note for lead {lead_id}")
 
             return True
 

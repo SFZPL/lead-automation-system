@@ -301,7 +301,15 @@ class PerplexityWorkflow:
             if match:
                 value = match.group(1).strip()
                 if value and value.lower() not in ['not found', 'n/a', 'none', '', 'not available']:
-                    enriched_lead[field_name] = value
+                    # Special handling for email - extract just the email address
+                    if field_name == 'email':
+                        # Look for email pattern in the value
+                        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', value)
+                        if email_match:
+                            enriched_lead[field_name] = email_match.group(0)
+                        # Skip if no valid email found
+                    else:
+                        enriched_lead[field_name] = value
 
         # Extract location info for address fields
         location_match = re.search(r'Location:\s*(.+?)(?:\n|$)', section, re.IGNORECASE)
