@@ -574,10 +574,13 @@ class OdooClient:
             return False
 
         try:
-            kwargs = {'subtype_xmlid': 'mail.mt_note'}
+            kwargs = {
+                'body': cleaned,
+                'subtype_xmlid': 'mail.mt_note'
+            }
             if subject:
                 kwargs['subject'] = subject
-            self._call_kw('crm.lead', 'message_post', [[lead_id], cleaned], kwargs)
+            self._call_kw('crm.lead', 'message_post', [[lead_id]], kwargs)
             logger.info("Appended internal note to lead %s", lead_id)
             return True
         except Exception as exc:
