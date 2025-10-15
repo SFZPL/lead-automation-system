@@ -494,60 +494,63 @@ class OdooClient:
 
             # Build internal note with additional enrichment info
             note_parts = []
-            note_parts.append("📊 **Enrichment Data**\n")
+            note_parts.append("<h3>📊 Enrichment Data</h3>")
+            note_parts.append("<ul>")
 
             # Company LinkedIn
             if 'Company LinkedIn' in values and values['Company LinkedIn']:
                 company_linkedin = str(values['Company LinkedIn']).strip()
                 if company_linkedin and company_linkedin.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Company LinkedIn:** {company_linkedin}")
+                    note_parts.append(f"<li><strong>Company LinkedIn:</strong> <a href='{company_linkedin}'>{company_linkedin}</a></li>")
 
             # Industry
             if 'Industry' in values and values['Industry']:
                 industry = str(values['Industry']).strip()
                 if industry and industry.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Industry:** {industry}")
+                    note_parts.append(f"<li><strong>Industry:</strong> {industry}</li>")
 
             # Company Size
             if 'Company Size' in values and values['Company Size']:
                 company_size = str(values['Company Size']).strip()
                 if company_size and company_size.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Company Size:** {company_size}")
+                    note_parts.append(f"<li><strong>Company Size:</strong> {company_size}</li>")
 
             # Revenue Estimate
             if 'Company Revenue Estimated' in values and values['Company Revenue Estimated']:
                 revenue = str(values['Company Revenue Estimated']).strip()
                 if revenue and revenue.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Revenue Estimate:** {revenue}")
+                    note_parts.append(f"<li><strong>Revenue Estimate:</strong> {revenue}</li>")
 
             # Founded
             if 'Company year EST' in values and values['Company year EST']:
                 founded = str(values['Company year EST']).strip()
                 if founded and founded.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Founded:** {founded}")
+                    note_parts.append(f"<li><strong>Founded:</strong> {founded}</li>")
 
             # Location
             if 'Location' in values and values['Location']:
                 location = str(values['Location']).strip()
                 if location and location.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Location:** {location}")
+                    note_parts.append(f"<li><strong>Location:</strong> {location}</li>")
 
             # Company Description
             if 'Company Description' in values and values['Company Description']:
                 description = str(values['Company Description']).strip()
                 if description and description.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Company Description:** {description}")
+                    note_parts.append(f"<li><strong>Company Description:</strong> {description}</li>")
 
             # Notes
             if 'Notes' in values and values['Notes']:
                 notes = str(values['Notes']).strip()
                 if notes and notes.lower() not in ['not found', 'n/a', 'none']:
-                    note_parts.append(f"**Notes:** {notes}")
+                    note_parts.append(f"<li><strong>Notes:</strong> {notes}</li>")
+
+            note_parts.append("</ul>")
 
             # Append to description field (Internal Notes tab) if we have any data
-            if len(note_parts) > 1:  # More than just the header
+            if len(note_parts) > 3:  # More than just header + ul tags
                 internal_note = "\n".join(note_parts)
-                logger.info(f"Appending internal note to lead {lead_id} with {len(note_parts)-1} fields")
+                logger.info(f"Appending internal note to lead {lead_id} with {len(note_parts)-3} fields")
                 self.append_to_description(lead_id, internal_note)
             else:
                 logger.info(f"No enrichment data to add as internal note for lead {lead_id}")
