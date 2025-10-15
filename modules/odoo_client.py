@@ -575,8 +575,7 @@ class OdooClient:
 
         try:
             # Read current description
-            lead_data = self.models.execute_kw(
-                self.db, self.uid, self.password,
+            lead_data = self._call_kw(
                 'crm.lead', 'read',
                 [[lead_id]], {'fields': ['description']}
             )
@@ -594,8 +593,7 @@ class OdooClient:
                 updated_description = cleaned
 
             # Update the description field
-            self.models.execute_kw(
-                self.db, self.uid, self.password,
+            self._call_kw(
                 'crm.lead', 'write',
                 [[lead_id], {'description': updated_description}]
             )
