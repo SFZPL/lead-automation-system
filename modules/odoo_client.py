@@ -544,11 +544,11 @@ class OdooClient:
                 if notes and notes.lower() not in ['not found', 'n/a', 'none']:
                     note_parts.append(f"**Notes:** {notes}")
 
-            # Append internal note if we have any data
+            # Append to description field (Internal Notes tab) if we have any data
             if len(note_parts) > 1:  # More than just the header
                 internal_note = "\n".join(note_parts)
                 logger.info(f"Appending internal note to lead {lead_id} with {len(note_parts)-1} fields")
-                self.append_internal_note(lead_id, internal_note, subject="Perplexity Enrichment Data")
+                self.append_to_description(lead_id, internal_note)
             else:
                 logger.info(f"No enrichment data to add as internal note for lead {lead_id}")
 
@@ -566,8 +566,47 @@ class OdooClient:
                 success_count += 1
         return success_count
 
+    def append_to_description(self, lead_id: int, note: str) -> bool:
+        """Append text to the description field (Internal Notes tab)."""
+        cleaned = (note or "").strip()
+        if not cleaned:
+            logger.debug("append_to_description called with empty note for lead %s", lead_id)
+            return False
+
+        try:
+            # Read current description
+            lead_data = self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'crm.lead', 'read',
+                [[lead_id]], {'fields': ['description']}
+            )
+
+            if not lead_data:
+                logger.error(f"Lead {lead_id} not found")
+                return False
+
+            current_description = lead_data[0].get('description') or ''
+
+            # Append new note with separator
+            if current_description.strip():
+                updated_description = f"{current_description}\n\n---\n\n{cleaned}"
+            else:
+                updated_description = cleaned
+
+            # Update the description field
+            self.models.execute_kw(
+                self.db, self.uid, self.password,
+                'crm.lead', 'write',
+                [[lead_id], {'description': updated_description}]
+            )
+            logger.info(f"Appended to description field for lead {lead_id}")
+            return True
+        except Exception as exc:
+            logger.error(f"Failed to append to description for lead {lead_id}: {exc}")
+            return False
+
     def append_internal_note(self, lead_id: int, note: str, subject: Optional[str] = None) -> bool:
-        """Append an internal note to a lead via message_post."""
+        """Append an internal note to a lead via message_post (appears in chatter)."""
         cleaned = (note or "").strip()
         if not cleaned:
             logger.debug("append_internal_note called with empty note for lead %s", lead_id)
