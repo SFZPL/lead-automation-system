@@ -635,7 +635,8 @@ async def outlook_auth_callback(request: Request, code: str, state: str):
     """
     # Redirect to frontend with the code and state
     # Frontend will call the POST endpoint to complete the exchange
-    frontend_callback_url = f"http://localhost:3002/auth/outlook/callback?code={code}&state={state}"
+    frontend_url = config.FRONTEND_URL.rstrip('/')
+    frontend_callback_url = f"{frontend_url}/auth/outlook/callback?code={code}&state={state}"
     return RedirectResponse(url=frontend_callback_url)
 
 

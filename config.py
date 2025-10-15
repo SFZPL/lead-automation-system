@@ -114,6 +114,7 @@ class Config:
     MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")
     MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET")
     MICROSOFT_REDIRECT_URI = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/auth/outlook/callback")
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3002")
     EMAIL_SEARCH_DAYS_BACK = _env_int("EMAIL_SEARCH_DAYS_BACK", 180)
     EMAIL_SEARCH_LIMIT_PER_LEAD = _env_int("EMAIL_SEARCH_LIMIT_PER_LEAD", 10)
 
