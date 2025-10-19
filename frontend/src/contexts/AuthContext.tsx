@@ -1,9 +1,19 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { apiClient } from '../utils/api';
+
+interface User {
+  id: number;
+  email: string;
+  name: string;
+  role: string;
+}
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: (username: string, password: string) => boolean;
+  user: User | null;
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -16,37 +26,55 @@ export const useAuth = () => {
   return context;
 };
 
-// Admin credentials - in production, these should be environment variables or fetched from backend
-const ADMIN_USERNAME = 'admin';
-const ADMIN_PASSWORD = 'prezlab2024';
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // Check localStorage on mount
+  // Check if user is authenticated on mount
   useEffect(() => {
-    const authStatus = localStorage.getItem('isAuthenticated');
-    if (authStatus === 'true') {
-      setIsAuthenticated(true);
-    }
+    const checkAuth = async () => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        try {
+          const response = await apiClient.get('/auth/me');
+          setUser(response.data);
+          setIsAuthenticated(true);
+        } catch (error) {
+          // Token invalid or expired
+          localStorage.removeItem('auth_token');
+          setIsAuthenticated(false);
+          setUser(null);
+        }
+      }
+      setLoading(false);
+    };
+
+    checkAuth();
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const response = await apiClient.post('/auth/login', { email, password });
+      const { access_token, user: userData } = response.data;
+
+      localStorage.setItem('auth_token', access_token);
+      setUser(userData);
       setIsAuthenticated(true);
-      localStorage.setItem('isAuthenticated', 'true');
       return true;
+    } catch (error) {
+      return false;
     }
-    return false;
   };
 
   const logout = () => {
+    localStorage.removeItem('auth_token');
     setIsAuthenticated(false);
-    localStorage.removeItem('isAuthenticated');
+    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

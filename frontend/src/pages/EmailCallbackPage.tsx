@@ -36,15 +36,25 @@ const EmailCallbackPage: React.FC = () => {
       }
 
       try {
-        // Get user identifier from localStorage
-        const userIdentifier = localStorage.getItem('email_user_identifier');
+        // Check if this is a system email authorization
+        const isSystemAuth = state?.startsWith('SYSTEM:');
 
-        // Exchange code for tokens
-        const response = await api.outlookAuthCallback({
-          code,
-          state,
-          user_identifier: userIdentifier || undefined,
-        });
+        let response;
+        if (isSystemAuth) {
+          // System email authorization
+          response = await api.systemOutlookAuthCallback({
+            code,
+            state,
+          });
+        } else {
+          // Personal email authorization
+          const userIdentifier = localStorage.getItem('email_user_identifier');
+          response = await api.outlookAuthCallback({
+            code,
+            state,
+            user_identifier: userIdentifier || undefined,
+          });
+        }
 
         setStatus('success');
         setMessage(`Successfully connected: ${response.data.user_email}`);

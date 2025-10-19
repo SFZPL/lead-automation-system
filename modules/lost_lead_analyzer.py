@@ -74,14 +74,16 @@ class LostLeadAnalyzer:
         user_identifier: str,
         lead_data: Dict[str, Any],
         max_emails: int,
+        group_name: str = "engage"
     ) -> List[Dict[str, Any]]:
         """
-        Fetch emails from Outlook for a lead.
+        Fetch emails from Outlook engage group for a lead.
 
         Args:
             user_identifier: User's email identifier for token lookup
             lead_data: Lead information from Odoo
             max_emails: Maximum number of emails to return
+            group_name: Name of the Microsoft 365 group to search (default: "engage")
 
         Returns:
             List of formatted email messages
@@ -109,13 +111,63 @@ class LostLeadAnalyzer:
                     token_response.get("expires_in", 3600)
                 )
 
-            # Search emails
-            outlook_emails = outlook.search_emails_for_lead(
-                access_token=access_token,
-                lead_data=lead_data,
-                limit=max_emails,
-                days_back=self.config.EMAIL_SEARCH_DAYS_BACK,
-            )
+            # Find the engage group
+            groups = outlook.get_user_groups(access_token)
+            engage_group = None
+            for group in groups:
+                display_name = group.get("displayName", "").lower()
+                mail = group.get("mail", "").lower()
+                if group_name.lower() in display_name or group_name.lower() in mail:
+                    engage_group = group
+                    break
+
+            if not engage_group:
+                logger.warning(f"Could not find '{group_name}' group for user {user_identifier}")
+                # Fallback to personal inbox search
+                outlook_emails = outlook.search_emails_for_lead(
+                    access_token=access_token,
+                    lead_data=lead_data,
+                    limit=max_emails,
+                    days_back=self.config.EMAIL_SEARCH_DAYS_BACK,
+                )
+            else:
+                # Search emails from the engage group
+                all_group_emails = outlook.get_group_conversations(
+                    access_token=access_token,
+                    group_id=engage_group['id'],
+                    days_back=self.config.EMAIL_SEARCH_DAYS_BACK,
+                    limit=200
+                )
+
+                # Filter emails related to this lead
+                lead_email = lead_data.get("email_from", "")
+                partner_email = lead_data.get("partner_email", "")
+                contact_email = lead_data.get("contact_email", "")
+                lead_name = lead_data.get("name", "").lower()
+                company_name = (lead_data.get("partner_name") or "").lower()
+
+                outlook_emails = []
+                for email in all_group_emails:
+                    email_from = email.get("from", "").lower()
+                    email_to = email.get("to", "").lower()
+                    email_subject = email.get("subject", "").lower()
+                    email_body = email.get("body", "").lower()
+
+                    # Check if email is related to this lead
+                    if (
+                        (lead_email and lead_email.lower() in email_from) or
+                        (lead_email and lead_email.lower() in email_to) or
+                        (partner_email and partner_email.lower() in email_from) or
+                        (partner_email and partner_email.lower() in email_to) or
+                        (contact_email and contact_email.lower() in email_from) or
+                        (contact_email and contact_email.lower() in email_to) or
+                        (lead_name and lead_name in email_subject) or
+                        (company_name and len(company_name) > 3 and company_name in email_subject) or
+                        (company_name and len(company_name) > 3 and company_name in email_body)
+                    ):
+                        outlook_emails.append(email)
+
+                outlook_emails = outlook_emails[:max_emails]
 
             # Format for analysis
             formatted_emails = [
@@ -123,7 +175,7 @@ class LostLeadAnalyzer:
                 for email in outlook_emails
             ]
 
-            logger.info(f"Found {len(formatted_emails)} Outlook emails for lead {lead_data.get('id')}")
+            logger.info(f"Found {len(formatted_emails)} Outlook emails for lead {lead_data.get('id')} from {group_name} group")
             return formatted_emails
 
         except Exception as e:

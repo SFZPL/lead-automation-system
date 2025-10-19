@@ -105,6 +105,11 @@ class Config:
     LLM_SCRAPE_MAX_TOKENS = _env_int("LLM_SCRAPE_MAX_TOKENS", 32000)
     LLM_SCRAPE_TEMPERATURE = _env_float("LLM_SCRAPE_TEMPERATURE", 1.0)
 
+    # Perplexity API
+    PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
+    PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar-pro")
+    PERPLEXITY_API_BASE = os.getenv("PERPLEXITY_API_BASE", "https://api.perplexity.ai")
+
     # Lost lead analysis
     LOST_LEAD_MAX_NOTES = _env_int("LOST_LEAD_MAX_NOTES", 12)
     LOST_LEAD_MAX_EMAILS = _env_int("LOST_LEAD_MAX_EMAILS", 8)

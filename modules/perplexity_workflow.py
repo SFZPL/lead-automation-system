@@ -15,6 +15,24 @@ class PerplexityWorkflow:
         self.config = config
         self.odoo = OdooClient(config)
 
+    def generate_single_lead_prompt(self, lead: Dict[str, Any]) -> str:
+        """Generate enrichment prompt for a single lead"""
+        return self._build_comprehensive_prompt([lead])
+
+    def parse_single_lead_response(self, perplexity_output: str, original_lead: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse Perplexity output for a single lead"""
+        # Even for single leads, the prompt includes **LEAD 1:** marker
+        # So we need to extract the content after the marker
+
+        # Try to find and extract content after **LEAD 1:**
+        lead_match = re.search(r'\*\*LEAD \d+:(.+)', perplexity_output, re.DOTALL)
+        if lead_match:
+            content = lead_match.group(1)
+            return self._parse_single_lead_section(content, original_lead)
+        else:
+            # Fallback: if no marker found, parse the whole response
+            return self._parse_single_lead_section(perplexity_output, original_lead)
+
     def generate_enrichment_prompt(self) -> tuple[str, List[Dict[str, Any]]]:
         """Generate a prompt for manual Perplexity enrichment with current unenriched leads"""
 
@@ -293,13 +311,13 @@ class PerplexityWorkflow:
         # Start with original lead data
         enriched_lead = original_lead.copy()
 
-        # Extract name from section header
-        name_match = re.search(r'^([^*]+)\*', section.strip())
-        if name_match:
-            enriched_lead['Full Name'] = name_match.group(1).strip()
+        # Keep original name - Perplexity responses are too unreliable for name extraction
+        enriched_lead['Full Name'] = original_lead.get('Full Name', original_lead.get('name', 'Unknown'))
 
         # Parse each field using regex with improved patterns
         field_patterns = {
+            # Add Full Name to patterns but we'll skip it in the loop to prevent Perplexity from overwriting
+            'Full Name': r'Full Name:\s*(.+?)(?:\n|$)',
             'LinkedIn Link': r'LinkedIn URL:\s*(.+?)(?:\n|$)',
             'Job Role': r'Job Title:\s*(.+?)(?:\n|$)',
             'Company Name': r'Company:\s*(.+?)(?:\n|$)',
@@ -325,8 +343,11 @@ class PerplexityWorkflow:
                 # Skip if value starts with "not found" or similar (case insensitive)
                 value_lower = value.lower()
                 if value and not any(value_lower.startswith(x) for x in ['not found', 'not explicitly', 'n/a', 'none', 'not available']):
+                    # NEVER overwrite Full Name - we set it from original above
+                    if field_name == 'Full Name':
+                        continue
                     # Special handling for email - extract just the email address
-                    if field_name == 'email':
+                    elif field_name == 'email':
                         # Look for email pattern in the value
                         email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', value)
                         if email_match:

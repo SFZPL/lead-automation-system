@@ -4,11 +4,11 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
-import ConfigPage from './pages/ConfigPage';
+import SettingsPage from './pages/SettingsPage';
+import DashboardPage from './pages/DashboardPage';
 import PerplexityPage from './pages/PerplexityPage';
-import ApolloFollowUpsPage from './pages/ApolloFollowUpsPage';
 import LostLeadsPage from './pages/LostLeadsPage';
-import EmailSettingsPage from './pages/EmailSettingsPage';
+import FollowupsHubPage from './pages/FollowupsHubPage';
 import EmailCallbackPage from './pages/EmailCallbackPage';
 import CallFlowPage from './pages/CallFlowPage';
 import LoginPage from './pages/LoginPage';
@@ -36,13 +36,13 @@ const AppContent = () => {
       <div className="App">
         <Layout>
           <Routes>
-            <Route path="/" element={<PerplexityPage />} />
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/enrichment" element={<PerplexityPage />} />
             <Route path="/lost-leads" element={<LostLeadsPage />} />
-            <Route path="/followups" element={<ApolloFollowUpsPage />} />
+            <Route path="/followups" element={<FollowupsHubPage />} />
             <Route path="/call-flow" element={<CallFlowPage />} />
-            <Route path="/email-settings" element={<EmailSettingsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/auth/outlook/callback" element={<EmailCallbackPage />} />
-            <Route path="/config" element={<ConfigPage />} />
           </Routes>
         </Layout>
         <Toaster

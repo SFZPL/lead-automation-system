@@ -1,9 +1,10 @@
 import axios from 'axios';
 
 // Create axios instance with base configuration
+
 export const apiClient = axios.create({
   baseURL: process.env.REACT_APP_API_BASE || 'http://localhost:8000',
-  timeout: 300000, // 5 minutes for long operations
+  timeout: 600000, // 10 minutes for long operations
   headers: {
     'Content-Type': 'application/json',
   },
@@ -69,6 +70,15 @@ export const api = {
   analyzeLostLead: (leadId: number, data?: { max_internal_notes?: number; max_emails?: number }) =>
     apiClient.post(`/lost-leads/${leadId}/analysis`, data),
 
+  // Dashboard
+  getDashboardSummary: (params?: { engage_email?: string }) =>
+    apiClient.get('/dashboard/summary', { params }),
+
+  // Proposal follow-ups
+  getProposalFollowups: (params?: { days_back?: number; no_response_days?: number; engage_email?: string; force_refresh?: boolean }) =>
+    apiClient.get('/proposal-followups', { params }),
+  analyzeFollowupThread: (threadData: any) => apiClient.post('/proposal-followups/analyze-thread', threadData),
+
   // Email / Outlook OAuth
   startOutlookAuth: () => apiClient.get('/auth/outlook/start'),
   outlookAuthCallback: (data: { code: string; state: string; user_identifier?: string }) =>
@@ -76,6 +86,13 @@ export const api = {
   getEmailAuthStatus: (userIdentifier: string) => apiClient.get(`/auth/outlook/status/${userIdentifier}`),
   revokeEmailAuth: (userIdentifier: string) => apiClient.delete(`/auth/outlook/${userIdentifier}`),
   listAuthorizedUsers: () => apiClient.get('/auth/outlook/users'),
+
+  // System Email OAuth (for automated.response@prezlab.com)
+  startSystemOutlookAuth: () => apiClient.get('/auth/outlook/system/start'),
+  systemOutlookAuthCallback: (data: { code: string; state: string }) =>
+    apiClient.post('/auth/outlook/system/callback', data),
+  getSystemEmailAuthStatus: () => apiClient.get('/auth/outlook/system/status'),
+  revokeSystemEmailAuth: () => apiClient.delete('/auth/outlook/system'),
 
   // Export
   exportCSV: () => apiClient.get('/api/export/csv', { responseType: 'blob' }),
