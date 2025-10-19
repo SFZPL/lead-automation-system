@@ -310,7 +310,9 @@ class PerplexityWorkflow:
             match = re.search(pattern, section, re.IGNORECASE | re.MULTILINE)
             if match:
                 value = match.group(1).strip()
-                if value and value.lower() not in ['not found', 'n/a', 'none', '', 'not available']:
+                # Skip if value starts with "not found" or similar (case insensitive)
+                value_lower = value.lower()
+                if value and not any(value_lower.startswith(x) for x in ['not found', 'not explicitly', 'n/a', 'none', 'not available']):
                     # Special handling for email - extract just the email address
                     if field_name == 'email':
                         # Look for email pattern in the value
@@ -318,6 +320,11 @@ class PerplexityWorkflow:
                         if email_match:
                             enriched_lead[field_name] = email_match.group(0)
                         # Skip if no valid email found
+                    # Validate URLs for website and LinkedIn fields
+                    elif field_name in ['website', 'LinkedIn Link']:
+                        # Only accept if it looks like a valid URL
+                        if value.startswith(('http://', 'https://', 'www.')) or '.' in value:
+                            enriched_lead[field_name] = value
                     else:
                         enriched_lead[field_name] = value
 

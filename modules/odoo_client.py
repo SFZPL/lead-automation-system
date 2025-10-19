@@ -453,6 +453,12 @@ class OdooClient:
                     # These are placeholder values from failed enrichment
                     if cleaned in ['none', 'n/a', 'not found', 'false']:
                         return True
+                    # HTML fields in Odoo may contain only tags with no real content
+                    # Strip HTML tags and check if empty
+                    import re as regex_module
+                    text_only = regex_module.sub(r'<[^>]+>', '', cleaned).strip()
+                    if text_only == '':
+                        return True
                     # If it has any other content, it's NOT empty
                     return False
                 # For any other type, assume it has data
