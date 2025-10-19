@@ -132,7 +132,56 @@ class OdooClient:
         except Exception as e:
             logger.error(f"Error finding user '{name}': {e}")
             return None
-    
+
+    def _is_valid_url(self, url: str) -> bool:
+        """Validate URL format to prevent 'Invalid IPv6 URL' errors in Odoo"""
+        if not url or not isinstance(url, str):
+            return False
+
+        url = url.strip()
+
+        # Reject obviously invalid formats
+        if not url or url.lower() in ['not found', 'n/a', 'none', 'not available']:
+            return False
+
+        # Must contain at least one dot (domain.com)
+        if '.' not in url:
+            return False
+
+        # Remove protocol for validation
+        test_url = url
+        if test_url.startswith(('http://', 'https://')):
+            test_url = test_url.split('://', 1)[1]
+        elif test_url.startswith('www.'):
+            test_url = test_url[4:]
+
+        # Check for invalid characters that cause IPv6 parsing errors
+        # Odoo's werkzeug url_parse fails on certain bracket combinations
+        if '[' in test_url or ']' in test_url:
+            # IPv6 addresses in URLs should be in format http://[::1]/ but we don't want those
+            return False
+
+        # Check for spaces (invalid in URLs)
+        if ' ' in test_url:
+            return False
+
+        # Must have at least one character before and after the dot
+        parts = test_url.split('/')
+        domain = parts[0]  # Get the domain part before any path
+        if not domain or '.' not in domain:
+            return False
+
+        # Simple domain validation: should have chars before and after dot
+        domain_parts = domain.split('.')
+        if len(domain_parts) < 2:
+            return False
+
+        # Check each part has at least one character
+        for part in domain_parts:
+            if not part:
+                return False
+
+        return True
 
     def get_leads_by_emails(
         self,
@@ -499,9 +548,14 @@ class OdooClient:
             if 'website' in values and values['website']:
                 if is_empty(current_data.get('website')):
                     website = str(values['website']).strip()
-                    if website and not website.startswith(('http://', 'https://')):
-                        website = f'https://{website}'
-                    odoo_fields['website'] = website
+                    # Validate URL before sending to Odoo
+                    if website and self._is_valid_url(website):
+                        if not website.startswith(('http://', 'https://')):
+                            website = f'https://{website}'
+                        odoo_fields['website'] = website
+                        logger.debug(f"Lead {lead_id}: Setting website to '{website}'")
+                    else:
+                        logger.warning(f"Lead {lead_id}: Skipping invalid website URL: '{website}'")
 
             # Language (lang_id in crm.lead) - would need to map to language ID
             # For now, we'll skip this as it requires language code mapping
