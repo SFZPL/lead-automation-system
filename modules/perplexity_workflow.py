@@ -44,6 +44,16 @@ class PerplexityWorkflow:
             "- Include a quality rating (1-5) based on data completeness and verification confidence",
             "- If you find conflicting information, mention it clearly",
             "",
+            "**CRITICAL: COMPANY MATCHING AND MULTI-COMPANY HANDLING:**",
+            "- **PRIMARY RULE:** Enrich based on the company the lead stated in their form submission (\"Stated Company\" field)",
+            "- **Abbreviations/Misspellings:** Check if company abbreviations match full names (e.g., 'DMT' = 'Department of Municipalities and Transport', 'ADNOC' = 'Abu Dhabi National Oil Company')",
+            "- **Multi-Company Professionals:** Many professionals hold MULTIPLE active positions (board member, advisor, consultant, etc.):",
+            "  1. Enrich their job role, title, and company data based on their STATED company from the form",
+            "  2. In the Notes field, list ALL other current positions with full details (company name, role, industry, company size, brief description)",
+            "  3. Include part-time roles, board positions, advisory roles, consulting positions - these are VALUABLE business intelligence",
+            "  4. Example: 'Also serves as: Board Member at Alawneh Pay (FinTech, mobile payments, 50-200 employees); Treasurer at DigiSkills Jordan (Non-profit, youth employment)'",
+            "- **Always verify:** Cross-check the stated company name against LinkedIn and other sources to ensure they match (accounting for abbreviations)",
+            "",
             "**CURRENT LEAD DATA:**",
             ""
         ]
@@ -130,7 +140,7 @@ class PerplexityWorkflow:
             "- Company Description: [Brief description or 'Not Found']",
             "- Quality Rating: [1-5]/5",
             "- Confidence: [High/Medium/Low]",
-            "- Notes: [Any conflicts, discrepancies, or additional context]",
+            "- Notes: [CRITICAL: List ALL other current positions/roles here (board memberships, advisory roles, consulting, part-time positions). Format: 'Also serves as: [Role] at [Company] ([Industry], [Size]); [Role2] at [Company2]'. Include conflicts, discrepancies, or additional context. Example: 'Also serves as: Board Member at Alawneh Pay (FinTech, mobile payments); Treasurer at DigiSkills Jordan (Non-profit, youth employment); Former role at Jordan Kuwait Bank']",
             "---",
             "",
             "**SEARCH STRATEGY:**",
@@ -372,7 +382,7 @@ class PerplexityWorkflow:
                     success = self.odoo.update_lead(lead['id'], lead)
                     if success:
                         results['updated'] += 1
-                        print(f"✓ Updated lead: {lead.get('Full Name', 'Unknown')}")
+                        print(f"[OK] Updated lead: {lead.get('Full Name', 'Unknown')}")
                     else:
                         results['failed'] += 1
                         results['errors'].append(f"Failed to update lead {lead['id']}")
@@ -383,8 +393,7 @@ class PerplexityWorkflow:
             except Exception as e:
                 results['failed'] += 1
                 error_msg = f"Error updating lead {lead.get('Full Name', 'Unknown')}: {str(e)}"
-                # Encode to ASCII to avoid Windows console encoding issues
-                results['errors'].append(error_msg.encode('ascii', 'replace').decode('ascii'))
+                results['errors'].append(error_msg)
 
         return results
 

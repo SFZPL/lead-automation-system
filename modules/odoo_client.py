@@ -326,14 +326,15 @@ class OdooClient:
                 'partner_id',         # Partner/Company ID for additional data
             ]
             
-            # Domain filter: Salesperson = specified user AND not enriched (empty quality)
+            # Domain filter: Salesperson = specified user AND not enriched (empty quality or 0/5)
             domain = [
                 '&',
                 ['user_id', '=', user_id],
-                '|', '|',
+                '|', '|', '|',
                 ['x_studio_quality', '=', False],
                 ['x_studio_quality', '=', None],
                 ['x_studio_quality', '=', ''],
+                ['x_studio_quality', '=', '0/5'],
             ]
             
             # Get lead IDs first
@@ -416,72 +417,166 @@ class OdooClient:
             return []
     
     def update_lead(self, lead_id: int, values: Dict[str, Any]) -> bool:
-        """Update a lead in Odoo with enriched data"""
+        """Update a lead in Odoo with enriched data (only updates empty fields)"""
         try:
+            # First, fetch current lead data to check which fields are empty
+            current_lead = self._call_kw(
+                'crm.lead', 'read',
+                [[lead_id]],
+                {'fields': [
+                    'partner_name', 'contact_name', 'website', 'email_from',
+                    'function', 'phone', 'mobile', 'x_studio_linkedin_profile',
+                    'x_studio_quality', 'city', 'source_id'
+                ]}
+            )
+
+            if not current_lead:
+                logger.error(f"Lead {lead_id} not found")
+                return False
+
+            current_data = current_lead[0]
+
+            def is_empty(value):
+                """Check if a field value is considered empty - CONSERVATIVE approach"""
+                # None is definitely empty
+                if value is None:
+                    return True
+                # False for non-boolean fields means empty in Odoo
+                if value is False:
+                    return True
+                # Empty string
+                if isinstance(value, str):
+                    cleaned = value.strip().lower()
+                    # Only consider truly empty or explicitly marked as not found
+                    if cleaned == '':
+                        return True
+                    # These are placeholder values from failed enrichment
+                    if cleaned in ['none', 'n/a', 'not found', 'false']:
+                        return True
+                    # If it has any other content, it's NOT empty
+                    return False
+                # For any other type, assume it has data
+                return False
+
+            def clean_phone(phone_str):
+                """Remove (from lead) suffix from phone numbers"""
+                if not phone_str:
+                    return phone_str
+                # Remove "(from lead)" or any variant
+                cleaned = re.sub(r'\s*\(from lead\)\s*', '', phone_str, flags=re.IGNORECASE)
+                return cleaned.strip()
+
             # Map our column names to Odoo field names based on your requirements
             odoo_fields = {}
 
             # Company Name (partner_name in crm.lead)
             if 'Company Name' in values and values['Company Name']:
-                odoo_fields['partner_name'] = str(values['Company Name']).strip()
+                current_value = current_data.get('partner_name')
+                new_value = str(values['Company Name']).strip()
+                if is_empty(current_value):
+                    logger.info(f"Lead {lead_id}: Will update Company Name from {repr(current_value)} to {repr(new_value)}")
+                    odoo_fields['partner_name'] = new_value
+                else:
+                    logger.info(f"Lead {lead_id}: SKIPPING Company Name update - current value {repr(current_value)} is not empty")
 
             # Contact Name (contact_name in crm.lead)
             if 'Full Name' in values and values['Full Name']:
-                odoo_fields['contact_name'] = str(values['Full Name']).strip()
+                current_value = current_data.get('contact_name')
+                new_value = str(values['Full Name']).strip()
+                if is_empty(current_value):
+                    logger.info(f"Lead {lead_id}: Will update Contact Name from {repr(current_value)} to {repr(new_value)}")
+                    odoo_fields['contact_name'] = new_value
+                else:
+                    logger.info(f"Lead {lead_id}: SKIPPING Contact Name update - current value {repr(current_value)} is not empty")
 
             # Website (website in crm.lead)
             if 'website' in values and values['website']:
-                website = str(values['website']).strip()
-                if website and not website.startswith(('http://', 'https://')):
-                    website = f'https://{website}'
-                odoo_fields['website'] = website
+                if is_empty(current_data.get('website')):
+                    website = str(values['website']).strip()
+                    if website and not website.startswith(('http://', 'https://')):
+                        website = f'https://{website}'
+                    odoo_fields['website'] = website
 
             # Language (lang_id in crm.lead) - would need to map to language ID
             # For now, we'll skip this as it requires language code mapping
 
             # Email (email_from in crm.lead)
             if 'email' in values and values['email']:
-                email = str(values['email']).strip()
-                if '@' in email:
-                    odoo_fields['email_from'] = email
+                if is_empty(current_data.get('email_from')):
+                    email = str(values['email']).strip()
+                    if '@' in email:
+                        odoo_fields['email_from'] = email
 
             # Job Position (function in crm.lead)
             if 'Job Role' in values and values['Job Role']:
-                odoo_fields['function'] = str(values['Job Role']).strip()
+                if is_empty(current_data.get('function')):
+                    odoo_fields['function'] = str(values['Job Role']).strip()
 
             # Phone (phone in crm.lead)
             if 'Phone' in values and values['Phone']:
-                phone = str(values['Phone']).strip()
-                if phone and phone.lower() not in ['not found', 'n/a', 'none']:
-                    odoo_fields['phone'] = phone
+                if is_empty(current_data.get('phone')):
+                    phone = clean_phone(str(values['Phone']).strip())
+                    if phone and phone.lower() not in ['not found', 'n/a', 'none']:
+                        odoo_fields['phone'] = phone
 
             # Mobile (mobile in crm.lead)
             if 'Mobile' in values and values['Mobile']:
-                mobile = str(values['Mobile']).strip()
-                if mobile and mobile.lower() not in ['not found', 'n/a', 'none']:
-                    odoo_fields['mobile'] = mobile
+                if is_empty(current_data.get('mobile')):
+                    mobile = clean_phone(str(values['Mobile']).strip())
+                    if mobile and mobile.lower() not in ['not found', 'n/a', 'none']:
+                        odoo_fields['mobile'] = mobile
 
             # LinkedIn Profile (x_studio_linkedin_profile)
             if 'LinkedIn Link' in values and values['LinkedIn Link']:
-                linkedin = str(values['LinkedIn Link']).strip()
-                if linkedin and linkedin.lower() not in ['not found', 'n/a', 'none']:
-                    # Store as HTML link for the HTML field
-                    linkedin_html = f'<a href="{linkedin}" target="_blank">{linkedin}</a>'
-                    odoo_fields['x_studio_linkedin_profile'] = linkedin_html
+                if is_empty(current_data.get('x_studio_linkedin_profile')):
+                    linkedin = str(values['LinkedIn Link']).strip()
+                    if linkedin and linkedin.lower() not in ['not found', 'n/a', 'none']:
+                        # Store as HTML link for the HTML field
+                        linkedin_html = f'<a href="{linkedin}" target="_blank">{linkedin}</a>'
+                        odoo_fields['x_studio_linkedin_profile'] = linkedin_html
 
             # Quality (x_studio_quality) - selection field with keys like "[0/5]", "[1/5]", etc.
             if 'Quality (Out of 5)' in values and values['Quality (Out of 5)']:
-                quality = str(values['Quality (Out of 5)']).strip()
-                if quality and quality.isdigit():
-                    # Map quality to the selection key format used in Odoo (e.g. '4/5')
-                    quality_key = f"{quality}/5"
-                    odoo_fields['x_studio_quality'] = quality_key
+                if is_empty(current_data.get('x_studio_quality')):
+                    quality = str(values['Quality (Out of 5)']).strip()
+                    if quality and quality.isdigit():
+                        # Map quality to the selection key format used in Odoo (e.g. '4/5')
+                        quality_key = f"{quality}/5"
+                        odoo_fields['x_studio_quality'] = quality_key
 
             # City and Country fields if available
             if 'City' in values and values['City']:
-                city = str(values['City']).strip()
-                if city and city.lower() not in ['not found', 'n/a', 'none']:
-                    odoo_fields['city'] = city
+                if is_empty(current_data.get('city')):
+                    city = str(values['City']).strip()
+                    if city and city.lower() not in ['not found', 'n/a', 'none']:
+                        odoo_fields['city'] = city
+
+            # Source - Always set to "Inbound" for enriched leads (if not already set)
+            if is_empty(current_data.get('source_id')):
+                try:
+                    # Search for "Inbound" source in utm.source
+                    inbound_sources = self._call_kw(
+                        'utm.source', 'search_read',
+                        [[['name', '=ilike', 'Inbound']]],
+                        {'fields': ['id', 'name'], 'limit': 1}
+                    )
+
+                    if inbound_sources:
+                        odoo_fields['source_id'] = inbound_sources[0]['id']
+                        logger.info(f"Setting source to 'Inbound' (ID: {inbound_sources[0]['id']})")
+                    else:
+                        # If "Inbound" doesn't exist, create it
+                        try:
+                            inbound_id = self._call_kw(
+                                'utm.source', 'create',
+                                [{'name': 'Inbound'}]
+                            )
+                            odoo_fields['source_id'] = inbound_id
+                            logger.info(f"Created and set source to 'Inbound' (ID: {inbound_id})")
+                        except Exception as create_error:
+                            logger.warning(f"Could not create 'Inbound' source: {create_error}")
+                except Exception as source_error:
+                    logger.warning(f"Error setting source field: {source_error}")
 
             # For country, we would need to map to country_id, which requires looking up the country ID
             # We'll store it in a notes field or create a custom field for now
@@ -705,6 +800,42 @@ class OdooClient:
                 record[f"{key}_id"] = value[0]
                 record[key] = value[1]
         return record
+
+    def search_lead_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """
+        Search for a lead/opportunity by email address.
+
+        Args:
+            email: Email address to search for
+
+        Returns:
+            Lead/opportunity record if found, None otherwise
+        """
+        if not email:
+            return None
+
+        try:
+            # Search by email_from field
+            lead_ids = self._call_kw(
+                'crm.lead',
+                'search',
+                [[['email_from', '=ilike', email]]],
+                {'limit': 1}
+            )
+
+            if not lead_ids:
+                logger.debug(f"No lead found for email: {email}")
+                return None
+
+            # Fetch the lead details
+            lead_id = lead_ids[0]
+            lead = self.get_lead_details(lead_id)
+            logger.info(f"Found lead {lead_id} for email {email}")
+            return lead
+
+        except Exception as exc:
+            logger.error(f"Error searching lead by email {email}: {exc}")
+            return None
 
     def get_lost_leads(
         self,
