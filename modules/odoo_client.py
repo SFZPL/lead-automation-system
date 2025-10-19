@@ -326,15 +326,15 @@ class OdooClient:
                 'partner_id',         # Partner/Company ID for additional data
             ]
             
-            # Domain filter: Salesperson = specified user AND not enriched (empty quality or 0/5)
+            # Domain filter: Salesperson = specified user AND not enriched (empty quality)
+            # Note: Quality = '0/5' means enriched but low quality, so we exclude it
             domain = [
                 '&',
                 ['user_id', '=', user_id],
-                '|', '|', '|',
+                '|', '|',
                 ['x_studio_quality', '=', False],
                 ['x_studio_quality', '=', None],
                 ['x_studio_quality', '=', ''],
-                ['x_studio_quality', '=', '0/5'],
             ]
             
             # Get lead IDs first
