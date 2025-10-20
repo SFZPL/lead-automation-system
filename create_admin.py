@@ -1,11 +1,14 @@
 """Script to create initial admin user."""
 
 import sys
+import os
 from api.database import Database
 from api.auth import AuthService
 
 def create_admin():
-    db = Database()
+    # Use the database in the api folder (where the API server runs from)
+    db_path = os.path.join(os.path.dirname(__file__), 'api', 'users.db')
+    db = Database(db_path)
     auth = AuthService(db)
 
     # Check if admin already exists

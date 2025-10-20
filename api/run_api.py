@@ -14,16 +14,18 @@ if __name__ == "__main__":
     # Change to script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
-    
-    # Run main.py
+
+    # Run uvicorn to start the FastAPI server
     try:
         # On Windows, use shell=False and specify encoding
         if sys.platform.startswith('win'):
-            result = subprocess.run([sys.executable, "main.py"], shell=False, 
-                                  encoding='utf-8', errors='replace', text=True)
+            result = subprocess.run(
+                [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"],
+                shell=False, encoding='utf-8', errors='replace', text=True
+            )
             sys.exit(result.returncode)
         else:
-            os.execv(sys.executable, [sys.executable, "main.py"])
+            os.execv(sys.executable, [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"])
     except Exception as e:
         print(f"Failed to run API server: {e}")
         sys.exit(1)
