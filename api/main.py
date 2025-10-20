@@ -28,10 +28,14 @@ from modules.email_token_store import EmailTokenStore
 from modules.odoo_client import OdooClient
 from api.auth import get_auth_service, get_current_user, get_database, AuthService
 from api.database import Database
+from api.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
-# In-memory cache for proposal followups analysis
+# Initialize Supabase client
+supabase = get_supabase_client()
+
+# In-memory cache for proposal followups analysis (fallback if Supabase unavailable)
 proposal_followups_cache = {
     "data": None,
     "timestamp": None,
@@ -958,7 +962,8 @@ def get_proposal_followups(
     days_back: int = 3,
     no_response_days: int = 3,
     engage_email: str = "automated.response@prezlab.com",
-    force_refresh: bool = False
+    force_refresh: bool = False,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
     Get proposal follow-up analysis from engage inbox.
@@ -968,18 +973,57 @@ def get_proposal_followups(
         no_response_days: Days threshold for "no response" (default: 3)
         engage_email: Email of the engage monitoring account
         force_refresh: Force refresh analysis instead of using cache
+        current_user: Current authenticated user
 
     Returns:
         Summary and categorized threads needing follow-up with last_updated timestamp
     """
     global proposal_followups_cache
+    user_id = current_user.get("id")
 
-    # Check if we have cached data with matching parameters
-    cache_params = {"days_back": days_back, "no_response_days": no_response_days, "engage_email": engage_email}
+    # Determine cache duration based on days_back
+    # 90-day analysis: cache for 90 days
+    # 7-day (weekly): cache for 7 days
+    # Others: cache for 1 day
+    if days_back >= 90:
+        cache_duration_days = 90
+    elif days_back >= 7:
+        cache_duration_days = 7
+    else:
+        cache_duration_days = 1
+
+    # Parameters for caching
+    cache_params = {
+        "days_back": days_back,
+        "no_response_days": no_response_days,
+        "engage_email": engage_email
+    }
+
+    # Try to get from Supabase cache first (if available)
+    if not force_refresh and supabase.is_connected():
+        try:
+            cached_data = supabase.get_cached_analysis(
+                user_id=user_id,
+                analysis_type="proposal_followups",
+                parameters=cache_params
+            )
+
+            if cached_data:
+                logger.info(f"✅ Returning cached proposal follow-ups from Supabase for user {user_id}")
+                # Convert cached data back to response model
+                response = ProposalFollowupResponse(
+                    summary=ProposalFollowupSummary(**cached_data["summary"]),
+                    unanswered=[ProposalFollowupThread(**thread) for thread in cached_data.get("unanswered", [])],
+                    pending_proposals=[ProposalFollowupThread(**thread) for thread in cached_data.get("pending_proposals", [])]
+                )
+                return response
+        except Exception as e:
+            logger.warning(f"Failed to get from Supabase cache: {e}. Falling back to in-memory cache.")
+
+    # Fallback to in-memory cache if Supabase unavailable
     if not force_refresh and proposal_followups_cache["data"] and proposal_followups_cache["params"] == cache_params:
-        logger.info("Returning cached proposal follow-ups analysis")
+        logger.info("Returning cached proposal follow-ups analysis from memory")
         cached_response = proposal_followups_cache["data"]
-        # Add last_updated timestamp to summary
         cached_response.summary.last_updated = proposal_followups_cache["timestamp"]
         return cached_response
 
@@ -1001,7 +1045,28 @@ def get_proposal_followups(
             pending_proposals=[ProposalFollowupThread(**thread) for thread in result["pending_proposals"]]
         )
 
-        # Cache the result
+        # Convert response to dict for caching
+        response_dict = {
+            "summary": response.summary.dict(),
+            "unanswered": [thread.dict() for thread in response.unanswered],
+            "pending_proposals": [thread.dict() for thread in response.pending_proposals]
+        }
+
+        # Save to Supabase cache
+        if supabase.is_connected():
+            try:
+                supabase.save_analysis_cache(
+                    user_id=user_id,
+                    analysis_type="proposal_followups",
+                    parameters=cache_params,
+                    results=response_dict,
+                    cache_duration_days=cache_duration_days
+                )
+                logger.info(f"✅ Saved analysis to Supabase cache (expires in {cache_duration_days} days)")
+            except Exception as e:
+                logger.warning(f"Failed to save to Supabase cache: {e}")
+
+        # Also save to in-memory cache as fallback
         proposal_followups_cache = {
             "data": response,
             "timestamp": timestamp,

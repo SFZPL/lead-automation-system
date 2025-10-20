@@ -21,7 +21,13 @@
       "Bash(python3:*)",
       "Bash(curl -s -X POST http://127.0.0.1:8000/perplexity/enrich-batch -H \"Content-Type: application/json\" -d \"{\"\"lead_ids\"\": [6389, 6388]}\")",
       "Bash(copy /b main.py +,,)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Read(//c//**)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/auth/login -H \"Content-Type: application/json\" -d \"{\"\"email\"\": \"\"admin@prezlab.com\"\", \"\"password\"\": \"\"prezlab2024\"\"}\")",
+      "Bash(npx tsc:*)",
+      "Bash(curl:*)",
+      "Bash(copy:*)",
+      "Bash(pip install:*)"
     ],
     "deny": [],
     "ask": []

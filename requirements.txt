@@ -3,8 +3,11 @@ setuptools>=68
 wheel>=0.41
 fastapi==0.95.2
 uvicorn[standard]==0.24.0
-pydantic==1.10.7
+pydantic>=1.10.7
 requests==2.31.0
 python-dotenv==1.0.0
 openai>=1.35.5
 python-docx==1.1.2
+supabase>=2.22.0
+realtime>=2.22.0
+websockets>=15.0.0

@@ -75,6 +75,7 @@ const ProposalFollowupsPage: React.FC = () => {
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [forceRefresh, setForceRefresh] = useState<boolean>(false);
+  const [showLeadsOnly, setShowLeadsOnly] = useState<boolean>(false);
 
   // Fetch proposal follow-ups - load cached data on mount, refresh only when triggered
   const followupsQuery = useQuery(
@@ -414,6 +415,19 @@ const ProposalFollowupsPage: React.FC = () => {
             />
           </div>
 
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="showLeadsOnly"
+              checked={showLeadsOnly}
+              onChange={(e) => setShowLeadsOnly(e.target.checked)}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="showLeadsOnly" className="text-sm font-medium text-gray-700">
+              Show Leads Only
+            </label>
+          </div>
+
           {hasStarted && (
             <p className="text-xs text-gray-500 italic ml-2">
               Settings locked during analysis
@@ -550,31 +564,51 @@ const ProposalFollowupsPage: React.FC = () => {
           <div className="space-y-4">
             {selectedTab === 'unanswered' && (
               <>
-                {followupsQuery.data.unanswered.length === 0 ? (
-                  <div className="text-center py-12 bg-gray-50 rounded-lg">
-                    <CheckCircleIcon className="w-12 h-12 text-green-500 mx-auto mb-2" />
-                    <p className="text-gray-600">No unanswered emails! Great job! 🎉</p>
-                  </div>
-                ) : (
-                  followupsQuery.data.unanswered.map((thread) =>
-                    renderThreadCard(thread, 'unanswered')
-                  )
-                )}
+                {(() => {
+                  const filteredThreads = showLeadsOnly
+                    ? followupsQuery.data.unanswered.filter(t => t.classification?.is_lead !== false)
+                    : followupsQuery.data.unanswered;
+
+                  return filteredThreads.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 rounded-lg">
+                      <CheckCircleIcon className="w-12 h-12 text-green-500 mx-auto mb-2" />
+                      <p className="text-gray-600">
+                        {showLeadsOnly
+                          ? 'No unanswered lead emails! Great job! 🎉'
+                          : 'No unanswered emails! Great job! 🎉'}
+                      </p>
+                    </div>
+                  ) : (
+                    filteredThreads.map((thread) =>
+                      renderThreadCard(thread, 'unanswered')
+                    )
+                  );
+                })()}
               </>
             )}
 
             {selectedTab === 'pending' && (
               <>
-                {followupsQuery.data.pending_proposals.length === 0 ? (
-                  <div className="text-center py-12 bg-gray-50 rounded-lg">
-                    <CheckCircleIcon className="w-12 h-12 text-green-500 mx-auto mb-2" />
-                    <p className="text-gray-600">No pending proposals! All caught up! 🎉</p>
-                  </div>
-                ) : (
-                  followupsQuery.data.pending_proposals.map((thread) =>
-                    renderThreadCard(thread, 'pending')
-                  )
-                )}
+                {(() => {
+                  const filteredThreads = showLeadsOnly
+                    ? followupsQuery.data.pending_proposals.filter(t => t.classification?.is_lead !== false)
+                    : followupsQuery.data.pending_proposals;
+
+                  return filteredThreads.length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 rounded-lg">
+                      <CheckCircleIcon className="w-12 h-12 text-green-500 mx-auto mb-2" />
+                      <p className="text-gray-600">
+                        {showLeadsOnly
+                          ? 'No pending lead proposals! All caught up! 🎉'
+                          : 'No pending proposals! All caught up! 🎉'}
+                      </p>
+                    </div>
+                  ) : (
+                    filteredThreads.map((thread) =>
+                      renderThreadCard(thread, 'pending')
+                    )
+                  );
+                })()}
               </>
             )}
           </div>

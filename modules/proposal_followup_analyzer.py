@@ -288,8 +288,16 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                                 has_external_reply_after_proposal = True
                                 break
 
-                    # Only add to pending proposals if they haven't replied since the proposal
-                    if not has_external_reply_after_proposal:
+                    # Check if we've sent a recent internal follow-up (within no_response_days)
+                    # If we recently followed up, don't flag this as needing attention
+                    has_recent_internal_followup = False
+                    if last_received >= cutoff_date:  # Last email is recent and internal
+                        has_recent_internal_followup = True
+
+                    # Only add to pending proposals if:
+                    # 1. They haven't replied since the proposal
+                    # 2. We haven't sent a recent follow-up email
+                    if not has_external_reply_after_proposal and not has_recent_internal_followup:
                         # Find external sender email
                         external_email = None
                         for email in thread:
