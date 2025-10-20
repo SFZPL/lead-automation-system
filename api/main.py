@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
+import json
+import asyncio
 
 import os
 import sys
@@ -165,6 +167,15 @@ class ParseResponse(BaseModel):
     updated: int
     failed: int
     errors: List[str]
+
+
+class ParsePreviewRequest(BaseModel):
+    results_text: str
+
+
+class ParsePreviewResponse(BaseModel):
+    success: bool
+    results: List[EnrichedLeadResult]  # Reuse the same model
 
 
 class EnrichSingleLeadRequest(BaseModel):
@@ -413,6 +424,38 @@ def parse_results(payload: ParseRequest) -> ParseResponse:
     )
 
 
+@app.post("/perplexity/parse-preview", response_model=ParsePreviewResponse)
+def parse_preview(payload: ParsePreviewRequest) -> ParsePreviewResponse:
+    """Parse Perplexity output and return preview without pushing to Odoo"""
+    workflow = get_workflow()
+
+    _, original_leads = workflow.generate_enrichment_prompt()
+    if not original_leads:
+        raise HTTPException(status_code=409, detail="No leads available to reconcile the results against")
+
+    enriched = workflow.parse_perplexity_results(payload.results_text, original_leads)
+    if not enriched:
+        raise HTTPException(status_code=422, detail="Unable to parse Perplexity response")
+
+    # Build results for preview
+    results = []
+    for enriched_lead in enriched:
+        # Find original lead to show current vs suggested
+        original = next((l for l in original_leads if l.get('id') == enriched_lead.get('id')), {})
+
+        results.append(EnrichedLeadResult(
+            lead_id=enriched_lead.get('id', 0),
+            success=True,
+            current_data=original,
+            suggested_data=enriched_lead
+        ))
+
+    return ParsePreviewResponse(
+        success=True,
+        results=results
+    )
+
+
 @app.post("/perplexity/enrich-single", response_model=EnrichSingleLeadResponse)
 def enrich_single_lead(payload: EnrichSingleLeadRequest) -> EnrichSingleLeadResponse:
     """Enrich a single lead using Perplexity API"""
@@ -647,6 +690,134 @@ def enrich_batch_leads(payload: EnrichBatchRequest) -> EnrichBatchResponse:
         failed=failed,
         results=results
     )
+
+
+@app.post("/perplexity/enrich-batch-stream")
+async def enrich_batch_stream(payload: EnrichBatchRequest):
+    """Enrich leads individually with streaming progress updates"""
+
+    async def event_generator():
+        config = Config()
+        workflow = PerplexityWorkflow(config)
+        perplexity_client = PerplexityClient(config)
+
+        # Connect to Odoo
+        if not workflow.odoo.connect():
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to connect to Odoo'})}\n\n"
+            return
+
+        results = []
+        successful = 0
+        failed = 0
+
+        try:
+            # Fetch ALL leads from Odoo first
+            all_leads_data = workflow.odoo._call_kw(
+                'crm.lead', 'read',
+                [payload.lead_ids],
+                {'fields': [
+                    'id', 'name', 'partner_name', 'email_from', 'phone', 'mobile',
+                    'function', 'contact_name', 'x_studio_linkedin_profile',
+                    'website', 'city', 'country_id', 'x_studio_quality'
+                ]}
+            )
+
+            # Create a map for easy lookup
+            leads_map = {lead['id']: lead for lead in all_leads_data}
+
+            # Enrich each lead individually
+            for i, lead_id in enumerate(payload.lead_ids):
+                lead = leads_map.get(lead_id)
+                if not lead:
+                    yield f"data: {json.dumps({'type': 'error', 'lead_id': lead_id, 'message': f'Lead {lead_id} not found'})}\n\n"
+                    failed += 1
+                    continue
+
+                lead_name = lead.get('name') or lead.get('contact_name') or f'Lead {lead_id}'
+
+                # Send progress update
+                yield f"data: {json.dumps({'type': 'progress', 'lead_id': lead_id, 'lead_name': lead_name, 'current': i + 1, 'total': len(payload.lead_ids)})}\n\n"
+
+                # Format lead for enrichment
+                formatted_lead = {
+                    'id': lead_id,
+                    'Full Name': lead.get('name') or lead.get('contact_name') or '',
+                    'Company Name': lead.get('partner_name') or '',
+                    'email': lead.get('email_from') or '',
+                    'Phone': lead.get('phone') or '',
+                    'Mobile': lead.get('mobile') or '',
+                    'Job Role': lead.get('function') or '',
+                }
+
+                try:
+                    # Generate prompt for single lead
+                    prompt = workflow.generate_single_lead_prompt(formatted_lead)
+
+                    # Call Perplexity
+                    perplexity_response = perplexity_client.query(prompt)
+
+                    # Parse response
+                    enriched_data = workflow.parse_single_lead_response(perplexity_response, formatted_lead)
+
+                    # Store current data
+                    current_data = {
+                        'id': lead_id,
+                        'Full Name': lead.get('name') or lead.get('contact_name') or '',
+                        'Company Name': lead.get('partner_name') or '',
+                        'email': lead.get('email_from') or '',
+                        'Phone': lead.get('phone') or '',
+                        'Mobile': lead.get('mobile') or '',
+                        'Job Role': lead.get('function') or '',
+                        'LinkedIn Link': lead.get('x_studio_linkedin_profile') or '',
+                        'website': lead.get('website') or '',
+                        'City': lead.get('city') or '',
+                        'Country': lead.get('country_id')[1] if lead.get('country_id') else '',
+                        'Quality (Out of 5)': lead.get('x_studio_quality') or '',
+                    }
+
+                    result = EnrichedLeadResult(
+                        lead_id=lead_id,
+                        success=True,
+                        current_data=current_data,
+                        suggested_data=enriched_data
+                    )
+                    results.append(result)
+                    successful += 1
+
+                    # Send success update
+                    yield f"data: {json.dumps({'type': 'success', 'lead_id': lead_id, 'lead_name': lead_name})}\n\n"
+
+                except Exception as e:
+                    logger.error(f"Error enriching lead {lead_id}: {e}")
+                    result = EnrichedLeadResult(
+                        lead_id=lead_id,
+                        success=False,
+                        error=str(e)
+                    )
+                    results.append(result)
+                    failed += 1
+
+                    # Send error update
+                    yield f"data: {json.dumps({'type': 'error', 'lead_id': lead_id, 'lead_name': lead_name, 'message': str(e)})}\n\n"
+
+                # Small delay to avoid rate limiting
+                await asyncio.sleep(1)
+
+            # Send final completion
+            final_response = {
+                'type': 'complete',
+                'total': len(payload.lead_ids),
+                'successful': successful,
+                'failed': failed,
+                'results': [r.dict() for r in results]
+            }
+            yield f"data: {json.dumps(final_response)}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error in batch enrichment stream: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/perplexity/push-approved", response_model=PushApprovedResponse)
