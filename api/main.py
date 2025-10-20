@@ -169,15 +169,6 @@ class ParseResponse(BaseModel):
     errors: List[str]
 
 
-class ParsePreviewRequest(BaseModel):
-    results_text: str
-
-
-class ParsePreviewResponse(BaseModel):
-    success: bool
-    results: List[EnrichedLeadResult]  # Reuse the same model
-
-
 class EnrichSingleLeadRequest(BaseModel):
     lead_id: int
 
@@ -199,6 +190,15 @@ class EnrichedLeadResult(BaseModel):
     current_data: Optional[Dict[str, Any]] = None
     suggested_data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+
+class ParsePreviewRequest(BaseModel):
+    results_text: str
+
+
+class ParsePreviewResponse(BaseModel):
+    success: bool
+    results: List[EnrichedLeadResult]  # Reuse the same model
 
 
 class EnrichBatchResponse(BaseModel):
