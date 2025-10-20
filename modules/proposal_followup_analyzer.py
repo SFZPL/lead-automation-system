@@ -291,7 +291,8 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                     # Check if we've sent a recent internal follow-up (within no_response_days)
                     # If we recently followed up, don't flag this as needing attention
                     has_recent_internal_followup = False
-                    if last_received >= cutoff_date:  # Last email is recent and internal
+                    if last_received >= cutoff_date and self._is_internal_email(last_sender):
+                        # Last email is recent AND from us (internal)
                         has_recent_internal_followup = True
 
                     # Only add to pending proposals if:

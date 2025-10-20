@@ -308,6 +308,10 @@ class PerplexityWorkflow:
     def _parse_single_lead_section(self, section: str, original_lead: Dict[str, Any]) -> Dict[str, Any]:
         """Parse a single lead section from Perplexity output"""
 
+        # Remove Perplexity reference citations section at the end (everything after the first [1](...) style reference)
+        # This removes the entire reference list at the bottom
+        section = re.sub(r'\n\[\d+\]\(http[^\)]+\)[\s\S]*$', '', section, flags=re.MULTILINE)
+
         # Start with original lead data
         enriched_lead = original_lead.copy()
 
@@ -340,6 +344,10 @@ class PerplexityWorkflow:
             match = re.search(pattern, section, re.IGNORECASE | re.MULTILINE)
             if match:
                 value = match.group(1).strip()
+
+                # Remove Perplexity citation references like [1], [2], etc.
+                value = re.sub(r'\[\d+\]', '', value).strip()
+
                 # Skip if value starts with "not found" or similar (case insensitive)
                 value_lower = value.lower()
                 if value and not any(value_lower.startswith(x) for x in ['not found', 'not explicitly', 'n/a', 'none', 'not available']):
