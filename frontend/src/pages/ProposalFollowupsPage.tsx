@@ -11,8 +11,10 @@ import {
   ExclamationCircleIcon,
   CheckCircleIcon,
   PlayIcon,
+  UserPlusIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
+import AssignLeadModal from '../components/AssignLeadModal';
 
 interface ProposalFollowupSummary {
   unanswered_count: number;
@@ -67,15 +69,34 @@ interface ProposalFollowupData {
 }
 
 const ProposalFollowupsPage: React.FC = () => {
-  const [daysBack, setDaysBack] = useState<number>(3);
-  const [noResponseDays, setNoResponseDays] = useState<number>(3);
-  const [selectedTab, setSelectedTab] = useState<'unanswered' | 'pending'>('unanswered');
-  const [expandedThread, setExpandedThread] = useState<string | null>(null);
+  // Restore state from localStorage on mount
+  const getStoredState = <T,>(key: string, defaultValue: T): T => {
+    try {
+      const stored = localStorage.getItem(`proposalFollowups_${key}`);
+      return stored ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
+  const [daysBack, setDaysBack] = useState<number>(() => getStoredState('daysBack', 3));
+  const [noResponseDays, setNoResponseDays] = useState<number>(() => getStoredState('noResponseDays', 3));
+  const [selectedTab, setSelectedTab] = useState<'unanswered' | 'pending'>(() => getStoredState('selectedTab', 'unanswered'));
+  const [expandedThread, setExpandedThread] = useState<string | null>(() => getStoredState('expandedThread', null));
   const [hasStarted, setHasStarted] = useState<boolean>(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [forceRefresh, setForceRefresh] = useState<boolean>(false);
-  const [showLeadsOnly, setShowLeadsOnly] = useState<boolean>(false);
+  const [showLeadsOnly, setShowLeadsOnly] = useState<boolean>(() => getStoredState('showLeadsOnly', false));
+  const [assignModalOpen, setAssignModalOpen] = useState<boolean>(false);
+  const [selectedLeadForAssignment, setSelectedLeadForAssignment] = useState<ProposalFollowupThread | null>(null);
+
+  // Mock users list - TODO: Replace with actual API call to fetch users
+  const mockUsers = [
+    { id: 1, name: 'John Doe', email: 'john@prezlab.com' },
+    { id: 2, name: 'Jane Smith', email: 'jane@prezlab.com' },
+    { id: 3, name: 'Admin User', email: 'admin@prezlab.com' },
+  ];
 
   // Fetch proposal follow-ups - load cached data on mount, refresh only when triggered
   const followupsQuery = useQuery(
@@ -109,6 +130,27 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   );
 
+  // Persist state to localStorage
+  React.useEffect(() => {
+    localStorage.setItem('proposalFollowups_daysBack', JSON.stringify(daysBack));
+  }, [daysBack]);
+
+  React.useEffect(() => {
+    localStorage.setItem('proposalFollowups_noResponseDays', JSON.stringify(noResponseDays));
+  }, [noResponseDays]);
+
+  React.useEffect(() => {
+    localStorage.setItem('proposalFollowups_selectedTab', JSON.stringify(selectedTab));
+  }, [selectedTab]);
+
+  React.useEffect(() => {
+    localStorage.setItem('proposalFollowups_expandedThread', JSON.stringify(expandedThread));
+  }, [expandedThread]);
+
+  React.useEffect(() => {
+    localStorage.setItem('proposalFollowups_showLeadsOnly', JSON.stringify(showLeadsOnly));
+  }, [showLeadsOnly]);
+
   // Timer effect for elapsed time
   React.useEffect(() => {
     if (followupsQuery.isLoading && startTime) {
@@ -134,6 +176,11 @@ const ProposalFollowupsPage: React.FC = () => {
     setHasStarted(false);
     setStartTime(null);
     setElapsedTime(0);
+  };
+
+  const handleAssignLead = (thread: ProposalFollowupThread) => {
+    setSelectedLeadForAssignment(thread);
+    setAssignModalOpen(true);
   };
 
   const formatTime = (seconds: number): string => {
@@ -342,6 +389,17 @@ const ProposalFollowupsPage: React.FC = () => {
             Analysis not available for this thread
           </div>
         )}
+
+        {/* Assign Lead Button */}
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <button
+            onClick={() => handleAssignLead(thread)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            <UserPlusIcon className="w-4 h-4" />
+            Assign to Team Member
+          </button>
+        </div>
       </div>
     );
   };
@@ -614,6 +672,24 @@ const ProposalFollowupsPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Assign Lead Modal */}
+      {selectedLeadForAssignment && (
+        <AssignLeadModal
+          isOpen={assignModalOpen}
+          onClose={() => {
+            setAssignModalOpen(false);
+            setSelectedLeadForAssignment(null);
+          }}
+          lead={{
+            conversation_id: selectedLeadForAssignment.conversation_id,
+            external_email: selectedLeadForAssignment.external_email,
+            subject: selectedLeadForAssignment.subject,
+            lead_data: selectedLeadForAssignment,
+          }}
+          users={mockUsers}
+        />
+      )}
     </div>
   );
 };

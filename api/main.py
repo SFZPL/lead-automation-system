@@ -1102,6 +1102,172 @@ def analyze_followup_thread(thread_data: Dict[str, Any]):
 
 
 # ============================================================================
+# LEAD ASSIGNMENT ENDPOINTS
+# ============================================================================
+
+class LeadAssignmentCreate(BaseModel):
+    conversation_id: str
+    external_email: str
+    subject: str
+    assigned_to_user_id: int
+    lead_data: Dict[str, Any]
+    notes: Optional[str] = None
+    analysis_cache_id: Optional[str] = None
+
+
+class LeadAssignmentUpdate(BaseModel):
+    status: Literal["accepted", "completed", "rejected"]
+    notes: Optional[str] = None
+
+
+@app.post("/lead-assignments")
+def create_lead_assignment(
+    assignment: LeadAssignmentCreate,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Assign a lead to another user.
+
+    Args:
+        assignment: Assignment details
+        current_user: Authenticated user making the assignment
+
+    Returns:
+        Created assignment record
+    """
+    if not supabase.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Lead assignment requires Supabase connection"
+        )
+
+    try:
+        user_id = current_user.get("id")
+
+        result = supabase.create_lead_assignment(
+            conversation_id=assignment.conversation_id,
+            external_email=assignment.external_email,
+            subject=assignment.subject,
+            assigned_from_user_id=user_id,
+            assigned_to_user_id=assignment.assigned_to_user_id,
+            lead_data=assignment.lead_data,
+            notes=assignment.notes,
+            analysis_cache_id=assignment.analysis_cache_id
+        )
+
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to create assignment")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error creating lead assignment: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/lead-assignments/received")
+def get_received_assignments(
+    status: Optional[Literal["pending", "accepted", "completed", "rejected"]] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Get leads assigned to the current user.
+
+    Args:
+        status: Optional filter by status
+        current_user: Authenticated user
+
+    Returns:
+        List of received assignments
+    """
+    if not supabase.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Lead assignment requires Supabase connection"
+        )
+
+    try:
+        user_id = current_user.get("id")
+        assignments = supabase.get_received_assignments(user_id=user_id, status=status)
+        return {"assignments": assignments, "count": len(assignments)}
+
+    except Exception as e:
+        logger.error(f"Error fetching received assignments: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/lead-assignments/sent")
+def get_sent_assignments(
+    status: Optional[Literal["pending", "accepted", "completed", "rejected"]] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Get leads assigned by the current user.
+
+    Args:
+        status: Optional filter by status
+        current_user: Authenticated user
+
+    Returns:
+        List of sent assignments
+    """
+    if not supabase.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Lead assignment requires Supabase connection"
+        )
+
+    try:
+        user_id = current_user.get("id")
+        assignments = supabase.get_sent_assignments(user_id=user_id, status=status)
+        return {"assignments": assignments, "count": len(assignments)}
+
+    except Exception as e:
+        logger.error(f"Error fetching sent assignments: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/lead-assignments/{assignment_id}")
+def update_assignment(
+    assignment_id: str,
+    update: LeadAssignmentUpdate,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Update a lead assignment status.
+
+    Args:
+        assignment_id: Assignment UUID
+        update: Status update
+        current_user: Authenticated user
+
+    Returns:
+        Success status
+    """
+    if not supabase.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Lead assignment requires Supabase connection"
+        )
+
+    try:
+        success = supabase.update_assignment_status(
+            assignment_id=assignment_id,
+            status=update.status,
+            notes=update.notes
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update assignment")
+
+        return {"success": True, "assignment_id": assignment_id, "status": update.status}
+
+    except Exception as e:
+        logger.error(f"Error updating assignment: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # EMAIL / OUTLOOK OAUTH2 ENDPOINTS
 # ============================================================================
 

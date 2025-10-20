@@ -27,7 +27,8 @@
       "Bash(npx tsc:*)",
       "Bash(curl:*)",
       "Bash(copy:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []

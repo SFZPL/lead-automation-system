@@ -79,6 +79,23 @@ export const api = {
     apiClient.get('/proposal-followups', { params }),
   analyzeFollowupThread: (threadData: any) => apiClient.post('/proposal-followups/analyze-thread', threadData),
 
+  // Lead assignments
+  createLeadAssignment: (data: {
+    conversation_id: string;
+    external_email: string;
+    subject: string;
+    assigned_to_user_id: number;
+    lead_data: any;
+    notes?: string;
+    analysis_cache_id?: string;
+  }) => apiClient.post('/lead-assignments', data),
+  getReceivedAssignments: (params?: { status?: 'pending' | 'accepted' | 'completed' | 'rejected' }) =>
+    apiClient.get('/lead-assignments/received', { params }),
+  getSentAssignments: (params?: { status?: 'pending' | 'accepted' | 'completed' | 'rejected' }) =>
+    apiClient.get('/lead-assignments/sent', { params }),
+  updateAssignment: (assignmentId: string, data: { status: 'accepted' | 'completed' | 'rejected'; notes?: string }) =>
+    apiClient.patch(`/lead-assignments/${assignmentId}`, data),
+
   // Email / Outlook OAuth
   startOutlookAuth: () => apiClient.get('/auth/outlook/start'),
   outlookAuthCallback: (data: { code: string; state: string; user_identifier?: string }) =>
