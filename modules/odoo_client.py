@@ -588,12 +588,16 @@ class OdooClient:
 
             # LinkedIn Profile (x_studio_linkedin_profile)
             if 'LinkedIn Link' in values and values['LinkedIn Link']:
-                if is_empty(current_data.get('x_studio_linkedin_profile')):
-                    linkedin = str(values['LinkedIn Link']).strip()
-                    if linkedin and linkedin.lower() not in ['not found', 'n/a', 'none']:
+                current_value = current_data.get('x_studio_linkedin_profile')
+                new_value = str(values['LinkedIn Link']).strip()
+                if is_empty(current_value):
+                    if new_value and new_value.lower() not in ['not found', 'n/a', 'none']:
                         # Store as HTML link for the HTML field
-                        linkedin_html = f'<a href="{linkedin}" target="_blank">{linkedin}</a>'
+                        linkedin_html = f'<a href="{new_value}" target="_blank">{new_value}</a>'
                         odoo_fields['x_studio_linkedin_profile'] = linkedin_html
+                        logger.info(f"Lead {lead_id}: Will update LinkedIn Profile to {repr(new_value)}")
+                else:
+                    logger.info(f"Lead {lead_id}: SKIPPING LinkedIn Profile update - current value {repr(current_value)} is not empty")
 
             # Quality (x_studio_quality) - selection field with keys like "[0/5]", "[1/5]", etc.
             if 'Quality (Out of 5)' in values and values['Quality (Out of 5)']:

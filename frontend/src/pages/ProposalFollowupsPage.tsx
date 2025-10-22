@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import toast from 'react-hot-toast';
 import {
   EnvelopeIcon,
@@ -12,6 +12,8 @@ import {
   CheckCircleIcon,
   PlayIcon,
   UserPlusIcon,
+  XCircleIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 import AssignLeadModal from '../components/AssignLeadModal';
@@ -19,6 +21,7 @@ import AssignLeadModal from '../components/AssignLeadModal';
 interface ProposalFollowupSummary {
   unanswered_count: number;
   pending_proposals_count: number;
+  filtered_count?: number;
   total_count: number;
   days_back: number;
   no_response_days: number;
@@ -66,9 +69,25 @@ interface ProposalFollowupData {
   summary: ProposalFollowupSummary;
   unanswered: ProposalFollowupThread[];
   pending_proposals: ProposalFollowupThread[];
+  filtered?: ProposalFollowupThread[];
+}
+
+interface SavedReport {
+  id: number;
+  report_type: '90day' | 'monthly' | 'weekly';
+  report_period: string;
+  created_at: string;
+  result: ProposalFollowupData;
+  parameters: {
+    days_back: number;
+    no_response_days: number;
+    engage_email: string;
+  };
 }
 
 const ProposalFollowupsPage: React.FC = () => {
+  const queryClient = useQueryClient();
+
   // Restore state from localStorage on mount
   const getStoredState = <T,>(key: string, defaultValue: T): T => {
     try {
@@ -81,15 +100,27 @@ const ProposalFollowupsPage: React.FC = () => {
 
   const [daysBack, setDaysBack] = useState<number>(() => getStoredState('daysBack', 3));
   const [noResponseDays, setNoResponseDays] = useState<number>(() => getStoredState('noResponseDays', 3));
-  const [selectedTab, setSelectedTab] = useState<'unanswered' | 'pending'>(() => getStoredState('selectedTab', 'unanswered'));
+  const [selectedTab, setSelectedTab] = useState<'unanswered' | 'pending' | 'reports'>(() => getStoredState('selectedTab', 'unanswered'));
   const [expandedThread, setExpandedThread] = useState<string | null>(() => getStoredState('expandedThread', null));
   const [hasStarted, setHasStarted] = useState<boolean>(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [forceRefresh, setForceRefresh] = useState<boolean>(false);
   const [showLeadsOnly, setShowLeadsOnly] = useState<boolean>(() => getStoredState('showLeadsOnly', false));
+  const [showFilteredEmails, setShowFilteredEmails] = useState<boolean>(() => getStoredState('showFilteredEmails', false));
   const [assignModalOpen, setAssignModalOpen] = useState<boolean>(false);
   const [selectedLeadForAssignment, setSelectedLeadForAssignment] = useState<ProposalFollowupThread | null>(null);
+  const [showGenerateReportModal, setShowGenerateReportModal] = useState<boolean>(false);
+  const [selectedReportType, setSelectedReportType] = useState<'90day' | 'monthly' | 'weekly'>('weekly');
+  const [showDraftModal, setShowDraftModal] = useState<boolean>(false);
+  const [selectedThread, setSelectedThread] = useState<ProposalFollowupThread | null>(null);
+  const [draftEmail, setDraftEmail] = useState<string>('');
+  const [editPrompt, setEditPrompt] = useState<string>('');
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState<boolean>(false);
+  const [isRefiningDraft, setIsRefiningDraft] = useState<boolean>(false);
+  const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false);
+  const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
+  const [reportGenerationStartTime, setReportGenerationStartTime] = useState<number | null>(null);
 
   // Mock users list - TODO: Replace with actual API call to fetch users
   const mockUsers = [
@@ -130,6 +161,20 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   );
 
+  // Fetch saved reports
+  const reportsQuery = useQuery(
+    ['saved-reports'],
+    async () => {
+      const response = await api.getSavedReports();
+      return response.data.reports as SavedReport[];
+    },
+    {
+      enabled: selectedTab === 'reports',
+      refetchOnWindowFocus: false,
+      staleTime: 5 * 60 * 1000, // 5 minutes
+    }
+  );
+
   // Persist state to localStorage
   React.useEffect(() => {
     localStorage.setItem('proposalFollowups_daysBack', JSON.stringify(daysBack));
@@ -151,6 +196,10 @@ const ProposalFollowupsPage: React.FC = () => {
     localStorage.setItem('proposalFollowups_showLeadsOnly', JSON.stringify(showLeadsOnly));
   }, [showLeadsOnly]);
 
+  React.useEffect(() => {
+    localStorage.setItem('proposalFollowups_showFilteredEmails', JSON.stringify(showFilteredEmails));
+  }, [showFilteredEmails]);
+
   // Timer effect for elapsed time
   React.useEffect(() => {
     if (followupsQuery.isLoading && startTime) {
@@ -163,6 +212,19 @@ const ProposalFollowupsPage: React.FC = () => {
       setElapsedTime(0);
     }
   }, [followupsQuery.isLoading, startTime]);
+
+  // Timer effect for report generation elapsed time
+  const [reportElapsedTime, setReportElapsedTime] = React.useState<number>(0);
+  React.useEffect(() => {
+    if (isGeneratingReport && reportGenerationStartTime) {
+      const timer = setInterval(() => {
+        setReportElapsedTime(Math.floor((Date.now() - reportGenerationStartTime) / 1000));
+      }, 1000);
+      return () => clearInterval(timer);
+    } else {
+      setReportElapsedTime(0);
+    }
+  }, [isGeneratingReport, reportGenerationStartTime]);
 
   const handleStartAnalysis = () => {
     setHasStarted(true);
@@ -181,6 +243,94 @@ const ProposalFollowupsPage: React.FC = () => {
   const handleAssignLead = (thread: ProposalFollowupThread) => {
     setSelectedLeadForAssignment(thread);
     setAssignModalOpen(true);
+  };
+
+  const handleGenerateDraft = async (thread: ProposalFollowupThread) => {
+    setSelectedThread(thread);
+    setIsGeneratingDraft(true);
+    setShowDraftModal(true);
+    setDraftEmail('');
+    setEditPrompt('');
+
+    try {
+      const response = await api.generateDraft({
+        thread_data: thread
+      });
+      setDraftEmail(response.data.draft || '');
+      toast.success('Draft generated successfully!');
+    } catch (error) {
+      console.error('Error generating draft:', error);
+      toast.error('Failed to generate draft');
+      setShowDraftModal(false);
+    } finally {
+      setIsGeneratingDraft(false);
+    }
+  };
+
+  const handleRefineDraft = async () => {
+    if (!editPrompt.trim()) {
+      toast.error('Please enter refinement instructions');
+      return;
+    }
+
+    setIsRefiningDraft(true);
+    try {
+      const response = await api.refineDraft({
+        current_draft: draftEmail,
+        edit_prompt: editPrompt
+      });
+      setDraftEmail(response.data.refined_draft || '');
+      setEditPrompt('');
+      toast.success('Draft refined successfully!');
+    } catch (error) {
+      console.error('Error refining draft:', error);
+      toast.error('Failed to refine draft');
+    } finally {
+      setIsRefiningDraft(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!selectedThread || !draftEmail.trim()) {
+      toast.error('No draft to send');
+      return;
+    }
+
+    setIsSendingEmail(true);
+    try {
+      await api.sendFollowupEmail({
+        conversation_id: selectedThread.conversation_id,
+        draft_body: draftEmail,
+        subject: selectedThread.subject
+      });
+      toast.success('Email sent successfully and marked as complete!');
+      setShowDraftModal(false);
+      setDraftEmail('');
+      setSelectedThread(null);
+      // Refresh the follow-ups to remove completed item
+      followupsQuery.refetch();
+    } catch (error) {
+      console.error('Error sending email:', error);
+      toast.error('Failed to send email');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  const handleMarkComplete = async (thread: ProposalFollowupThread) => {
+    try {
+      await api.markFollowupComplete({
+        thread_id: thread.conversation_id,
+        conversation_id: thread.conversation_id,
+        notes: 'Manually marked as complete'
+      });
+      toast.success('Follow-up marked as complete!');
+      // Refresh to remove from list
+      followupsQuery.refetch();
+    } catch (error) {
+      console.error('Error marking complete:', error);
+      toast.error('Failed to mark as complete');
+    }
   };
 
   const formatTime = (seconds: number): string => {
@@ -351,35 +501,6 @@ const ProposalFollowupsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Draft Email Toggle */}
-            {thread.analysis.draft_email && (
-              <div>
-                <button
-                  onClick={() => setExpandedThread(isExpanded ? null : thread.conversation_id)}
-                  className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  <DocumentTextIcon className="w-4 h-4" />
-                  {isExpanded ? 'Hide' : 'Show'} Draft Email
-                </button>
-
-                {isExpanded && (
-                  <div className="mt-2 bg-gray-50 rounded-md p-3 border border-gray-200">
-                    <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
-                      {thread.analysis.draft_email}
-                    </pre>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(thread.analysis!.draft_email);
-                        toast.success('Draft email copied to clipboard!');
-                      }}
-                      className="mt-2 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                    >
-                      Copy to Clipboard
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
 
@@ -390,14 +511,30 @@ const ProposalFollowupsPage: React.FC = () => {
           </div>
         )}
 
-        {/* Assign Lead Button */}
-        <div className="mt-4 pt-4 border-t border-gray-200">
+        {/* Action Buttons */}
+        <div className="mt-4 pt-4 border-t border-gray-200 flex gap-3">
+          <button
+            onClick={() => handleGenerateDraft(thread)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <DocumentTextIcon className="w-4 h-4" />
+            Generate Draft
+          </button>
+
+          <button
+            onClick={() => handleMarkComplete(thread)}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <CheckCircleIcon className="w-4 h-4" />
+            Mark Complete
+          </button>
+
           <button
             onClick={() => handleAssignLead(thread)}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors"
           >
             <UserPlusIcon className="w-4 h-4" />
-            Assign to Team Member
+            Assign Lead
           </button>
         </div>
       </div>
@@ -486,6 +623,24 @@ const ProposalFollowupsPage: React.FC = () => {
             </label>
           </div>
 
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="showFilteredEmails"
+              checked={showFilteredEmails}
+              onChange={(e) => setShowFilteredEmails(e.target.checked)}
+              className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+            />
+            <label htmlFor="showFilteredEmails" className="text-sm font-medium text-gray-700">
+              Show Filtered Emails
+              {followupsQuery.data?.summary?.filtered_count ? (
+                <span className="ml-1 text-xs text-gray-500">
+                  ({followupsQuery.data.summary.filtered_count})
+                </span>
+              ) : null}
+            </label>
+          </div>
+
           {hasStarted && (
             <p className="text-xs text-gray-500 italic ml-2">
               Settings locked during analysis
@@ -567,6 +722,22 @@ const ProposalFollowupsPage: React.FC = () => {
             {followupsQuery.data && (
               <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-blue-100 text-blue-800">
                 {followupsQuery.data.summary.pending_proposals_count}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setSelectedTab('reports')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              selectedTab === 'reports'
+                ? 'border-purple-500 text-purple-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            📊 Saved Reports
+            {reportsQuery.data && (
+              <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-purple-100 text-purple-800">
+                {reportsQuery.data.length}
               </span>
             )}
           </button>
@@ -669,9 +840,393 @@ const ProposalFollowupsPage: React.FC = () => {
                 })()}
               </>
             )}
+
+            {/* Filtered Emails Section */}
+            {showFilteredEmails && followupsQuery.data?.filtered && followupsQuery.data.filtered.length > 0 && (
+              <div className="mt-6 space-y-4">
+                <div className="border-t border-gray-200 pt-6">
+                  <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <ExclamationCircleIcon className="w-5 h-5 text-yellow-600" />
+                    Filtered Emails ({followupsQuery.data.filtered.length})
+                    <span className="text-xs font-normal text-gray-500">
+                      (job apps, spam, newsletters, etc.)
+                    </span>
+                  </h3>
+                  <div className="space-y-3">
+                    {followupsQuery.data.filtered.map((thread, index) => (
+                      <div key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900">{thread.subject}</h4>
+                            <p className="text-sm text-gray-600 mt-1">
+                              From: {thread.external_email}
+                            </p>
+                            <div className="flex items-center gap-3 mt-2 text-xs">
+                              <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded">
+                                {thread.classification?.category || 'unknown'}
+                              </span>
+                              <span className="text-gray-500">
+                                Confidence: {Math.round((thread.classification?.confidence || 0) * 100)}%
+                              </span>
+                              <span className="text-gray-500">
+                                {thread.days_waiting} days ago
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {selectedTab === 'reports' && (
+              <div className="space-y-4">
+                {/* Generate Report Button */}
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900">Saved Reports</h2>
+                    <p className="text-sm text-gray-600">View and generate follow-up reports for your team</p>
+                  </div>
+                  <button
+                    onClick={() => setShowGenerateReportModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  >
+                    <DocumentTextIcon className="w-5 h-5" />
+                    Generate New Report
+                  </button>
+                </div>
+
+                {/* Reports List */}
+                {reportsQuery.isLoading && (
+                  <div className="text-center py-12">
+                    <ArrowPathIcon className="w-12 h-12 text-purple-500 animate-spin mx-auto mb-4" />
+                    <p className="text-gray-600">Loading saved reports...</p>
+                  </div>
+                )}
+
+                {/* Report Generation Loading Indicator */}
+                {isGeneratingReport && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <ArrowPathIcon className="w-8 h-8 text-purple-600 animate-spin" />
+                        <div>
+                          <p className="text-lg font-semibold text-purple-900">
+                            Generating {selectedReportType === '90day' ? '90-day' : selectedReportType} report...
+                          </p>
+                          <p className="text-sm text-purple-700 mt-1">
+                            Elapsed time: {formatTime(reportElapsedTime)} • Estimated: {
+                              selectedReportType === 'weekly' ? '~30 seconds' :
+                              selectedReportType === 'monthly' ? '~2 minutes' :
+                              '~5 minutes'
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {reportsQuery.data && reportsQuery.data.length === 0 && !isGeneratingReport && (
+                  <div className="text-center py-12 bg-gray-50 rounded-lg">
+                    <DocumentTextIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-600">No saved reports yet. Generate your first report!</p>
+                  </div>
+                )}
+
+                {reportsQuery.data && reportsQuery.data.length > 0 && (
+                  <div className="grid grid-cols-1 gap-4">
+                    {reportsQuery.data.map((report) => (
+                      <div
+                        key={report.id}
+                        onClick={() => {
+                          // Load this report's data into the query cache
+                          queryClient.setQueryData(
+                            ['proposal-followups', daysBack, noResponseDays, forceRefresh],
+                            report.result
+                          );
+                          // Switch to unanswered tab to show the analysis
+                          setSelectedTab('unanswered');
+                          setHasStarted(true);
+                        }}
+                        className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md hover:border-purple-300 transition-all"
+                      >
+                        <div className="flex justify-between items-start mb-4">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">
+                              {report.report_type === '90day' && '90-Day Report'}
+                              {report.report_type === 'monthly' && 'Monthly Report'}
+                              {report.report_type === 'weekly' && 'Weekly Report'}
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              Period: {report.report_period} • Generated: {formatDate(report.created_at)}
+                            </p>
+                          </div>
+                          <span className="px-3 py-1 text-sm font-medium rounded-full bg-purple-100 text-purple-800">
+                            {report.report_type}
+                          </span>
+                        </div>
+
+                        {/* Report Summary */}
+                        <div className="grid grid-cols-3 gap-4 mb-4">
+                          <div className="bg-orange-50 rounded-lg p-3">
+                            <p className="text-xs text-orange-600 font-medium">Unanswered</p>
+                            <p className="text-2xl font-bold text-orange-700">{report.result?.summary?.unanswered_count || 0}</p>
+                          </div>
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <p className="text-xs text-blue-600 font-medium">Pending Proposals</p>
+                            <p className="text-2xl font-bold text-blue-700">{report.result?.summary?.pending_proposals_count || 0}</p>
+                          </div>
+                          <div className="bg-purple-50 rounded-lg p-3">
+                            <p className="text-xs text-purple-600 font-medium">Total</p>
+                            <p className="text-2xl font-bold text-purple-700">{report.result?.summary?.total_count || 0}</p>
+                          </div>
+                        </div>
+
+                        {/* Report Parameters */}
+                        <div className="text-xs text-gray-500 space-x-4">
+                          <span>Lookback: {report.parameters.days_back} days</span>
+                          <span>•</span>
+                          <span>No Response: {report.parameters.no_response_days} days</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Generate Report Modal */}
+      {showGenerateReportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Generate New Report</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Report Type
+                </label>
+                <select
+                  value={selectedReportType}
+                  onChange={(e) => setSelectedReportType(e.target.value as '90day' | 'monthly' | 'weekly')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                >
+                  <option value="weekly">Weekly Report (7 days)</option>
+                  <option value="monthly">Monthly Report (30 days)</option>
+                  <option value="90day">90-Day Report</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  No Response Threshold (days)
+                </label>
+                <input
+                  type="number"
+                  value={noResponseDays}
+                  onChange={(e) => setNoResponseDays(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  min="1"
+                  max="14"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowGenerateReportModal(false)}
+                disabled={isGeneratingReport}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const estimatedTimes = {
+                    weekly: 30,
+                    monthly: 120,
+                    '90day': 300
+                  };
+                  const estimatedSeconds = estimatedTimes[selectedReportType];
+
+                  setIsGeneratingReport(true);
+                  setReportGenerationStartTime(Date.now());
+                  setShowGenerateReportModal(false);
+
+                  try {
+                    await toast.promise(
+                      api.generateReport({
+                        report_type: selectedReportType,
+                        no_response_days: noResponseDays,
+                        engage_email: 'automated.response@prezlab.com'
+                      }),
+                      {
+                        loading: `Generating ${selectedReportType} report... (estimated ${Math.floor(estimatedSeconds / 60)}${estimatedSeconds >= 60 ? ` min` : ` sec`})`,
+                        success: 'Report generated successfully!',
+                        error: 'Failed to generate report'
+                      }
+                    );
+                    await reportsQuery.refetch();
+                  } catch (error) {
+                    console.error('Error generating report:', error);
+                  } finally {
+                    setIsGeneratingReport(false);
+                    setReportGenerationStartTime(null);
+                  }
+                }}
+                disabled={isGeneratingReport}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Generate Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Draft Email Modal */}
+      {showDraftModal && selectedThread && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Email Draft</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  To: {selectedThread.external_email} • Subject: {selectedThread.subject}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDraftModal(false);
+                  setDraftEmail('');
+                  setSelectedThread(null);
+                  setEditPrompt('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XCircleIcon className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Loading State */}
+            {isGeneratingDraft && (
+              <div className="text-center py-12">
+                <ArrowPathIcon className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" />
+                <p className="text-gray-600">Generating draft email...</p>
+              </div>
+            )}
+
+            {/* Draft Editor */}
+            {!isGeneratingDraft && (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email Draft (editable)
+                  </label>
+                  <textarea
+                    value={draftEmail}
+                    onChange={(e) => setDraftEmail(e.target.value)}
+                    rows={12}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md font-sans text-sm"
+                    placeholder="Draft email will appear here..."
+                  />
+                </div>
+
+                {/* AI Refinement */}
+                <div className="mb-4 bg-gray-50 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    ✨ Refine with AI
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={editPrompt}
+                      onChange={(e) => setEditPrompt(e.target.value)}
+                      placeholder="e.g., Make it shorter, Add urgency, More professional..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleRefineDraft();
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={handleRefineDraft}
+                      disabled={isRefiningDraft || !editPrompt.trim()}
+                      className="px-4 py-2 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isRefiningDraft ? (
+                        <>
+                          <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          Refining...
+                        </>
+                      ) : (
+                        <>
+                          <SparklesIcon className="w-4 h-4" />
+                          Refine
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Tell the AI how to improve the draft
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setShowDraftModal(false);
+                      setDraftEmail('');
+                      setSelectedThread(null);
+                      setEditPrompt('');
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(draftEmail);
+                      toast.success('Draft copied to clipboard!');
+                    }}
+                    disabled={!draftEmail.trim()}
+                    className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Copy to Clipboard
+                  </button>
+
+                  <button
+                    onClick={handleSendEmail}
+                    disabled={isSendingEmail || !draftEmail.trim()}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSendingEmail ? (
+                      <>
+                        <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <EnvelopeIcon className="w-4 h-4" />
+                        Send Email
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Assign Lead Modal */}
       {selectedLeadForAssignment && (

@@ -424,6 +424,165 @@ class OutlookClient:
             logger.error(f"Error fetching group conversations: {exc}")
             raise
 
+    def search_group_emails_for_contact(
+        self,
+        access_token: str,
+        group_email: str,
+        contact_emails: List[str],
+        days_back: int = 90,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for emails in a Microsoft 365 Group related to specific contact email addresses.
+        Uses Microsoft Graph search API for efficient querying.
+
+        Args:
+            access_token: OAuth2 access token
+            group_email: Email address of the group (e.g., engage@prezlab.com)
+            contact_emails: List of email addresses to search for (lead, partner, contact emails)
+            days_back: Number of days to look back
+            limit: Maximum number of emails to return
+
+        Returns:
+            List of email messages
+        """
+        try:
+            # Filter out empty/None emails
+            valid_emails = [e.strip() for e in contact_emails if e and e.strip()]
+            if not valid_emails:
+                logger.warning("No valid contact emails provided for search")
+                return []
+
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+            # Find the group by email
+            groups = self.get_user_groups(access_token)
+            group = next((g for g in groups if g.get("mail", "").lower() == group_email.lower()), None)
+
+            if not group:
+                logger.error(f"Group not found with email: {group_email}")
+                return []
+
+            group_id = group["id"]
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+            cutoff_str = cutoff_date.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            all_emails = []
+            seen_ids = set()
+
+            # Search for each contact email
+            for contact_email in valid_emails[:3]:  # Limit to first 3 emails to avoid too many requests
+                logger.info(f"Searching group emails for contact: {contact_email}")
+
+                # Use $search parameter to find emails with this participant
+                # Note: $search works on various fields including from, to, cc, subject, body
+                url = f"{self.GRAPH_API_BASE}/groups/{group_id}/conversations"
+                params = {
+                    "$top": 25,
+                    "$orderby": "lastDeliveredDateTime desc"
+                }
+
+                try:
+                    response = requests.get(url, headers=headers, params=params, timeout=60)
+                    response.raise_for_status()
+                    data = response.json()
+                    conversations = data.get("value", [])
+
+                    for conv in conversations:
+                        conv_id = conv.get("id")
+                        if not conv_id or conv_id in seen_ids:
+                            continue
+
+                        # Check date
+                        last_delivered = conv.get("lastDeliveredDateTime")
+                        if last_delivered:
+                            delivered_dt = datetime.fromisoformat(last_delivered.replace("Z", "+00:00"))
+                            if delivered_dt < cutoff_date:
+                                continue
+
+                        # Fetch threads to get actual email content
+                        try:
+                            threads_url = f"{self.GRAPH_API_BASE}/groups/{group_id}/conversations/{conv_id}/threads"
+                            threads_response = requests.get(threads_url, headers=headers, timeout=30)
+                            threads_response.raise_for_status()
+                            threads = threads_response.json().get("value", [])
+
+                            for thread in threads:
+                                thread_id = thread.get("id")
+                                if not thread_id:
+                                    continue
+
+                                # Fetch posts (actual emails)
+                                posts_url = f"{self.GRAPH_API_BASE}/groups/{group_id}/conversations/{conv_id}/threads/{thread_id}/posts"
+                                posts_response = requests.get(posts_url, headers=headers, timeout=30)
+                                posts_response.raise_for_status()
+                                posts = posts_response.json().get("value", [])
+
+                                for post in posts:
+                                    post_id = post.get("id")
+                                    if post_id in seen_ids:
+                                        continue
+
+                                    # Check if this email involves the contact
+                                    from_addr = post.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+                                    recipients_list = post.get("toRecipients", []) + post.get("ccRecipients", [])
+                                    to_addrs = [r.get("emailAddress", {}).get("address", "").lower() for r in recipients_list]
+                                    subject = post.get("subject", "")
+                                    body = post.get("body", {}).get("content", "")
+
+                                    # Check if contact email appears in from or to
+                                    contact_lower = contact_email.lower()
+                                    if contact_lower in from_addr or any(contact_lower in addr for addr in to_addrs):
+                                        received_dt_str = post.get("receivedDateTime", "")
+                                        received_dt = None
+                                        if received_dt_str:
+                                            try:
+                                                received_dt = datetime.fromisoformat(received_dt_str.replace("Z", "+00:00"))
+                                            except:
+                                                pass
+
+                                        email_msg = {
+                                            "id": post_id,
+                                            "subject": subject,
+                                            "from": from_addr,
+                                            "to": ", ".join(to_addrs),
+                                            "body": body,
+                                            "date": received_dt_str,
+                                            "formatted_date": received_dt.strftime("%b %d, %Y %I:%M %p") if received_dt else ""
+                                        }
+
+                                        all_emails.append(email_msg)
+                                        seen_ids.add(post_id)
+
+                                        if len(all_emails) >= limit:
+                                            break
+
+                                if len(all_emails) >= limit:
+                                    break
+
+                        except Exception as e:
+                            logger.warning(f"Error fetching thread/posts: {e}")
+                            continue
+
+                        seen_ids.add(conv_id)
+
+                        if len(all_emails) >= limit:
+                            break
+
+                except Exception as e:
+                    logger.warning(f"Error searching for {contact_email}: {e}")
+                    continue
+
+                if len(all_emails) >= limit:
+                    break
+
+            logger.info(f"Found {len(all_emails)} emails for contacts: {', '.join(valid_emails)}")
+            return all_emails[:limit]
+
+        except Exception as exc:
+            logger.error(f"Error searching group emails: {exc}")
+            return []
+
     def send_email(
         self,
         access_token: str,
@@ -495,4 +654,71 @@ class OutlookClient:
             raise
         except Exception as exc:
             logger.error(f"Unexpected error sending email: {exc}")
+            return False
+
+    def send_reply(
+        self,
+        access_token: str,
+        conversation_id: str,
+        reply_body: str,
+        subject: str,
+        reply_to_message_id: Optional[str] = None
+    ) -> bool:
+        """
+        Send a reply email in a specific conversation thread.
+
+        Args:
+            access_token: Microsoft Graph API access token
+            conversation_id: The conversation ID to reply in
+            reply_body: HTML body of the reply
+            subject: Email subject
+            reply_to_message_id: Specific message ID to reply to (if None, replies to latest in thread)
+
+        Returns:
+            True if reply sent successfully, False otherwise
+        """
+        try:
+            # If no specific message ID provided, get the latest message from the conversation
+            if not reply_to_message_id:
+                # Find the latest message in this conversation
+                messages = self.get_group_conversations(
+                    access_token=access_token,
+                    group_id=None,  # Will use default engage group
+                    days_back=90
+                )
+
+                # Find message in this conversation
+                for msg in messages:
+                    if msg.get("conversationId") == conversation_id:
+                        reply_to_message_id = msg.get("id")
+                        break
+
+                if not reply_to_message_id:
+                    logger.error(f"No message found for conversation {conversation_id}")
+                    return False
+
+            # Use the reply endpoint
+            url = f"{self.GRAPH_API_BASE}/me/messages/{reply_to_message_id}/reply"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+            message = {
+                "comment": reply_body
+            }
+
+            response = requests.post(url, headers=headers, json=message)
+            response.raise_for_status()
+
+            logger.info(f"Reply sent successfully to conversation {conversation_id}")
+            return True
+
+        except requests.exceptions.HTTPError as exc:
+            logger.error(f"Error sending reply: {exc}")
+            if exc.response.status_code == 401:
+                raise RuntimeError("Access token expired. Please refresh token.")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected error sending reply: {exc}")
             return False

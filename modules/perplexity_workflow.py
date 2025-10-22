@@ -15,6 +15,115 @@ class PerplexityWorkflow:
         self.config = config
         self.odoo = OdooClient(config)
 
+    def analyze_lead_complexity(self, lead: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze a single lead's enrichment complexity"""
+        complexity_score = 0
+        factors = []
+
+        # Missing basic info = higher complexity
+        if not lead.get('Full Name'):
+            complexity_score += 3
+            factors.append("Missing name")
+        elif len(lead.get('Full Name', '').split()) < 2:
+            complexity_score += 2
+            factors.append("Incomplete name")
+
+        # Non-English/Arabic names = higher complexity (harder to search)
+        name = lead.get('Full Name', '')
+        if name and not all(c.isascii() or c.isspace() for c in name):
+            complexity_score += 1
+            factors.append("Non-Latin characters")
+
+        # Missing email = higher complexity
+        if not lead.get('email'):
+            complexity_score += 2
+            factors.append("No email")
+
+        # Missing company = higher complexity
+        if not lead.get('Company Name'):
+            complexity_score += 2
+            factors.append("No company")
+
+        # Missing phone = moderate complexity
+        if not lead.get('Phone') and not lead.get('Mobile'):
+            complexity_score += 1
+            factors.append("No phone")
+
+        # Common names = higher complexity (more disambiguation needed)
+        common_names = ['john', 'mohammed', 'mohamed', 'ahmad', 'ali', 'sarah', 'david', 'michael']
+        first_name = name.split()[0].lower() if name else ''
+        if first_name in common_names:
+            complexity_score += 1
+            factors.append("Common name (disambiguation needed)")
+
+        # Determine complexity level
+        if complexity_score >= 7:
+            level = "Very High"
+        elif complexity_score >= 5:
+            level = "High"
+        elif complexity_score >= 3:
+            level = "Medium"
+        else:
+            level = "Low"
+
+        return {
+            "lead_id": lead.get('id'),
+            "name": lead.get('Full Name', 'Unknown'),
+            "complexity_score": complexity_score,
+            "complexity_level": level,
+            "factors": factors
+        }
+
+    def optimize_batch_split(self, leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Split leads into optimal batches for manual enrichment"""
+        # Analyze complexity for all leads
+        lead_analyses = [self.analyze_lead_complexity(lead) for lead in leads]
+
+        # Sort by complexity (high complexity first for better focus)
+        sorted_leads_with_analysis = sorted(
+            zip(leads, lead_analyses),
+            key=lambda x: x[1]['complexity_score'],
+            reverse=True
+        )
+
+        batches = []
+        current_batch = []
+        current_batch_complexity = 0
+        max_batch_complexity = 12  # Optimal complexity per batch
+        max_leads_per_batch = 5    # Max leads per batch
+
+        for lead, analysis in sorted_leads_with_analysis:
+            lead_complexity = analysis['complexity_score']
+
+            # Start new batch if adding this lead exceeds limits
+            if (current_batch_complexity + lead_complexity > max_batch_complexity or
+                len(current_batch) >= max_leads_per_batch) and current_batch:
+                batches.append({
+                    "batch_number": len(batches) + 1,
+                    "leads": current_batch.copy(),
+                    "total_complexity": current_batch_complexity,
+                    "lead_count": len(current_batch)
+                })
+                current_batch = []
+                current_batch_complexity = 0
+
+            current_batch.append({
+                "lead": lead,
+                "analysis": analysis
+            })
+            current_batch_complexity += lead_complexity
+
+        # Add final batch
+        if current_batch:
+            batches.append({
+                "batch_number": len(batches) + 1,
+                "leads": current_batch,
+                "total_complexity": current_batch_complexity,
+                "lead_count": len(current_batch)
+            })
+
+        return batches
+
     def generate_single_lead_prompt(self, lead: Dict[str, Any]) -> str:
         """Generate enrichment prompt for a single lead"""
         return self._build_comprehensive_prompt([lead])
@@ -365,7 +474,16 @@ class PerplexityWorkflow:
                     elif field_name in ['website', 'LinkedIn Link']:
                         # Only accept if it looks like a valid URL
                         if value.startswith(('http://', 'https://', 'www.')) or '.' in value:
-                            enriched_lead[field_name] = value
+                            # Special validation for LinkedIn URLs
+                            if field_name == 'LinkedIn Link':
+                                # LinkedIn profile URLs must have format /in/something
+                                if re.search(r'/in/[^/]+/?$', value):
+                                    enriched_lead[field_name] = value
+                                else:
+                                    # Reject invalid LinkedIn URLs
+                                    enriched_lead['Notes'] = enriched_lead.get('Notes', '') + f' [WARNING: LinkedIn URL appears invalid: {value}]'
+                            else:
+                                enriched_lead[field_name] = value
                     else:
                         enriched_lead[field_name] = value
 
@@ -399,12 +517,31 @@ class PerplexityWorkflow:
         # Clean and validate website URLs
         if 'website' in enriched_lead and enriched_lead['website']:
             website = enriched_lead['website']
+
+            # Remove markdown link format: [url](url) or [text](url)
+            markdown_match = re.search(r'\[([^\]]+)\]\(([^\)]+)\)', website)
+            if markdown_match:
+                # Use the URL from the parentheses
+                website = markdown_match.group(2)
+
             if not website.startswith(('http://', 'https://')):
                 if website.startswith('www.'):
                     website = f'https://{website}'
                 elif '.' in website:
                     website = f'https://{website}'
             enriched_lead['website'] = website
+
+        # Clean LinkedIn Link from markdown format too
+        if 'LinkedIn Link' in enriched_lead and enriched_lead['LinkedIn Link']:
+            linkedin = enriched_lead['LinkedIn Link']
+
+            # Remove markdown link format: [url](url) or [text](url)
+            markdown_match = re.search(r'\[([^\]]+)\]\(([^\)]+)\)', linkedin)
+            if markdown_match:
+                # Use the URL from the parentheses
+                linkedin = markdown_match.group(2)
+
+            enriched_lead['LinkedIn Link'] = linkedin
 
         # Mark as enriched
         enriched_lead['Enriched'] = 'Yes'

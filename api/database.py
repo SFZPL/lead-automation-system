@@ -38,10 +38,24 @@ class Database:
                 user_id INTEGER PRIMARY KEY,
                 outlook_tokens TEXT,
                 user_identifier TEXT,
+                odoo_url TEXT,
+                odoo_db TEXT,
+                odoo_username TEXT,
+                odoo_password TEXT,
                 settings_json TEXT,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             )
         """)
+
+        # Migration: Add Odoo columns if they don't exist
+        try:
+            cursor.execute("SELECT odoo_url FROM user_settings LIMIT 1")
+        except sqlite3.OperationalError:
+            # Columns don't exist, add them
+            cursor.execute("ALTER TABLE user_settings ADD COLUMN odoo_url TEXT")
+            cursor.execute("ALTER TABLE user_settings ADD COLUMN odoo_db TEXT")
+            cursor.execute("ALTER TABLE user_settings ADD COLUMN odoo_username TEXT")
+            cursor.execute("ALTER TABLE user_settings ADD COLUMN odoo_password TEXT")
 
         conn.commit()
         conn.close()
@@ -144,7 +158,7 @@ class Database:
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT outlook_tokens, user_identifier, settings_json FROM user_settings WHERE user_id = ?",
+            "SELECT outlook_tokens, user_identifier, odoo_url, odoo_db, odoo_username, odoo_password, settings_json FROM user_settings WHERE user_id = ?",
             (user_id,)
         )
         row = cursor.fetchone()
@@ -154,11 +168,15 @@ class Database:
             return {}
 
         outlook_tokens = json.loads(row[0]) if row[0] else None
-        settings = json.loads(row[2]) if row[2] else {}
+        settings = json.loads(row[6]) if row[6] else {}
 
         return {
             "outlook_tokens": outlook_tokens,
             "user_identifier": row[1],
+            "odoo_url": row[2],
+            "odoo_db": row[3],
+            "odoo_username": row[4],
+            "odoo_password": row[5],
             **settings
         }
 
@@ -172,9 +190,13 @@ class Database:
         row = cursor.fetchone()
         current_settings = json.loads(row[0]) if row and row[0] else {}
 
-        # Handle outlook_tokens and user_identifier separately
+        # Handle special columns separately
         outlook_tokens = kwargs.pop("outlook_tokens", None)
         user_identifier = kwargs.pop("user_identifier", None)
+        odoo_url = kwargs.pop("odoo_url", None)
+        odoo_db = kwargs.pop("odoo_db", None)
+        odoo_username = kwargs.pop("odoo_username", None)
+        odoo_password = kwargs.pop("odoo_password", None)
 
         # Update settings JSON with remaining kwargs
         current_settings.update(kwargs)
@@ -190,6 +212,22 @@ class Database:
         if user_identifier is not None:
             updates.append("user_identifier = ?")
             params.append(user_identifier)
+
+        if odoo_url is not None:
+            updates.append("odoo_url = ?")
+            params.append(odoo_url)
+
+        if odoo_db is not None:
+            updates.append("odoo_db = ?")
+            params.append(odoo_db)
+
+        if odoo_username is not None:
+            updates.append("odoo_username = ?")
+            params.append(odoo_username)
+
+        if odoo_password is not None:
+            updates.append("odoo_password = ?")
+            params.append(odoo_password)
 
         params.append(user_id)
 

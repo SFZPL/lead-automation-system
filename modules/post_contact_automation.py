@@ -67,6 +67,9 @@ class PostContactAutomationService(LoggingMixin):
             sender_title=self.config.FOLLOWUP_SENDER_TITLE,
             sender_email=self.config.FOLLOWUP_SENDER_EMAIL,
             proposed_meeting_text=self.config.FOLLOWUP_PROPOSED_SLOT,
+            openai_api_key=self.config.OPENAI_API_KEY,
+            openai_model=self.config.OPENAI_MODEL,
+            use_llm=True,
         )
         self.maqsam = maqsam_client or MaqsamClient(config=self.config)
         self.email_dispatcher = email_dispatcher or EmailDispatcher(self.config)

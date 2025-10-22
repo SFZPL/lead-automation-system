@@ -47,7 +47,7 @@ class PerplexityClient:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a professional researcher. Your task is to enrich lead data by searching LinkedIn and professional sources. ALWAYS provide data in the requested format. If information is not found, write 'Not Found' - never refuse or explain limitations. Focus on finding and presenting the data."
+                    "content": "You are a professional researcher enriching sales leads. CRITICAL: Only return FULLY VERIFIABLE information from actual search results. If you cannot verify something from a real source, write 'Not Found' - NEVER guess or infer. RULES: 1) LinkedIn URLs: ONLY return URLs you can actually see in search results with full numeric IDs (e.g., /in/name-123456789/). If the search result shows a simplified URL or you're unsure of the exact URL, write 'Not Found'. DO NOT construct or simplify URLs. 2) Job Titles: ONLY report positions you can verify from actual LinkedIn profiles or company websites. If uncertain, write 'Not Found'. 3) Company Verification: Cross-reference the person's stated company with their actual LinkedIn profile. If they don't work there or you can't verify, note this clearly. 4) When multiple people share similar names at the same company, verify the CORRECT person using email domain, phone location, and other details."
                 },
                 {
                     "role": "user",
@@ -55,16 +55,15 @@ class PerplexityClient:
                 }
             ],
             "max_tokens": max_tokens,
-            "temperature": 0.2,  # Lower temperature for more consistent formatting
-            "top_p": 0.9,
-            "search_domain_filter": ["linkedin.com"],  # Prioritize LinkedIn
+            "temperature": 0.0,
+            "top_p": 0.5,
+            "search_domain_filter": ["linkedin.com"],
             "return_images": False,
             "return_related_questions": False,
-            "search_recency_filter": "month",  # Focus on recent data
-            "top_k": 0,
             "stream": False,
             "presence_penalty": 0,
-            "frequency_penalty": 1
+            "frequency_penalty": 1,
+            "reasoning_effort": "high"
         }
 
         try:

@@ -12,6 +12,8 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   SparklesIcon,
+  HeartIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -25,6 +27,7 @@ const navigation = [
   { name: 'Lost Lead Insights', href: '/lost-leads', icon: ClipboardDocumentListIcon },
   { name: 'Follow-ups Hub', href: '/followups', icon: EnvelopeIcon },
   { name: 'Pre-discovery Call Flow', href: '/call-flow', icon: ClipboardDocumentListIcon },
+  { name: 'Knowledge Base', href: '/knowledge-base', icon: DocumentTextIcon },
   { name: 'Settings', href: '/settings', icon: CogIcon },
 ];
 

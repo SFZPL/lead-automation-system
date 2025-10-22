@@ -30,7 +30,7 @@ class FollowUpEmailBuilder:
         self.proposed_meeting_text = (
             proposed_meeting_text.strip() if proposed_meeting_text else ''
         )
-        self.use_llm = use_llm and openai_api_key
+        self.use_llm = bool(use_llm and openai_api_key)
         self.openai_client = OpenAI(api_key=openai_api_key) if openai_api_key else None
         self.openai_model = openai_model or 'gpt-5-mini'
         logger.info(f"FollowUpEmailBuilder initialized: use_llm={self.use_llm}, has_client={self.openai_client is not None}, model={self.openai_model}")
@@ -108,20 +108,28 @@ INSTRUCTIONS:
 7. End with a soft call-to-action to book a 15-minute call
 8. Do NOT include a subject line - just the email body
 9. Do NOT include signature - just the message body
+10. Do NOT use em dashes (—) in the email. Use regular hyphens (-) or commas instead.
 
 TONE: Conversational, consultative, genuinely helpful"""
 
         try:
+            logger.info(f"Calling OpenAI with model={self.openai_model}")
+            logger.info(f"Prompt length: {len(prompt)} characters")
             response = self.openai_client.chat.completions.create(
                 model=self.openai_model,
                 messages=[
                     {"role": "system", "content": "You are an expert at writing personalized, high-converting sales follow-up emails that feel authentic and helpful, not salesy."},
                     {"role": "user", "content": prompt}
                 ],
-                max_completion_tokens=500
+                max_completion_tokens=2000
             )
 
-            body = response.choices[0].message.content.strip()
+            logger.info(f"OpenAI response: {response}")
+            body = response.choices[0].message.content
+            logger.info(f"Raw body from LLM: {repr(body)}")
+            body = body.strip() if body else ""
+            logger.info(f"LLM generated email body length: {len(body)} characters")
+            logger.info(f"LLM generated email body preview: {body[:200] if body else 'EMPTY'}")
 
             # Add calendar link if provided
             if self.calendar_link:

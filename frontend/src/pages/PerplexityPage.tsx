@@ -32,13 +32,6 @@ interface EnrichedLeadResult {
   error?: string;
 }
 
-interface BatchEnrichmentResponse {
-  total: number;
-  successful: number;
-  failed: number;
-  results: EnrichedLeadResult[];
-}
-
 interface LeadApprovalState {
   [leadId: number]: {
     approved: boolean;
@@ -61,10 +54,29 @@ const PerplexityPage: React.FC = () => {
   // Manual mode state
   const [perplexityOutput, setPerplexityOutput] = useState('');
 
+  // Smart analysis state
+  const [smartAnalysis, setSmartAnalysis] = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [selectedBatchIndex, setSelectedBatchIndex] = useState(0);
+
+  // Editable fields state - tracks manual edits to suggested values
+  const [fieldEdits, setFieldEdits] = useState<{
+    [leadId: number]: { [fieldName: string]: any };
+  }>({});
+
+  // Streaming progress state
+  const [enrichmentProgress, setEnrichmentProgress] = useState<{
+    current: number;
+    total: number;
+    currentLeadName: string;
+  } | null>(null);
+
   const fetchPrompt = async () => {
     setIsFetchingPrompt(true);
     setEnrichmentResults([]);
     setApprovalState({});
+    setSmartAnalysis(null);
+    setSelectedBatchIndex(0);
 
     try {
       const response = await fetch(`${API_BASE_URL}/perplexity/generate`, {
@@ -93,6 +105,11 @@ const PerplexityPage: React.FC = () => {
         toast('No unenriched leads found in Odoo.', { icon: 'ℹ️' });
       } else {
         toast.success(`Found ${leads.length} unenriched lead${leads.length === 1 ? '' : 's'}`);
+
+        // Automatically run smart analysis for manual mode
+        if (mode === 'manual' && leads.length > 0) {
+          await fetchSmartAnalysis();
+        }
       }
     } catch (error: any) {
       console.error('Failed to fetch leads:', error);
@@ -102,7 +119,36 @@ const PerplexityPage: React.FC = () => {
     }
   };
 
-  // Manual mode: Parse pasted Perplexity output
+  const fetchSmartAnalysis = async () => {
+    setIsAnalyzing(true);
+    setSmartAnalysis(null);
+    setSelectedBatchIndex(0);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/perplexity/smart-analysis`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      setSmartAnalysis(data);
+
+      // Only show toast if batch count > 1 (when splitting is beneficial)
+      if (data.recommended_batches > 1) {
+        toast.success(`Smart split: ${data.recommended_batches} batches for optimal results`);
+      }
+    } catch (error: any) {
+      console.error('Failed to analyze leads:', error);
+      toast.error(`Unable to analyze leads: ${error.message || error}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Manual mode: Parse pasted Perplexity output and show preview
   const handleManualEnrich = async () => {
     if (!promptData || !perplexityOutput.trim()) {
       toast.error('Please paste Perplexity output');
@@ -112,12 +158,11 @@ const PerplexityPage: React.FC = () => {
     setIsEnriching(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/perplexity/parse`, {
+      const response = await fetch(`${API_BASE_URL}/perplexity/parse-preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           results_text: perplexityOutput,
-          update: true
         }),
       });
 
@@ -127,50 +172,14 @@ const PerplexityPage: React.FC = () => {
       }
 
       const data = await response.json();
-      toast.success(`Successfully updated ${data.updated} lead${data.updated !== 1 ? 's' : ''} in Odoo`);
 
-      // Refresh the prompt/leads
-      fetchPrompt();
-      setPerplexityOutput('');
-    } catch (error: any) {
-      console.error('Error parsing output:', error);
-      toast.error(error.message || 'Failed to parse Perplexity output');
-    } finally {
-      setIsEnriching(false);
-    }
-  };
-
-  // API mode: Automatic enrichment
-  const handleApiEnrich = async () => {
-    if (!promptData || promptData.leads.length === 0) {
-      toast.error('No leads to enrich');
-      return;
-    }
-
-    setIsEnriching(true);
-    setEnrichmentResults([]);
-    setApprovalState({});
-
-    const leadIds = promptData.leads.map((lead) => lead.id);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/perplexity/enrich-batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lead_ids: leadIds }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to enrich leads');
-      }
-
-      const data: BatchEnrichmentResponse = await response.json();
+      // Set results for preview/approval
       setEnrichmentResults(data.results);
       setCurrentLeadIndex(0);
 
       // Initialize approval state
       const initialState: LeadApprovalState = {};
-      data.results.forEach((result) => {
+      data.results.forEach((result: EnrichedLeadResult) => {
         if (result.success) {
           initialState[result.lead_id] = {
             approved: false,
@@ -180,10 +189,104 @@ const PerplexityPage: React.FC = () => {
       });
       setApprovalState(initialState);
 
-      toast.success(`Enriched ${data.successful} of ${data.total} leads`);
+      toast.success(`Parsed ${data.results.length} lead${data.results.length !== 1 ? 's' : ''}. Review and approve below.`);
+    } catch (error: any) {
+      console.error('Error parsing output:', error);
+      toast.error(error.message || 'Failed to parse Perplexity output');
+    } finally {
+      setIsEnriching(false);
+    }
+  };
+
+  // API mode: Automatic enrichment with streaming
+  const handleApiEnrich = async () => {
+    if (!promptData || promptData.leads.length === 0) {
+      toast.error('No leads to enrich');
+      return;
+    }
+
+    setIsEnriching(true);
+    setEnrichmentResults([]);
+    setApprovalState({});
+    setEnrichmentProgress(null);
+
+    const leadIds = promptData.leads.map((lead) => lead.id);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/perplexity/enrich-batch-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_ids: leadIds }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start enrichment');
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === 'progress') {
+                setEnrichmentProgress({
+                  current: data.current,
+                  total: data.total,
+                  currentLeadName: data.lead_name,
+                });
+              } else if (data.type === 'success') {
+                // Lead enriched successfully
+                console.log(`✓ Enriched: ${data.lead_name}`);
+              } else if (data.type === 'error') {
+                console.error(`✗ Error enriching ${data.lead_name}: ${data.message}`);
+              } else if (data.type === 'complete') {
+                // Final results
+                setEnrichmentResults(data.results);
+                setCurrentLeadIndex(0);
+
+                // Initialize approval state
+                const initialState: LeadApprovalState = {};
+                data.results.forEach((result: EnrichedLeadResult) => {
+                  if (result.success) {
+                    initialState[result.lead_id] = {
+                      approved: false,
+                      rejectedFields: new Set(),
+                    };
+                  }
+                });
+                setApprovalState(initialState);
+
+                setEnrichmentProgress(null);
+                toast.success(`Enriched ${data.successful} of ${data.total} leads`);
+              }
+            } catch (e) {
+              console.error('Error parsing SSE message:', e);
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error enriching leads:', error);
       toast.error('Failed to enrich leads');
+      setEnrichmentProgress(null);
     } finally {
       setIsEnriching(false);
     }
@@ -202,7 +305,19 @@ const PerplexityPage: React.FC = () => {
   const handlePushToOdoo = async () => {
     const approvedLeads = enrichmentResults
       .filter((result) => result.success && approvalState[result.lead_id]?.approved)
-      .map((result) => result.suggested_data);
+      .map((result) => {
+        const leadId = result.lead_id;
+        const suggestedData = { ...result.suggested_data };
+
+        // Apply any manual edits to the suggested data
+        if (fieldEdits[leadId]) {
+          Object.keys(fieldEdits[leadId]).forEach(fieldName => {
+            suggestedData[fieldName] = fieldEdits[leadId][fieldName];
+          });
+        }
+
+        return suggestedData;
+      });
 
     if (approvedLeads.length === 0) {
       toast.error('No leads approved for update');
@@ -267,14 +382,33 @@ const PerplexityPage: React.FC = () => {
     return changed;
   };
 
+  const handleFieldEdit = (leadId: number, fieldName: string, newValue: any) => {
+    setFieldEdits(prev => ({
+      ...prev,
+      [leadId]: {
+        ...(prev[leadId] || {}),
+        [fieldName]: newValue
+      }
+    }));
+  };
+
+  const getEffectiveValue = (leadId: number, fieldName: string, suggestedValue: any) => {
+    // If there's a manual edit, use that. Otherwise use the suggested value.
+    return fieldEdits[leadId]?.[fieldName] !== undefined
+      ? fieldEdits[leadId][fieldName]
+      : suggestedValue;
+  };
+
   const renderFieldComparison = (
     leadId: number,
     fieldName: string,
     currentValue: any,
     suggestedValue: any
   ) => {
-    const isChanged = currentValue !== suggestedValue && suggestedValue !== '';
+    const effectiveValue = getEffectiveValue(leadId, fieldName, suggestedValue);
+    const isChanged = currentValue !== effectiveValue && effectiveValue !== '';
     const isEmpty = !currentValue || currentValue === '<br>' || currentValue === '';
+    const isEdited = fieldEdits[leadId]?.[fieldName] !== undefined;
 
     return (
       <div
@@ -287,8 +421,13 @@ const PerplexityPage: React.FC = () => {
             : 'bg-gray-50 border-gray-200'
         }`}
       >
-        <div className="font-medium text-sm text-gray-700 mb-2">{fieldName}</div>
-        <div className="space-y-1">
+        <div className="font-medium text-sm text-gray-700 mb-2 flex items-center justify-between">
+          <span>{fieldName}</span>
+          {isEdited && (
+            <span className="text-xs text-primary-600 font-normal">✏️ Edited</span>
+          )}
+        </div>
+        <div className="space-y-2">
           <div className="text-xs text-gray-500">
             Current:{' '}
             <span className="font-mono text-gray-700">
@@ -296,8 +435,14 @@ const PerplexityPage: React.FC = () => {
             </span>
           </div>
           <div className="text-xs text-gray-600">
-            Suggested:{' '}
-            <span className="font-mono text-gray-900 font-medium">{String(suggestedValue)}</span>
+            <label className="block mb-1">Suggested (editable):</label>
+            <input
+              type="text"
+              value={effectiveValue || ''}
+              onChange={(e) => handleFieldEdit(leadId, fieldName, e.target.value)}
+              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-primary-500 focus:ring-1 focus:ring-primary-500 font-mono"
+              placeholder="Enter value..."
+            />
           </div>
         </div>
       </div>
@@ -363,7 +508,7 @@ const PerplexityPage: React.FC = () => {
 
         {changedFields.length > 0 && (
           <div className="mb-3">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800">
               {changedFields.length} field{changedFields.length !== 1 ? 's' : ''} updated
             </span>
           </div>
@@ -404,7 +549,7 @@ const PerplexityPage: React.FC = () => {
             onClick={() => setMode('manual')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               mode === 'manual'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-primary-600 text-white'
                 : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
@@ -414,7 +559,7 @@ const PerplexityPage: React.FC = () => {
             onClick={() => setMode('api')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               mode === 'api'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-primary-600 text-white'
                 : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
@@ -427,7 +572,7 @@ const PerplexityPage: React.FC = () => {
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-blue-600 mb-1">
+                <h2 className="text-lg font-semibold text-primary-600 mb-1">
                   Step 1: Fetch Leads
                 </h2>
                 <p className="text-sm text-gray-600">
@@ -449,7 +594,7 @@ const PerplexityPage: React.FC = () => {
                 <button
                   onClick={fetchPrompt}
                   disabled={isFetchingPrompt || isEnriching}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                 >
                   {isFetchingPrompt ? 'Fetching...' : 'Fetch Leads'}
                 </button>
@@ -457,16 +602,16 @@ const PerplexityPage: React.FC = () => {
             ) : (
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <div className="bg-blue-50 px-4 py-2 rounded-lg">
-                    <p className="text-sm font-semibold text-blue-900">
+                  <div className="bg-primary-50 px-4 py-2 rounded-lg">
+                    <p className="text-sm font-semibold text-primary-900">
                       Fetched Leads
                     </p>
-                    <p className="text-2xl font-bold text-blue-600">{promptData.leadCount}</p>
+                    <p className="text-2xl font-bold text-primary-600">{promptData.leadCount}</p>
                   </div>
                   <button
                     onClick={fetchPrompt}
                     disabled={isFetchingPrompt || isEnriching}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 text-sm"
+                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-gray-300 text-sm"
                   >
                     Refresh Leads
                   </button>
@@ -502,7 +647,7 @@ const PerplexityPage: React.FC = () => {
         {promptData && promptData.leads.length > 0 && (
           <div className="bg-white rounded-lg border border-gray-200 mb-6">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-blue-600 mb-1">
+              <h2 className="text-lg font-semibold text-primary-600 mb-1">
                 Step 2: {mode === 'manual' ? 'Generate Prompt' : 'Enrich with API'}
               </h2>
               <p className="text-sm text-gray-600">
@@ -514,35 +659,96 @@ const PerplexityPage: React.FC = () => {
 
             <div className="p-6">
               {mode === 'manual' ? (
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-gray-600">
-                    {!promptData && (
-                      <div className="flex items-center gap-2 text-yellow-600">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                        Fetch leads first to generate the prompt.
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(promptData.prompt);
-                      toast.success('Prompt copied to clipboard!');
-                    }}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                  >
-                    <SparklesIcon className="w-5 h-5" />
-                    Generate AI Prompt
-                  </button>
+                <div className="space-y-4">
+                  {isAnalyzing && (
+                    <div className="flex items-center justify-center gap-2 text-primary-600 py-4">
+                      <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                      <span>Analyzing lead complexity...</span>
+                    </div>
+                  )}
+
+                  {/* Batch Cards */}
+                  {smartAnalysis && smartAnalysis.batches && smartAnalysis.batches.length > 0 ? (
+                    <div className="grid gap-4">
+                      {smartAnalysis.batches.map((batch: any, index: number) => (
+                        <div key={index} className="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <h3 className="font-semibold text-gray-900">
+                                {smartAnalysis.batches.length > 1 ? `Prompt ${batch.batch_number} of ${smartAnalysis.batches.length}` : 'Enrichment Prompt'}
+                              </h3>
+                              <p className="text-sm text-gray-600">{batch.lead_count} lead{batch.lead_count !== 1 ? 's' : ''}</p>
+                            </div>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(batch.prompt);
+                                toast.success(`Prompt ${batch.batch_number} copied!`);
+                              }}
+                              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
+                            >
+                              <SparklesIcon className="w-5 h-5" />
+                              Copy Prompt
+                            </button>
+                          </div>
+
+                          {/* Lead List */}
+                          <div className="space-y-2">
+                            {batch.leads.map((lead: any) => (
+                              <div key={lead.id} className="flex items-center gap-2 text-sm bg-gray-50 rounded px-3 py-2">
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${
+                                  lead.complexity === 'Very High' ? 'bg-red-100 text-red-700' :
+                                  lead.complexity === 'High' ? 'bg-orange-100 text-orange-700' :
+                                  lead.complexity === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-green-100 text-green-700'
+                                }`}>
+                                  {lead.complexity}
+                                </span>
+                                <span className="text-gray-900 font-medium">{lead.name}</span>
+                                {lead.factors && lead.factors.length > 0 && (
+                                  <span className="text-gray-500 text-xs">({lead.factors.join(', ')})</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Info Box when split into multiple batches */}
+                      {smartAnalysis.batches.length > 1 && (
+                        <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
+                          <p className="text-sm text-primary-800">
+                            💡 <strong>Why split?</strong> Smaller batches allow Perplexity to focus more deeply on each lead,
+                            resulting in more accurate LinkedIn URLs and job titles. Process each batch separately for best results.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : !isAnalyzing && promptData && (
+                    <div className="text-center text-gray-500 py-8">
+                      No batches available. Try refreshing leads.
+                    </div>
+                  )}
                 </div>
               ) : (
                 <button
                   onClick={handleApiEnrich}
                   disabled={isEnriching || isPushing}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
-                  {isEnriching ? 'Enriching...' : `Enrich ${promptData.leadCount} Lead${promptData.leadCount !== 1 ? 's' : ''}`}
+                  {isEnriching ? (
+                    <>
+                      <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                      {enrichmentProgress ? (
+                        <span>
+                          Enriching {enrichmentProgress.currentLeadName}... ({enrichmentProgress.current}/{enrichmentProgress.total})
+                        </span>
+                      ) : (
+                        <span>Starting enrichment...</span>
+                      )}
+                    </>
+                  ) : (
+                    `Enrich ${promptData.leadCount} Lead${promptData.leadCount !== 1 ? 's' : ''}`
+                  )}
                 </button>
               )}
             </div>
@@ -553,7 +759,7 @@ const PerplexityPage: React.FC = () => {
         {mode === 'manual' && promptData && promptData.leads.length > 0 && (
           <div className="bg-white rounded-lg border border-gray-200 mb-6">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-blue-600 mb-1">
+              <h2 className="text-lg font-semibold text-primary-600 mb-1">
                 Step 3: Paste Results
               </h2>
               <p className="text-sm text-gray-600">
@@ -566,7 +772,7 @@ const PerplexityPage: React.FC = () => {
                 value={perplexityOutput}
                 onChange={(e) => setPerplexityOutput(e.target.value)}
                 placeholder="Paste the full Perplexity response..."
-                className="w-full h-64 p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full h-64 p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
             </div>
           </div>
@@ -576,7 +782,7 @@ const PerplexityPage: React.FC = () => {
         {mode === 'manual' && promptData && promptData.leads.length > 0 && (
           <div className="bg-white rounded-lg border border-gray-200 mb-6">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-blue-600 mb-1">
+              <h2 className="text-lg font-semibold text-primary-600 mb-1">
                 Step 4: Update Odoo
               </h2>
               <p className="text-sm text-gray-600">
@@ -598,7 +804,7 @@ const PerplexityPage: React.FC = () => {
                 ) : (
                   <>
                     <CheckCircleIcon className="w-5 h-5" />
-                    Update 0 Leads in Odoo
+                    Parse & Preview
                   </>
                 )}
               </button>
@@ -606,14 +812,14 @@ const PerplexityPage: React.FC = () => {
           </div>
         )}
 
-      {/* Step 3: Review & Approve (API mode only) */}
-      {mode === 'api' && enrichmentResults.length > 0 && (
+      {/* Step 3: Review & Approve (Both modes) */}
+      {enrichmentResults.length > 0 && (
         <>
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
-                  Step 3: Review & Push to Odoo
+                  {mode === 'manual' ? 'Step 5: Review & Push to Odoo' : 'Step 3: Review & Push to Odoo'}
                 </h2>
                 <p className="text-sm text-gray-600 mt-1">
                   Review changes and approve leads to update in Odoo

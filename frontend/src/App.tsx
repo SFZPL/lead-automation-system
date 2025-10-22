@@ -8,18 +8,32 @@ import SettingsPage from './pages/SettingsPage';
 import DashboardPage from './pages/DashboardPage';
 import PerplexityPage from './pages/PerplexityPage';
 import LostLeadsPage from './pages/LostLeadsPage';
+import ReEngagePage from './pages/ReEngagePage';
 import FollowupsHubPage from './pages/FollowupsHubPage';
 import EmailCallbackPage from './pages/EmailCallbackPage';
 import CallFlowPage from './pages/CallFlowPage';
+import KnowledgeBasePage from './pages/KnowledgeBasePage';
 import LoginPage from './pages/LoginPage';
 
-// Create a client
+// Detect Teams environment
+const isTeamsEnvironment = () => {
+  const inIframe = window.self !== window.top;
+  const userAgent = navigator.userAgent.toLowerCase();
+  return userAgent.includes('teams') ||
+         (inIframe && (
+           window.location.ancestorOrigins?.[0]?.includes('teams.microsoft.com') ||
+           document.referrer.includes('teams.microsoft.com')
+         ));
+};
+
+// Create a client with enhanced state preservation for Teams
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: isTeamsEnvironment() ? true : false, // Refetch when returning to Teams tab
       retry: 1,
-      staleTime: 30000, // 30 seconds
+      staleTime: isTeamsEnvironment() ? 60000 : 30000, // Longer stale time in Teams (1 minute)
+      cacheTime: isTeamsEnvironment() ? 600000 : 300000, // Keep cache longer in Teams (10 minutes)
     },
   },
 });
@@ -39,12 +53,13 @@ const AppContent = () => {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/enrichment" element={<PerplexityPage />} />
             <Route path="/lost-leads" element={<LostLeadsPage />} />
+            <Route path="/re-engage" element={<ReEngagePage />} />
             <Route path="/followups" element={<FollowupsHubPage />} />
             <Route path="/call-flow" element={<CallFlowPage />} />
+            <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/auth/outlook/callback" element={<EmailCallbackPage />} />
-          </Routes>
-        </Layout>
+          </Routes>        </Layout>
         <Toaster
           position="top-right"
           toastOptions={{

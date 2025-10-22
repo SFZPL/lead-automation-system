@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 from fastapi import HTTPException, Depends, Header
 
 from .database import Database
+from .supabase_database import SupabaseDatabase
 
 
 class AuthService:
@@ -106,8 +107,8 @@ class AuthService:
         }
 
 
-# Global database instance
-_db = Database()
+# Global database instance - Use Supabase
+_db = SupabaseDatabase()
 _auth_service = AuthService(_db)
 
 
@@ -121,6 +122,6 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[str, A
     return _auth_service.get_current_user(authorization)
 
 
-def get_database() -> Database:
+def get_database():
     """Dependency to get database."""
     return _db

@@ -40,10 +40,12 @@ class LostLeadAnalyzer:
         config: Optional[Config] = None,
         odoo_client: Optional[OdooClient] = None,
         llm_client: Optional[LLMClient] = None,
+        supabase_client: Optional[Any] = None,
     ) -> None:
         self.config = config or Config()
         self.odoo = odoo_client or OdooClient(self.config)
         self.llm = llm_client
+        self.supabase = supabase_client
 
     def _ensure_odoo_connection(self) -> None:
         if self.odoo.session is None:
@@ -55,6 +57,36 @@ class LostLeadAnalyzer:
             if not self.config.OPENAI_API_KEY:
                 raise RuntimeError("OPENAI_API_KEY is not configured.")
             self.llm = LLMClient(self.config)
+
+    def _get_knowledge_base_context(self) -> str:
+        """Fetch all active knowledge base documents and combine their content."""
+        if not self.supabase or not self.supabase.is_connected():
+            return ""
+
+        try:
+            result = self.supabase.client.table("knowledge_base_documents")\
+                .select("filename, content")\
+                .eq("is_active", True)\
+                .execute()
+
+            if not result.data:
+                return ""
+
+            # Combine all document contents
+            context_parts = []
+            for doc in result.data:
+                filename = doc.get("filename", "Unknown Document")
+                content = doc.get("content", "")
+                if content.strip():
+                    context_parts.append(f"=== {filename} ===\n{content.strip()}")
+
+            if context_parts:
+                return "\n\n".join(context_parts)
+            return ""
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch knowledge base context: {e}")
+            return ""
 
     def list_lost_leads(
         self,
@@ -71,19 +103,17 @@ class LostLeadAnalyzer:
 
     def _fetch_outlook_emails(
         self,
-        user_identifier: str,
         lead_data: Dict[str, Any],
         max_emails: int,
-        group_name: str = "engage"
+        group_email: str = "engage@prezlab.com"
     ) -> List[Dict[str, Any]]:
         """
-        Fetch emails from Outlook engage group for a lead.
+        Fetch emails from Outlook engage group for a lead using system email token.
 
         Args:
-            user_identifier: User's email identifier for token lookup
             lead_data: Lead information from Odoo
             max_emails: Maximum number of emails to return
-            group_name: Name of the Microsoft 365 group to search (default: "engage")
+            group_email: Email address of the Microsoft 365 group (default: engage@prezlab.com)
 
         Returns:
             List of formatted email messages
@@ -92,82 +122,47 @@ class LostLeadAnalyzer:
             outlook = OutlookClient(config=self.config)
             token_store = EmailTokenStore()
 
-            # Get tokens
-            tokens = token_store.get_tokens(user_identifier)
+            # Use system email token (automated.response@prezlab.com)
+            system_identifier = "automated.response@prezlab.com"
+            tokens = token_store.get_tokens(system_identifier)
             if not tokens:
-                logger.info(f"No email tokens found for user: {user_identifier}")
+                logger.info("No system email tokens found. Please configure system email authentication.")
                 return []
 
             # Refresh token if expired
             access_token = tokens.get("access_token")
-            if token_store.is_token_expired(user_identifier):
-                logger.info(f"Refreshing expired token for {user_identifier}")
+            if token_store.is_token_expired(system_identifier):
+                logger.info("Refreshing expired system token")
                 refresh_token = tokens.get("refresh_token")
                 token_response = outlook.refresh_access_token(refresh_token)
                 access_token = token_response.get("access_token")
                 token_store.update_access_token(
-                    user_identifier,
+                    system_identifier,
                     access_token,
                     token_response.get("expires_in", 3600)
                 )
 
-            # Find the engage group
-            groups = outlook.get_user_groups(access_token)
-            engage_group = None
-            for group in groups:
-                display_name = group.get("displayName", "").lower()
-                mail = group.get("mail", "").lower()
-                if group_name.lower() in display_name or group_name.lower() in mail:
-                    engage_group = group
-                    break
+            # Collect all possible contact emails
+            contact_emails = []
+            if lead_data.get("email_from"):
+                contact_emails.append(lead_data["email_from"])
+            if lead_data.get("partner_email"):
+                contact_emails.append(lead_data["partner_email"])
+            if lead_data.get("contact_email"):
+                contact_emails.append(lead_data["contact_email"])
 
-            if not engage_group:
-                logger.warning(f"Could not find '{group_name}' group for user {user_identifier}")
-                # Fallback to personal inbox search
-                outlook_emails = outlook.search_emails_for_lead(
-                    access_token=access_token,
-                    lead_data=lead_data,
-                    limit=max_emails,
-                    days_back=self.config.EMAIL_SEARCH_DAYS_BACK,
-                )
-            else:
-                # Search emails from the engage group
-                all_group_emails = outlook.get_group_conversations(
-                    access_token=access_token,
-                    group_id=engage_group['id'],
-                    days_back=self.config.EMAIL_SEARCH_DAYS_BACK,
-                    limit=200
-                )
+            if not contact_emails:
+                logger.warning("No contact emails found in lead data")
+                return []
 
-                # Filter emails related to this lead
-                lead_email = lead_data.get("email_from", "")
-                partner_email = lead_data.get("partner_email", "")
-                contact_email = lead_data.get("contact_email", "")
-                lead_name = lead_data.get("name", "").lower()
-                company_name = (lead_data.get("partner_name") or "").lower()
-
-                outlook_emails = []
-                for email in all_group_emails:
-                    email_from = email.get("from", "").lower()
-                    email_to = email.get("to", "").lower()
-                    email_subject = email.get("subject", "").lower()
-                    email_body = email.get("body", "").lower()
-
-                    # Check if email is related to this lead
-                    if (
-                        (lead_email and lead_email.lower() in email_from) or
-                        (lead_email and lead_email.lower() in email_to) or
-                        (partner_email and partner_email.lower() in email_from) or
-                        (partner_email and partner_email.lower() in email_to) or
-                        (contact_email and contact_email.lower() in email_from) or
-                        (contact_email and contact_email.lower() in email_to) or
-                        (lead_name and lead_name in email_subject) or
-                        (company_name and len(company_name) > 3 and company_name in email_subject) or
-                        (company_name and len(company_name) > 3 and company_name in email_body)
-                    ):
-                        outlook_emails.append(email)
-
-                outlook_emails = outlook_emails[:max_emails]
+            # Use efficient search method
+            outlook_emails = outlook.search_group_emails_for_contact(
+                access_token=access_token,
+                group_email=group_email,
+                contact_emails=contact_emails,
+                days_back=self.config.EMAIL_SEARCH_DAYS_BACK,
+                limit=max_emails or 50
+            )
 
             # Format for analysis
             formatted_emails = [
@@ -175,7 +170,7 @@ class LostLeadAnalyzer:
                 for email in outlook_emails
             ]
 
-            logger.info(f"Found {len(formatted_emails)} Outlook emails for lead {lead_data.get('id')} from {group_name} group")
+            logger.info(f"Found {len(formatted_emails)} Outlook emails for lead {lead_data.get('id')} from {group_email}")
             return formatted_emails
 
         except Exception as e:
@@ -185,8 +180,8 @@ class LostLeadAnalyzer:
     def _prepare_context(
         self,
         lead_id: int,
-        max_internal_notes: int,
-        max_emails: int,
+        max_internal_notes: Optional[int],
+        max_emails: Optional[int],
         user_identifier: Optional[str] = None,
         include_outlook_emails: bool = False,
     ) -> Dict[str, Any]:
@@ -194,8 +189,8 @@ class LostLeadAnalyzer:
         if not lead:
             raise RuntimeError(f"Lead with id {lead_id} not found.")
 
-        fetch_limit = max(max_internal_notes, max_emails, 1) * 3
-        messages = self.odoo.get_lead_messages(lead_id, limit=fetch_limit)
+        # Fetch ALL messages from Odoo (no limit)
+        messages = self.odoo.get_lead_messages(lead_id, limit=None)
 
         internal_notes: List[Dict[str, Any]] = []
         emails: List[Dict[str, Any]] = []
@@ -217,17 +212,22 @@ class LostLeadAnalyzer:
             elif m_type == "comment" and ("note" in subtype or not message.get("email_from")):
                 internal_notes.append(prepared)
 
-        # Optionally fetch Outlook emails
-        if include_outlook_emails and user_identifier:
-            outlook_emails = self._fetch_outlook_emails(user_identifier, lead, max_emails)
-            if outlook_emails:
-                # Merge with existing emails and sort by date
-                all_emails = emails + outlook_emails
-                all_emails.sort(key=lambda x: x.get("date") or "", reverse=True)
-                emails = all_emails
+        # Always fetch engage@prezlab.com emails using system token
+        outlook_emails = self._fetch_outlook_emails(lead, max_emails or 50)
+        if outlook_emails:
+            # Merge with existing emails and sort by date
+            all_emails = emails + outlook_emails
+            all_emails.sort(key=lambda x: x.get("date") or "", reverse=True)
+            emails = all_emails
 
-        internal_notes = sorted(internal_notes, key=lambda item: item.get("date") or "", reverse=True)[:max_internal_notes]
-        emails = sorted(emails, key=lambda item: item.get("date") or "", reverse=True)[:max_emails]
+        # Sort by date (newest first) and apply limits if specified
+        internal_notes = sorted(internal_notes, key=lambda item: item.get("date") or "", reverse=True)
+        emails = sorted(emails, key=lambda item: item.get("date") or "", reverse=True)
+
+        if max_internal_notes is not None:
+            internal_notes = internal_notes[:max_internal_notes]
+        if max_emails is not None:
+            emails = emails[:max_emails]
 
         for entry in internal_notes + emails:
             entry["formatted_date"] = _format_datetime(entry.get("date"))
@@ -336,10 +336,34 @@ class LostLeadAnalyzer:
         else:
             lead_summary.append("Description: No description recorded.")
 
+        # Get knowledge base context
+        kb_context = self._get_knowledge_base_context()
+
         sections = [
             "You are a senior revenue strategist reviewing a lost opportunity.",
-            "Use the CRM context to determine why the deal was lost and craft a smart re-engagement plan.",
             "",
+        ]
+
+        # Add knowledge base context if available
+        if kb_context:
+            sections.extend([
+                "IMPORTANT - Company Context & Knowledge Base:",
+                "First, carefully review the following documents about PrezLab (our company, services, and offerings):",
+                "",
+                kb_context,
+                "",
+                "INSTRUCTIONS:",
+                "- Study the above documents to understand what PrezLab offers and our value propositions",
+                "- Use this knowledge to identify which PrezLab services could have addressed the client's needs",
+                "- Reference specific PrezLab capabilities and services in your talking points and recommendations",
+                "- Ensure your re-engagement strategy is grounded in what PrezLab actually provides",
+                "",
+            ])
+
+        sections.append("Now, analyze the lost opportunity using the CRM context below:")
+        sections.append("")
+
+        sections.extend([
             "Lead Overview:",
             "\n".join(f"  {line}" for line in lead_summary),
             "",
@@ -362,7 +386,7 @@ class LostLeadAnalyzer:
             '}',
             "",
             "Only return valid JSON. Do not include any additional commentary.",
-        ]
+        ])
         return "\n".join(sections)
 
     def analyze_lost_lead(
@@ -374,8 +398,9 @@ class LostLeadAnalyzer:
         include_outlook_emails: bool = False,
     ) -> Dict[str, Any]:
         self._ensure_odoo_connection()
-        max_notes = max_internal_notes if max_internal_notes is not None else self.config.LOST_LEAD_MAX_NOTES
-        max_email_entries = max_emails if max_emails is not None else self.config.LOST_LEAD_MAX_EMAILS
+        # Use None to get ALL notes and emails (no limit)
+        max_notes = max_internal_notes
+        max_email_entries = max_emails
 
         context = self._prepare_context(
             lead_id,

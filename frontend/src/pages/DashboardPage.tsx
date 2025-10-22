@@ -24,7 +24,8 @@ interface DashboardSummary {
     unanswered_emails: number;
     pending_proposals: number;
     lost_leads: number;
-    enriched_today: number;
+    unenriched_leads: number;
+    enriched_today?: number; // Keep for backward compatibility
     call_flows_generated?: number;
     last_updated?: string;
   };
@@ -302,23 +303,23 @@ const DashboardPage: React.FC = () => {
             </div>
           </a>
 
-          {/* Enriched Today */}
+          {/* Unenriched Leads */}
           <a
-            href="/"
+            href="/perplexity"
             className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow"
           >
             <div className="p-5">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
-                  <ChartBarIcon className="h-6 w-6 text-green-600" />
+                  <ChartBarIcon className="h-6 w-6 text-yellow-600" />
                 </div>
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">
-                      Enriched Today
+                      Unenriched Leads
                     </dt>
                     <dd className="text-3xl font-semibold text-gray-900">
-                      {data.stats.enriched_today}
+                      {data.stats.unenriched_leads}
                     </dd>
                   </dl>
                 </div>

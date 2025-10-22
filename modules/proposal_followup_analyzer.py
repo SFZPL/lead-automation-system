@@ -90,6 +90,31 @@ class ProposalFollowupAnalyzer:
 
         outlook = OutlookClient(self.config)
 
+        # Check if token is expired and refresh if needed
+        if self.token_store.is_token_expired(user_identifier):
+            logger.info(f"Access token expired for {user_identifier}, refreshing...")
+            try:
+                refresh_token = tokens.get("refresh_token")
+                if not refresh_token:
+                    raise ValueError(f"No refresh token available for {user_identifier}")
+
+                token_response = outlook.refresh_access_token(refresh_token)
+                access_token = token_response.get("access_token")
+
+                # Update the stored tokens
+                self.token_store.update_access_token(
+                    user_identifier,
+                    access_token,
+                    token_response.get("expires_in", 3600)
+                )
+
+                # Reload tokens to get the updated access token
+                tokens = self.token_store.get_tokens(user_identifier)
+                logger.info(f"Successfully refreshed token for {user_identifier}")
+            except Exception as e:
+                logger.error(f"Failed to refresh token for {user_identifier}: {e}")
+                raise ValueError(f"Token expired and refresh failed for {user_identifier}. Please re-authorize.")
+
         # First, find the engage group
         groups = outlook.get_user_groups(tokens['access_token'])
         engage_group = None
@@ -122,7 +147,7 @@ class ProposalFollowupAnalyzer:
             access_token=tokens['access_token'],
             group_email=engage_group['mail'],
             days_back=days_back,
-            limit=200
+            limit=2000
         )
 
         logger.info(f"Found {len(emails)} emails in engage group from past {days_back} days")
@@ -192,16 +217,16 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
         self,
         emails: List[Dict[str, Any]],
         no_response_days: int = 3
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
-        Categorize email threads into unanswered and pending proposals.
+        Categorize email threads into unanswered, pending proposals, and filtered.
 
         Args:
             emails: List of email messages
             no_response_days: Days threshold for "no response"
 
         Returns:
-            Tuple of (unanswered_threads, pending_proposals)
+            Tuple of (unanswered_threads, pending_proposals, filtered_threads)
         """
         # Group emails by conversation ID
         conversations: Dict[str, List[Dict[str, Any]]] = {}
@@ -220,6 +245,7 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
 
         unanswered = []
         pending_proposals = []
+        filtered = []
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=no_response_days)
 
         for conv_id, thread in conversations.items():
@@ -243,7 +269,7 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                     body = _strip_html(last_email.get("body", {}).get("content", ""))
                     classification = self._classify_as_lead(subject, body, external_email)
 
-                    unanswered.append({
+                    thread_data = {
                         "conversation_id": conv_id,
                         "thread": thread,
                         "last_email": last_email,
@@ -252,7 +278,13 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                         "subject": last_email.get("subject", ""),
                         "days_waiting": (datetime.now(timezone.utc) - last_received).days,
                         "classification": classification
-                    })
+                    }
+
+                    # Add to appropriate list based on classification
+                    if classification.get("is_lead", True):
+                        unanswered.append(thread_data)
+                    else:
+                        filtered.append(thread_data)
 
             # Check if we sent a proposal and haven't heard back
             else:
@@ -313,7 +345,7 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                             body = _strip_html(last_email.get("body", {}).get("content", ""))
                             classification = self._classify_as_lead(subject, body, external_email)
 
-                            pending_proposals.append({
+                            thread_data = {
                                 "conversation_id": conv_id,
                                 "thread": thread,
                                 "last_email": last_email,
@@ -322,10 +354,16 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                                 "subject": last_email.get("subject", ""),
                                 "days_waiting": (datetime.now(timezone.utc) - proposal_date).days,
                                 "classification": classification
-                            })
+                            }
 
-        logger.info(f"Categorized {len(unanswered)} unanswered threads and {len(pending_proposals)} pending proposals")
-        return unanswered, pending_proposals
+                            # Add to appropriate list based on classification
+                            if classification.get("is_lead", True):
+                                pending_proposals.append(thread_data)
+                            else:
+                                filtered.append(thread_data)
+
+        logger.info(f"Categorized {len(unanswered)} unanswered threads, {len(pending_proposals)} pending proposals, and {len(filtered)} filtered threads")
+        return unanswered, pending_proposals, filtered
 
     def match_to_odoo(
         self,
@@ -342,7 +380,7 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
         """
         self._ensure_odoo_connection()
 
-        for category in ["unanswered", "pending_proposals"]:
+        for category in ["unanswered", "pending_proposals", "filtered"]:
             threads = categorized_threads.get(category, [])
 
             for thread in threads:
@@ -463,7 +501,8 @@ Respond in JSON format with these keys:
         self,
         user_identifier: str,
         days_back: int = 7,
-        no_response_days: int = 3
+        no_response_days: int = 3,
+        db=None
     ) -> Dict[str, Any]:
         """
         Main method to get all proposal follow-up data.
@@ -472,6 +511,7 @@ Respond in JSON format with these keys:
             user_identifier: Email of engage monitoring account
             days_back: Days to look back for emails
             no_response_days: Days threshold for "no response"
+            db: Optional database instance to filter out completed follow-ups
 
         Returns:
             Dict with unanswered and pending_proposals lists
@@ -480,18 +520,39 @@ Respond in JSON format with these keys:
         emails = self.get_engage_emails(user_identifier, days_back)
 
         # Categorize threads
-        unanswered, pending_proposals = self.categorize_threads(emails, no_response_days)
+        unanswered, pending_proposals, filtered = self.categorize_threads(emails, no_response_days)
 
         categorized = {
             "unanswered": unanswered,
-            "pending_proposals": pending_proposals
+            "pending_proposals": pending_proposals,
+            "filtered": filtered
         }
+
+        # Filter out completed follow-ups if database provided
+        if db:
+            # Get all thread IDs
+            all_thread_ids = []
+            for category in ["unanswered", "pending_proposals", "filtered"]:
+                for thread in categorized[category]:
+                    thread_id = thread.get("conversation_id")
+                    if thread_id:
+                        all_thread_ids.append(thread_id)
+
+            # Get completed thread IDs
+            completed_ids = set(db.get_completed_followups(all_thread_ids))
+
+            # Filter out completed threads
+            for category in ["unanswered", "pending_proposals", "filtered"]:
+                categorized[category] = [
+                    thread for thread in categorized[category]
+                    if thread.get("conversation_id") not in completed_ids
+                ]
 
         # Match to Odoo
         enriched = self.match_to_odoo(categorized)
 
         # Analyze only threads classified as leads (limit to avoid excessive API calls)
-        for category in ["unanswered", "pending_proposals"]:
+        for category in ["unanswered", "pending_proposals", "filtered"]:
             analyzed_count = 0
             for thread in enriched[category]:
                 # Only analyze if classified as a lead
@@ -505,12 +566,14 @@ Respond in JSON format with these keys:
             "summary": {
                 "unanswered_count": len(enriched["unanswered"]),
                 "pending_proposals_count": len(enriched["pending_proposals"]),
+                "filtered_count": len(enriched.get("filtered", [])),
                 "total_count": len(enriched["unanswered"]) + len(enriched["pending_proposals"]),
                 "days_back": days_back,
                 "no_response_days": no_response_days
             },
             "unanswered": enriched["unanswered"],
-            "pending_proposals": enriched["pending_proposals"]
+            "pending_proposals": enriched["pending_proposals"],
+            "filtered": enriched.get("filtered", [])
         }
 
         return result

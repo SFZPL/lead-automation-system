@@ -7,17 +7,54 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // PrezLab Brand Colors
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+          50: '#f5f3ff',
+          100: '#ede9fe',
+          200: '#ddd6fe',
+          300: '#c4b5fd',
+          400: '#a78bfa',
+          500: '#805AF9', // PrezLab Purple
+          600: '#7c3aed',
+          700: '#6d28d9',
+          800: '#5b21b6',
+          900: '#4c1d95',
+        },
+        navy: {
+          50: '#f0f4f8',
+          100: '#d9e2ec',
+          200: '#bcccdc',
+          300: '#9fb3c8',
+          400: '#829ab1',
+          500: '#627d98',
+          600: '#486581',
+          700: '#334e68', // PrezLab Navy
+          800: '#243b53',
+          900: '#102a43',
+        },
+        coral: {
+          50: '#fff5f5',
+          100: '#ffe3e3',
+          200: '#ffc9c9',
+          300: '#ffa8a8',
+          400: '#ff8787',
+          500: '#ff6b6b', // PrezLab Coral
+          600: '#fa5252',
+          700: '#f03e3e',
+          800: '#e03131',
+          900: '#c92a2a',
+        },
+        yellow: {
+          50: '#fffef0',
+          100: '#fffcdb',
+          200: '#fff9b8',
+          300: '#fff594',
+          400: '#fff070',
+          500: '#FFC952', // PrezLab Yellow
+          600: '#fab005',
+          700: '#f59f00',
+          800: '#f08c00',
+          900: '#e67700',
         },
         success: {
           50: '#f0fdf4',

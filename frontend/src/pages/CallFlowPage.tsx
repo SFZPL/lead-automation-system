@@ -151,7 +151,10 @@ export default function CallFlowPage() {
               {selectedLead.description && (
                 <div>
                   <label className="text-sm font-medium text-gray-700">Notes</label>
-                  <p className="mt-1 text-sm text-gray-600 line-clamp-3">{selectedLead.description}</p>
+                  <div
+                    className="mt-1 text-sm text-gray-600 line-clamp-3 prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: selectedLead.description }}
+                  />
                 </div>
               )}
 
