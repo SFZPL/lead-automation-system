@@ -1,9 +1,9 @@
 pip>=23.2
 setuptools>=68
 wheel>=0.41
-fastapi==0.95.2
+fastapi>=0.110.0
 uvicorn[standard]==0.24.0
-pydantic>=1.10.7
+pydantic>=2.11.7
 requests==2.31.0
 python-dotenv==1.0.0
 openai>=1.35.5
