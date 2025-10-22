@@ -3066,18 +3066,14 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
             )
             user = auth_service.db.get_user_by_id(user_id)
 
-        # Store Odoo credentials in user settings (if Supabase is available)
-        if db:
-            try:
-                db.update_user_settings(
-                    user_id=user["id"],
-                    odoo_url=config.ODOO_URL,
-                    odoo_db=config.ODOO_DB,
-                    odoo_username=request.email,
-                    odoo_password=request.password  # In production, encrypt this
-                )
-            except Exception as e:
-                logger.warning(f"Could not store user settings in Supabase: {e}")
+        # Store Odoo credentials in user settings
+        db.update_user_settings(
+            user_id=user["id"],
+            odoo_url=config.ODOO_URL,
+            odoo_db=config.ODOO_DB,
+            odoo_username=request.email,
+            odoo_password=request.password  # In production, encrypt this
+        )
 
         # Update last login
         auth_service.db.update_last_login(user["id"])
