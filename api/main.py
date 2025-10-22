@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Literal
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel
@@ -31,6 +31,7 @@ from modules.odoo_client import OdooClient
 from api.auth import get_auth_service, get_current_user, get_database, AuthService
 from api.database import Database
 from api.supabase_client import get_supabase_client
+from api.supabase_database import SupabaseDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,45 @@ proposal_followups_cache = {
     "timestamp": None,
     "params": None
 }
+
+
+def get_supabase_database() -> SupabaseDatabase:
+    """Dependency to get Supabase database instance."""
+    return SupabaseDatabase()
+
+
+def get_user_odoo_client(user: Dict[str, Any], db: Database) -> OdooClient:
+    """
+    Get an Odoo client configured with the user's stored credentials.
+
+    Args:
+        user: Current authenticated user dict
+        db: Database instance
+
+    Returns:
+        Configured OdooClient instance
+
+    Raises:
+        HTTPException: If user hasn't set up Odoo credentials
+    """
+    user_settings = db.get_user_settings(user["id"])
+
+    if not user_settings.get("odoo_username") or not user_settings.get("odoo_password"):
+        raise HTTPException(
+            status_code=403,
+            detail="Odoo credentials not configured. Please log in again."
+        )
+
+    # Create a custom config with user's credentials
+    config = Config()
+    config.ODOO_URL = user_settings.get("odoo_url") or config.ODOO_URL
+    config.ODOO_DB = user_settings.get("odoo_db") or config.ODOO_DB
+    config.ODOO_USERNAME = user_settings["odoo_username"]
+    config.ODOO_PASSWORD = user_settings["odoo_password"]
+
+    client = OdooClient(config)
+    return client
+
 
 app = FastAPI(
     title="Lead Automation API",
@@ -92,7 +132,7 @@ def get_post_contact_service() -> PostContactAutomationService:
 
 def get_lost_lead_analyzer() -> LostLeadAnalyzer:
     config = _setup_logging()
-    return LostLeadAnalyzer(config=config)
+    return LostLeadAnalyzer(config=config, supabase_client=supabase)
 
 
 def _to_iso(value: Any) -> Optional[str]:
@@ -198,7 +238,30 @@ class ParsePreviewRequest(BaseModel):
 
 class ParsePreviewResponse(BaseModel):
     success: bool
-    results: List[EnrichedLeadResult]  # Reuse the same model
+    results: List[EnrichedLeadResult]
+
+
+class LeadComplexityAnalysis(BaseModel):
+    lead_id: int
+    name: str
+    complexity_score: int
+    complexity_level: str
+    factors: List[str]
+
+
+class BatchRecommendation(BaseModel):
+    batch_number: int
+    lead_count: int
+    total_complexity: int
+    leads: List[Dict[str, Any]]
+    prompt: str
+
+
+class SmartAnalysisResponse(BaseModel):
+    total_leads: int
+    recommended_batches: int
+    batches: List[BatchRecommendation]
+    analysis_summary: str  # Reuse the same model
 
 
 class EnrichBatchResponse(BaseModel):
@@ -390,6 +453,74 @@ def generate_prompt() -> GenerateResponse:
     ]
 
     return GenerateResponse(prompt=prompt, lead_count=len(leads), leads=previews)
+
+
+@app.post("/perplexity/smart-analysis", response_model=SmartAnalysisResponse)
+def smart_analysis() -> SmartAnalysisResponse:
+    """Analyze leads and recommend optimal batch splitting for manual enrichment"""
+    workflow = get_workflow()
+
+    # Get all unenriched leads
+    _, leads = workflow.generate_enrichment_prompt()
+    if not leads:
+        return SmartAnalysisResponse(
+            total_leads=0,
+            recommended_batches=0,
+            batches=[],
+            analysis_summary="No unenriched leads found."
+        )
+
+    # Get optimized batch split
+    batches = workflow.optimize_batch_split(leads)
+
+    # Build response with prompts for each batch
+    batch_recommendations = []
+    for batch in batches:
+        # Extract just the leads (not the analysis wrapper)
+        batch_leads = [item['lead'] for item in batch['leads']]
+
+        # Generate prompt for this batch
+        batch_prompt = workflow._build_comprehensive_prompt(batch_leads)
+
+        # Build lead info with complexity
+        leads_info = []
+        for item in batch['leads']:
+            leads_info.append({
+                "id": item['lead'].get('id'),
+                "name": item['analysis']['name'],
+                "complexity": item['analysis']['complexity_level'],
+                "factors": item['analysis']['factors']
+            })
+
+        batch_recommendations.append(BatchRecommendation(
+            batch_number=batch['batch_number'],
+            lead_count=batch['lead_count'],
+            total_complexity=batch['total_complexity'],
+            leads=leads_info,
+            prompt=batch_prompt
+        ))
+
+    # Generate summary
+    summary_parts = [
+        f"📊 **Smart Analysis Complete**",
+        f"",
+        f"Total Leads: {len(leads)}",
+        f"Recommended Batches: {len(batches)}",
+        f"",
+        f"**Strategy:** Leads are sorted by complexity and grouped to balance search depth with batch size.",
+        f"High-complexity leads (missing info, common names) are prioritized for focused attention.",
+        f"",
+        f"**Why Split?** Smaller batches = deeper research per lead, more accurate results, and better LinkedIn URL verification."
+    ]
+
+    summary = "\n".join(summary_parts)
+
+    return SmartAnalysisResponse(
+        total_leads=len(leads),
+        recommended_batches=len(batches),
+        batches=batch_recommendations,
+        analysis_summary=summary
+    )
 
 
 @app.post("/perplexity/parse", response_model=ParseResponse)
@@ -754,7 +885,7 @@ async def enrich_batch_stream(payload: EnrichBatchRequest):
                     prompt = workflow.generate_single_lead_prompt(formatted_lead)
 
                     # Call Perplexity
-                    perplexity_response = perplexity_client.query(prompt)
+                    perplexity_response = perplexity_client.search(prompt)
 
                     # Parse response
                     enriched_data = workflow.parse_single_lead_response(perplexity_response, formatted_lead)
@@ -1088,6 +1219,259 @@ def analyze_lost_lead(
     )
 
 
+class SaveAnalysisRequest(BaseModel):
+    """Request to save an analysis for re-engagement."""
+    lead_id: int
+    analysis_data: Dict[str, Any]
+    title: Optional[str] = None
+
+
+class SavedAnalysisResponse(BaseModel):
+    """Response with saved analysis details."""
+    success: bool
+    analysis_id: Optional[str] = None
+    message: Optional[str] = None
+
+
+class SharedAnalysisItem(BaseModel):
+    """A shared analysis item for re-engagement."""
+    id: str
+    lead_id: int
+    title: str
+    analysis_data: Dict[str, Any]
+    created_by_user_id: int
+    created_at: str
+    lead_name: Optional[str] = None
+    company_name: Optional[str] = None
+
+
+@app.post("/lost-leads/{lead_id}/save-analysis", response_model=SavedAnalysisResponse)
+def save_lost_lead_analysis(
+    lead_id: int,
+    payload: SaveAnalysisRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SavedAnalysisResponse:
+    """Save a lost lead analysis for re-engagement (visible to all users)."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        # Prepare analysis data with lead info
+        analysis_to_save = {
+            **payload.analysis_data,
+            "lead_id": lead_id,
+            "title": payload.title or f"Lost Lead #{lead_id} Analysis"
+        }
+
+        # Insert into analysis_cache with is_shared=true
+        result = supabase.client.table("analysis_cache").insert({
+            "user_id": current_user["id"],
+            "analysis_type": "lost_leads",
+            "parameters": {"lead_id": lead_id},
+            "results": analysis_to_save,
+            "is_shared": True  # Make visible to all users
+        }).execute()
+
+        if result.data:
+            return SavedAnalysisResponse(
+                success=True,
+                analysis_id=result.data[0]["id"],
+                message="Analysis saved and shared successfully"
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save analysis")
+
+    except Exception as exc:
+        logger.error(f"Error saving analysis for lead {lead_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/re-engage/analyses")
+def get_shared_analyses(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> List[SharedAnalysisItem]:
+    """Get all shared lost lead analyses for re-engagement."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        # Fetch all shared lost_leads analyses
+        result = supabase.client.table("analysis_cache")\
+            .select("*")\
+            .eq("analysis_type", "lost_leads")\
+            .eq("is_shared", True)\
+            .order("created_at", desc=True)\
+            .execute()
+
+        if not result.data:
+            return []
+
+        # Map to response format
+        shared_analyses = []
+        for item in result.data:
+            results_data = item.get("results", {})
+            shared_analyses.append(SharedAnalysisItem(
+                id=item["id"],
+                lead_id=results_data.get("lead_id", 0),
+                title=results_data.get("title", f"Analysis #{item['id'][:8]}"),
+                analysis_data=results_data,
+                created_by_user_id=item["user_id"],
+                created_at=item["created_at"],
+                lead_name=results_data.get("lead", {}).get("name"),
+                company_name=results_data.get("lead", {}).get("partner_name")
+            ))
+
+        return shared_analyses
+
+    except Exception as exc:
+        logger.error(f"Error fetching shared analyses: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.put("/re-engage/analyses/{analysis_id}")
+def update_shared_analysis(
+    analysis_id: str,
+    payload: SaveAnalysisRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> SavedAnalysisResponse:
+    """Update a shared analysis (only by the creator)."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        # Update only if user is the creator
+        update_data = {
+            "results": payload.analysis_data,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        if payload.title:
+            update_data["title"] = payload.title
+
+        result = supabase.client.table("analysis_cache")\
+            .update(update_data)\
+            .eq("id", analysis_id)\
+            .eq("user_id", current_user["id"])\
+            .execute()
+
+        if result.data:
+            return SavedAnalysisResponse(
+                success=True,
+                analysis_id=analysis_id,
+                message="Analysis updated successfully"
+            )
+        else:
+            raise HTTPException(status_code=404, detail="Analysis not found or access denied")
+
+    except Exception as exc:
+        logger.error(f"Error updating analysis {analysis_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/re-engage/analyses/{analysis_id}")
+def delete_shared_analysis(
+    analysis_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """Delete a shared analysis (only by the creator)."""
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        # Delete only if user is the creator
+        result = supabase.client.table("analysis_cache")\
+            .delete()\
+            .eq("id", analysis_id)\
+            .eq("user_id", current_user["id"])\
+            .execute()
+
+        if result.data:
+            return {"success": True, "message": "Analysis deleted"}
+        else:
+            raise HTTPException(status_code=404, detail="Analysis not found or access denied")
+
+    except Exception as exc:
+        logger.error(f"Error deleting analysis {analysis_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class LostLeadDraftRequest(BaseModel):
+    """Request to generate re-engagement email draft for lost lead."""
+    lead_data: Dict[str, Any]
+    analysis_data: Dict[str, Any]
+
+
+@app.post("/lost-leads/generate-draft")
+def generate_lost_lead_draft(request: LostLeadDraftRequest):
+    """Generate a re-engagement email draft for a lost lead."""
+    try:
+        from modules.llm_client import LLMClient
+
+        llm = LLMClient()
+
+        # Extract lead information
+        lead = request.lead_data
+        analysis = request.analysis_data.get("analysis", {})
+
+        # Build context for email generation
+        lead_name = lead.get("partner_name") or lead.get("contact_name") or lead.get("name", "there")
+        company_name = lead.get("partner_name", "")
+        lost_reason = lead.get("lost_reason", "Unknown reason")
+
+        # Get analysis insights
+        key_insights = analysis.get("key_insights", [])
+        recommended_actions = analysis.get("recommended_actions", [])
+        summary = analysis.get("summary", "")
+
+        # Create prompt for draft generation
+        prompt = f"""You are a sales professional crafting a re-engagement email to a lost lead.
+
+Lead Information:
+- Name: {lead_name}
+- Company: {company_name}
+- Lost Reason: {lost_reason}
+- Lead ID: {lead.get("id")}
+
+Analysis Summary:
+{summary}
+
+Key Insights:
+{chr(10).join(f"- {insight}" for insight in key_insights[:5]) if key_insights else "No specific insights"}
+
+Recommended Actions:
+{chr(10).join(f"- {action}" for action in recommended_actions[:3]) if recommended_actions else "Standard follow-up"}
+
+Please write a professional, personalized re-engagement email that:
+1. Acknowledges the previous interaction respectfully
+2. Offers genuine value or addresses their concerns
+3. Proposes a specific next step or meeting
+4. Maintains a warm, non-pushy tone
+5. Is concise (3-4 paragraphs maximum)
+
+Write only the email body without subject line. Use proper business email formatting."""
+
+        messages = [
+            {"role": "system", "content": "You are an expert sales professional writing re-engagement emails to lost leads."},
+            {"role": "user", "content": prompt}
+        ]
+
+        draft = llm.chat_completion(messages, max_tokens=6000, temperature=0.7)
+
+        if not draft or not draft.strip():
+            raise HTTPException(status_code=500, detail="Failed to generate draft email")
+
+        return {
+            "success": True,
+            "draft": draft,
+            "subject_suggestion": f"Following up - {company_name}" if company_name else "Checking in"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating lost lead draft: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # PROPOSAL FOLLOW-UP ENDPOINTS
 # ============================================================================
@@ -1102,6 +1486,7 @@ class ProposalFollowupSummary(BaseModel):
     """Summary counts for proposal follow-ups."""
     unanswered_count: int
     pending_proposals_count: int
+    filtered_count: Optional[int] = 0
     total_count: int
     days_back: int
     no_response_days: int
@@ -1126,6 +1511,7 @@ class ProposalFollowupResponse(BaseModel):
     summary: ProposalFollowupSummary
     unanswered: List[ProposalFollowupThread]
     pending_proposals: List[ProposalFollowupThread]
+    filtered: Optional[List[ProposalFollowupThread]] = []
 
 
 @app.get("/proposal-followups", response_model=ProposalFollowupResponse)
@@ -1185,7 +1571,8 @@ def get_proposal_followups(
                 response = ProposalFollowupResponse(
                     summary=ProposalFollowupSummary(**cached_data["summary"]),
                     unanswered=[ProposalFollowupThread(**thread) for thread in cached_data.get("unanswered", [])],
-                    pending_proposals=[ProposalFollowupThread(**thread) for thread in cached_data.get("pending_proposals", [])]
+                    pending_proposals=[ProposalFollowupThread(**thread) for thread in cached_data.get("pending_proposals", [])],
+                    filtered=[ProposalFollowupThread(**thread) for thread in cached_data.get("filtered", [])]
                 )
                 return response
         except Exception as e:
@@ -1213,14 +1600,16 @@ def get_proposal_followups(
         response = ProposalFollowupResponse(
             summary=ProposalFollowupSummary(**result["summary"], last_updated=timestamp),
             unanswered=[ProposalFollowupThread(**thread) for thread in result["unanswered"]],
-            pending_proposals=[ProposalFollowupThread(**thread) for thread in result["pending_proposals"]]
+            pending_proposals=[ProposalFollowupThread(**thread) for thread in result["pending_proposals"]],
+            filtered=[ProposalFollowupThread(**thread) for thread in result.get("filtered", [])]
         )
 
         # Convert response to dict for caching
         response_dict = {
             "summary": response.summary.dict(),
             "unanswered": [thread.dict() for thread in response.unanswered],
-            "pending_proposals": [thread.dict() for thread in response.pending_proposals]
+            "pending_proposals": [thread.dict() for thread in response.pending_proposals],
+            "filtered": [thread.dict() for thread in response.filtered]
         }
 
         # Save to Supabase cache
@@ -1269,6 +1658,271 @@ def analyze_followup_thread(thread_data: Dict[str, Any]):
         return analysis
     except Exception as e:
         logger.error(f"Error analyzing thread: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# FOLLOW-UP REPORTS AND MANAGEMENT ENDPOINTS
+# ============================================================================
+
+class SavedReport(BaseModel):
+    id: str  # UUID from Supabase
+    report_type: str
+    report_period: str
+    created_at: str
+    result: Dict[str, Any]
+    parameters: Dict[str, Any]
+
+
+class SavedReportsResponse(BaseModel):
+    count: int
+    reports: List[SavedReport]
+
+
+class GenerateReportRequest(BaseModel):
+    report_type: Literal["90day", "monthly", "weekly"]
+    days_back: Optional[int] = None
+    no_response_days: int = 3
+    engage_email: str = "automated.response@prezlab.com"
+
+
+class MarkCompleteRequest(BaseModel):
+    thread_id: str
+    conversation_id: str
+    notes: Optional[str] = None
+
+
+class GenerateDraftRequest(BaseModel):
+    thread_data: Dict[str, Any]
+
+
+class RefineDraftRequest(BaseModel):
+    current_draft: str
+    edit_prompt: str
+    thread_data: Dict[str, Any]
+
+
+class SendFollowupEmailRequest(BaseModel):
+    conversation_id: str
+    draft_body: str
+    subject: str
+    reply_to_message_id: Optional[str] = None
+
+
+@app.get("/proposal-followups/reports", response_model=SavedReportsResponse)
+def get_saved_reports(
+    report_type: Optional[str] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Get all saved follow-up reports."""
+    try:
+        reports = db.get_saved_reports(
+            analysis_type="proposal_followups",
+            report_type=report_type
+        )
+
+        return SavedReportsResponse(
+            count=len(reports),
+            reports=[SavedReport(**report) for report in reports]
+        )
+    except Exception as e:
+        logger.error(f"Error fetching saved reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposal-followups/reports/generate")
+def generate_saved_report(
+    request: GenerateReportRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Generate a new follow-up report and save it."""
+    try:
+        user_id = current_user.get("id")
+        user_identifier = current_user.get("email")
+
+        # Determine days_back based on report type
+        if request.report_type == "90day":
+            days_back = 90
+            report_period = datetime.now().strftime("%Y-Q%q")
+        elif request.report_type == "monthly":
+            days_back = 30
+            report_period = datetime.now().strftime("%Y-%m")
+        else:  # weekly
+            days_back = 7
+            report_period = datetime.now().strftime("%Y-W%W")
+
+        # Generate the analysis
+        analyzer = ProposalFollowupAnalyzer()
+        result = analyzer.get_proposal_followups(
+            user_identifier=request.engage_email,
+            days_back=days_back,
+            no_response_days=request.no_response_days
+        )
+
+        # Save as shared report
+        report_id = db.save_report(
+            user_id=user_id,
+            analysis_type="proposal_followups",
+            report_type=request.report_type,
+            report_period=report_period,
+            result=result,
+            parameters={
+                "days_back": days_back,
+                "no_response_days": request.no_response_days,
+                "engage_email": request.engage_email
+            },
+            is_shared=True
+        )
+
+        return {
+            "success": True,
+            "report_id": report_id,
+            "report_type": request.report_type,
+            "report_period": report_period
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposal-followups/{thread_id}/mark-complete")
+def mark_followup_complete(
+    thread_id: str,
+    request: MarkCompleteRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Mark a follow-up as completed."""
+    try:
+        user_id = current_user.get("id")
+
+        result = db.mark_followup_complete(
+            thread_id=request.thread_id,
+            conversation_id=request.conversation_id,
+            user_id=user_id,
+            completion_method="manual_marked",
+            notes=request.notes
+        )
+
+        return {"success": True, "completion": result}
+
+    except Exception as e:
+        logger.error(f"Error marking follow-up complete: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposal-followups/generate-draft")
+def generate_email_draft(request: GenerateDraftRequest):
+    """Generate an email draft for a specific thread."""
+    try:
+        analyzer = ProposalFollowupAnalyzer()
+        analysis = analyzer.analyze_thread_with_llm(request.thread_data)
+
+        return {
+            "success": True,
+            "draft": analysis.get("draft_email", ""),
+            "analysis": analysis
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating draft: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposal-followups/refine-draft")
+def refine_email_draft(request: RefineDraftRequest):
+    """Refine an email draft based on user's editing instructions."""
+    try:
+        from modules.llm_client import LLMClient
+
+        llm = LLMClient()
+
+        # Create prompt for refinement
+        prompt = f"""You are an expert email writer. Modify the following email draft based on the user's instructions.
+
+Current Draft:
+{request.current_draft}
+
+User's Editing Instructions:
+{request.edit_prompt}
+
+Thread Context:
+{json.dumps(request.thread_data, indent=2)}
+
+Please provide the refined email draft that incorporates the user's requested changes while maintaining professionalism and the original intent."""
+
+        messages = [
+            {"role": "system", "content": "You are an expert email writer helping refine business communications."},
+            {"role": "user", "content": prompt}
+        ]
+
+        refined_draft = llm.chat_completion(messages, max_tokens=1000, temperature=0.7)
+
+        return {
+            "success": True,
+            "refined_draft": refined_draft
+        }
+
+    except Exception as e:
+        logger.error(f"Error refining draft: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposal-followups/send-email")
+def send_followup_email(
+    request: SendFollowupEmailRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Send a follow-up email via Outlook and mark as completed."""
+    try:
+        from modules.outlook_client import OutlookClient
+        from modules.token_store import TokenStore
+
+        user_identifier = current_user.get("email")
+        user_id = current_user.get("id")
+
+        # Get user's Outlook token
+        config = Config()
+        token_store = TokenStore(config)
+        tokens = token_store.get_tokens(user_identifier)
+
+        if not tokens:
+            raise HTTPException(
+                status_code=401,
+                detail="No Outlook authentication found. Please authenticate first."
+            )
+
+        outlook = OutlookClient(config)
+
+        # Send the email as a reply
+        result = outlook.send_reply(
+            access_token=tokens.get("access_token"),
+            conversation_id=request.conversation_id,
+            reply_body=request.draft_body,
+            subject=request.subject,
+            reply_to_message_id=request.reply_to_message_id
+        )
+
+        if result:
+            # Mark as completed
+            db.mark_followup_complete(
+                thread_id=request.conversation_id,
+                conversation_id=request.conversation_id,
+                user_id=user_id,
+                completion_method="tool_sent",
+                notes="Email sent via follow-up hub"
+            )
+
+            return {"success": True, "message": "Email sent successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1969,11 +2623,48 @@ def generate_call_flow(request: CallFlowGenerateRequest):
     job_title = lead.get('function') if isinstance(lead.get('function'), str) else 'Unknown'
     stage = lead.get('stage_id')[1] if lead.get('stage_id') and isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown'
 
+    # Get knowledge base context about PrezLab
+    kb_context = ""
+    try:
+        supabase = SupabaseClient()
+        if supabase.is_connected():
+            result = supabase.client.table("knowledge_base_documents")\
+                .select("filename, content")\
+                .eq("is_active", True)\
+                .execute()
+
+            context_parts = []
+            for doc in result.data:
+                filename = doc.get("filename", "Unknown Document")
+                content = doc.get("content", "")
+                if content.strip():
+                    context_parts.append(f"=== {filename} ===\n{content.strip()}")
+
+            kb_context = "\n\n".join(context_parts)
+    except Exception as e:
+        logger.warning(f"Could not fetch knowledge base context: {e}")
+
     # Generate personalized content using LLM
     try:
         openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
 
-        prompt = f"""You are a sales consultant helping to prepare for a discovery call. Based on the Air France Discovery Call Flow methodology, create personalized content for each of the 7 sections below.
+        prompt_parts = []
+
+        if kb_context:
+            prompt_parts.append(f"""IMPORTANT - Company Context & Knowledge Base:
+First, carefully review the following documents about PrezLab (our company, services, and offerings):
+
+{kb_context}
+
+INSTRUCTIONS:
+- Study the above documents to understand what PrezLab offers and our value propositions
+- Tailor your discovery questions to uncover needs that align with PrezLab's specific services
+- Reference PrezLab's actual capabilities when framing questions about solutions
+- Ensure all questions are relevant to what PrezLab can actually provide
+
+""")
+
+        prompt_parts.append(f"""You are a PrezLab sales consultant preparing for a discovery call. Using a consultative, dialogue-friendly approach, create personalized questions for each section that help uncover the prospect's business challenges and how PrezLab's services can help.
 
 LEAD INFORMATION:
 - Contact Name: {lead_name}
@@ -1982,32 +2673,60 @@ LEAD INFORMATION:
 - Current Stage: {stage}
 - Enriched Notes: {description[:500] if description else 'No additional context available'}
 
-DISCOVERY CALL FLOW SECTIONS:
-1. Business Problem - Identify core challenges this lead/company might face
-2. Current State - Explore their current approach and situation
-3. Cause Analysis - Understand potential root causes of their challenges
-4. Negative Impact - Explore consequences of not solving these issues
-5. Desired Outcome - Their ideal future state and goals
-6. Process - How they currently handle workflows related to our solution
-7. Stakeholders - Who are the key decision-makers and influencers
+DISCOVERY CALL FLOW STRUCTURE (based on proven methodology):
+
+1. **Business Problem** - What challenge or opportunity is driving them to explore working with us?
+   - Focus on understanding their core pain point or strategic need
+   - Make it conversational and open-ended
+   - Examples: challenges with communication clarity, brand consistency, executive presentations, etc.
+
+2. **Current State** - How are they handling things today?
+   - Understand their current approach (in-house, agencies, mix)
+   - What's working and what could be stronger
+
+3. **Cause Analysis** - What's the root cause?
+   - Help them identify if it's about resources, processes, alignment, or capabilities
+   - Be empathetic and avoid making them defensive
+
+4. **Negative Impact** - What happens when these challenges occur?
+   - Explore consequences: delays, rework, missed opportunities, brand inconsistency
+   - Help them articulate the cost of inaction
+
+5. **Desired Outcome** - What does success look like?
+   - Future state vision in 6 months
+   - What outcomes would make this "worth the investment"
+
+6. **Process** - How do they like to work with partners?
+   - Project-based vs. ongoing engagement preferences
+   - Timeline, review, and approval processes
+
+7. **Stakeholders** - Who else is involved?
+   - Decision-makers, influencers, departments affected
+   - Identify champions and potential blockers
 
 For each section, provide:
-- A brief objective (1-2 sentences)
-- 3-4 dialogue-friendly questions tailored to {lead_name} at {partner_name}
+- A brief **objective** (what you're trying to discover)
+- 2-3 **dialogue-friendly questions** that are:
+  * Conversational and consultative (not interrogative)
+  * Tailored to {job_title} at {partner_name}
+  * Relevant to PrezLab's services (presentations, visual communication, content)
+  * Open-ended to encourage discussion
 
-Format your response as JSON with this structure:
+Format as JSON:
 {{
   "sections": [
     {{
       "title": "Business Problem",
       "objective": "...",
-      "questions": ["...", "...", "..."]
+      "questions": ["...", "..."]
     }},
     ...
   ]
 }}
 
-Make the questions conversational, open-ended, and specifically relevant to {job_title} at {partner_name}. Reference any relevant context from the enriched notes."""
+Make questions sound natural in conversation. Reference their context from enriched notes when relevant. Focus on business impact, not just creative/design needs.""")
+
+        prompt = "\n".join(prompt_parts)
 
         response = openai_client.chat.completions.create(
             model=config.OPENAI_MODEL or 'gpt-5-mini',
@@ -2130,27 +2849,48 @@ def get_dashboard_summary(
         stats = {}
         recent_activity = []
 
-        # 1. Get Proposal Follow-ups data from cache
+        # 1. Get Proposal Follow-ups data from Supabase (latest shared report)
         try:
-            # Use cached data if available, otherwise return zeros
-            if proposal_followups_cache["data"]:
-                followups_data = proposal_followups_cache["data"]
-                unanswered_count = followups_data.summary.unanswered_count
-                pending_proposals_count = followups_data.summary.pending_proposals_count
+            # Try to get the latest shared report from Supabase
+            if supabase.is_connected():
+                latest_report_response = supabase.client.table("analysis_cache") \
+                    .select("*") \
+                    .eq("analysis_type", "proposal_followups") \
+                    .eq("is_shared", True) \
+                    .not_.is_("report_type", "null") \
+                    .order("created_at", desc=True) \
+                    .limit(1) \
+                    .execute()
+            else:
+                latest_report_response = None
+
+            if latest_report_response and latest_report_response.data and len(latest_report_response.data) > 0:
+                report_data = latest_report_response.data[0]
+
+                # The field is 'results' and it's JSON-encoded
+                import json
+                result = report_data.get("results")
+                if isinstance(result, str):
+                    result = json.loads(result)
+                if not result:
+                    result = {}
+
+                unanswered_count = result.get("summary", {}).get("unanswered_count", 0)
+                pending_proposals_count = result.get("summary", {}).get("pending_proposals_count", 0)
                 stats["unanswered_emails"] = unanswered_count
                 stats["pending_proposals"] = pending_proposals_count
-                stats["last_updated"] = proposal_followups_cache["timestamp"]
+                stats["last_updated"] = report_data.get("created_at")
 
                 followups_result = {
                     "summary": {
                         "unanswered_count": unanswered_count,
                         "pending_proposals_count": pending_proposals_count
                     },
-                    "unanswered": [thread.dict() for thread in followups_data.unanswered],
-                    "pending_proposals": [thread.dict() for thread in followups_data.pending_proposals]
+                    "unanswered": result.get("unanswered", []),
+                    "pending_proposals": result.get("pending_proposals", [])
                 }
             else:
-                # No cached data yet
+                # No reports yet
                 stats["unanswered_emails"] = 0
                 stats["pending_proposals"] = 0
                 stats["last_updated"] = None
@@ -2193,21 +2933,24 @@ def get_dashboard_summary(
             stats["unanswered_emails"] = 0
             stats["pending_proposals"] = 0
 
-        # 2. Get Lost Leads data (placeholder - implement when lost leads uses engage)
+        # 2. Get Lost Leads data - fetch actual count from Odoo
         try:
-            # TODO: Fetch lost leads data when implemented
-            stats["lost_leads"] = 0
+            analyzer = get_lost_lead_analyzer()
+            # Get lost leads without limit to count all
+            lost_leads = analyzer.list_lost_leads(limit=1000)
+            stats["lost_leads"] = len(lost_leads)
         except Exception as e:
             logger.error(f"Error fetching lost leads for dashboard: {e}")
             stats["lost_leads"] = 0
 
-        # 3. Get Enrichment stats (placeholder)
+        # 3. Get Unenriched leads count (replacing enriched_today)
         try:
-            # TODO: Track enrichments in database and fetch count
-            stats["enriched_today"] = 0
+            workflow = get_workflow()
+            _, unenriched_leads = workflow.generate_enrichment_prompt()
+            stats["unenriched_leads"] = len(unenriched_leads)
         except Exception as e:
-            logger.error(f"Error fetching enrichment stats for dashboard: {e}")
-            stats["enriched_today"] = 0
+            logger.error(f"Error fetching unenriched leads for dashboard: {e}")
+            stats["unenriched_leads"] = 0
 
         # 4. Get Call Flow stats (placeholder)
         try:
@@ -2264,23 +3007,103 @@ class UserResponse(BaseModel):
 
 
 @app.post("/auth/login", response_model=LoginResponse)
-def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_service)):
-    """Authenticate user and return access token."""
-    user = auth_service.authenticate_user(request.email, request.password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_service), db: Database = Depends(get_database)):
+    """Authenticate user against Odoo and return access token."""
+    # Try to authenticate against Odoo
+    from modules.odoo_client import OdooClient
+    from config import Config
 
-    access_token = auth_service.create_access_token(
-        user_id=user["id"],
-        email=user["email"],
-        role=user["role"]
-    )
+    config = Config()
+    odoo = OdooClient(config)
 
-    return LoginResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=user
-    )
+    # Create a temporary session to test Odoo credentials
+    import requests
+    test_session = requests.Session()
+    test_session.verify = False if config.ODOO_INSECURE_SSL else True
+    test_session.headers.update({'Content-Type': 'application/json'})
+
+    base_url = config.ODOO_URL
+    auth_endpoint = f"{base_url.rstrip('/')}/web/session/authenticate"
+
+    try:
+        # Test Odoo authentication
+        payload = {
+            'jsonrpc': '2.0',
+            'method': 'call',
+            'params': {
+                'db': config.ODOO_DB,
+                'login': request.email,
+                'password': request.password,
+            },
+            'id': 1,
+        }
+        resp = test_session.post(auth_endpoint, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if 'error' in data and data['error']:
+            raise HTTPException(status_code=401, detail="Invalid Odoo credentials")
+
+        result = data.get('result', {})
+        odoo_uid = result.get('uid')
+        odoo_name = result.get('name', request.email)
+
+        if not odoo_uid:
+            raise HTTPException(status_code=401, detail="Invalid Odoo credentials")
+
+        # Check if user exists in our database
+        user = auth_service.db.get_user_by_email(request.email)
+
+        if not user:
+            # Create new user automatically
+            logger.info(f"Creating new user for Odoo account: {request.email}")
+            password_hash = auth_service.hash_password(request.password)
+            user_id = auth_service.db.create_user(
+                email=request.email,
+                name=odoo_name,
+                password_hash=password_hash,
+                role="user"
+            )
+            user = auth_service.db.get_user_by_id(user_id)
+
+        # Store Odoo credentials in user settings
+        db.update_user_settings(
+            user_id=user["id"],
+            odoo_url=config.ODOO_URL,
+            odoo_db=config.ODOO_DB,
+            odoo_username=request.email,
+            odoo_password=request.password  # In production, encrypt this
+        )
+
+        # Update last login
+        auth_service.db.update_last_login(user["id"])
+
+        # Create access token
+        access_token = auth_service.create_access_token(
+            user_id=user["id"],
+            email=user["email"],
+            role=user["role"]
+        )
+
+        return LoginResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user={
+                "id": user["id"],
+                "email": user["email"],
+                "name": user["name"],
+                "role": user["role"]
+            }
+        )
+
+    except requests.RequestException as e:
+        logger.error(f"Odoo authentication failed: {e}")
+        raise HTTPException(status_code=401, detail="Unable to authenticate with Odoo")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
 
 
 @app.post("/auth/register", response_model=UserResponse)
@@ -2329,3 +3152,164 @@ def list_users(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     return db.list_users()
+
+
+# ============================================================================
+# KNOWLEDGE BASE ENDPOINTS
+# ============================================================================
+
+class KnowledgeBaseDocument(BaseModel):
+    """Knowledge base document metadata."""
+    id: str
+    filename: str
+    file_size: int
+    description: Optional[str] = None
+    uploaded_by_user_id: int
+    is_active: bool
+    created_at: str
+    updated_at: str
+
+
+class KnowledgeBaseUploadResponse(BaseModel):
+    """Response for document upload."""
+    success: bool
+    document_id: Optional[str] = None
+    message: Optional[str] = None
+
+
+@app.post("/knowledge-base/upload", response_model=KnowledgeBaseUploadResponse)
+async def upload_knowledge_base_document(
+    file: UploadFile = File(...),
+    description: Optional[str] = Form(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Upload a PDF document to the knowledge base.
+    The content will be extracted and used as context for AI analyses.
+    """
+    if not supabase.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Knowledge base requires Supabase connection"
+        )
+
+    # Validate file type
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are supported"
+        )
+
+    try:
+        # Read file content
+        content_bytes = await file.read()
+        file_size = len(content_bytes)
+
+        # Extract text from PDF
+        import io
+        try:
+            import PyPDF2
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(content_bytes))
+            text_content = ""
+            for page in pdf_reader.pages:
+                text_content += page.extract_text() + "\n"
+
+            if not text_content.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not extract text from PDF. Please ensure the PDF contains readable text."
+                )
+        except ImportError:
+            raise HTTPException(
+                status_code=500,
+                detail="PDF parsing library not installed. Please install PyPDF2."
+            )
+        except Exception as e:
+            logger.error(f"Error extracting PDF text: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract text from PDF: {str(e)}"
+            )
+
+        # Store in Supabase
+        result = supabase.client.table("knowledge_base_documents").insert({
+            "filename": file.filename,
+            "file_size": file_size,
+            "content": text_content,
+            "description": description,
+            "uploaded_by_user_id": current_user["id"],
+            "is_active": True
+        }).execute()
+
+        if result.data:
+            return KnowledgeBaseUploadResponse(
+                success=True,
+                document_id=result.data[0]["id"],
+                message=f"Document '{file.filename}' uploaded successfully"
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save document")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading knowledge base document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/knowledge-base/documents")
+def get_knowledge_base_documents(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> List[KnowledgeBaseDocument]:
+    """Get all active knowledge base documents."""
+    if not supabase.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Knowledge base requires Supabase connection"
+        )
+
+    try:
+        result = supabase.client.table("knowledge_base_documents")\
+            .select("id, filename, file_size, description, uploaded_by_user_id, is_active, created_at, updated_at")\
+            .eq("is_active", True)\
+            .order("created_at", desc=True)\
+            .execute()
+
+        return [KnowledgeBaseDocument(**doc) for doc in result.data]
+
+    except Exception as e:
+        logger.error(f"Error fetching knowledge base documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/knowledge-base/documents/{document_id}")
+def delete_knowledge_base_document(
+    document_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Delete (deactivate) a knowledge base document.
+    Only the uploader can delete their documents.
+    """
+    if not supabase.is_connected():
+        raise HTTPException(
+            status_code=503,
+            detail="Knowledge base requires Supabase connection"
+        )
+
+    try:
+        # Soft delete by setting is_active to false
+        result = supabase.client.table("knowledge_base_documents")\
+            .update({"is_active": False})\
+            .eq("id", document_id)\
+            .eq("uploaded_by_user_id", current_user["id"])\
+            .execute()
+
+        if result.data:
+            return {"success": True, "message": "Document deleted"}
+        else:
+            raise HTTPException(status_code=404, detail="Document not found or access denied")
+
+    except Exception as e:
+        logger.error(f"Error deleting document {document_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

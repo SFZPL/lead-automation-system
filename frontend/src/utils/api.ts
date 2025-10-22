@@ -67,8 +67,10 @@ export const api = {
 
   // Lost lead insights
   getLostLeads: (params?: { limit?: number; salesperson?: string; type_filter?: string }) => apiClient.get('/lost-leads', { params }),
-  analyzeLostLead: (leadId: number, data?: { max_internal_notes?: number; max_emails?: number }) =>
+  analyzeLostLead: (leadId: number, data?: { user_identifier?: string; include_outlook_emails?: boolean }) =>
     apiClient.post(`/lost-leads/${leadId}/analysis`, data),
+  generateLostLeadDraft: (data: { lead_data: any; analysis_data: any }) =>
+    apiClient.post('/lost-leads/generate-draft', data),
 
   // Dashboard
   getDashboardSummary: (params?: { engage_email?: string }) =>
@@ -78,6 +80,20 @@ export const api = {
   getProposalFollowups: (params?: { days_back?: number; no_response_days?: number; engage_email?: string; force_refresh?: boolean }) =>
     apiClient.get('/proposal-followups', { params }),
   analyzeFollowupThread: (threadData: any) => apiClient.post('/proposal-followups/analyze-thread', threadData),
+
+  // Proposal follow-up reports
+  getSavedReports: (params?: { report_type?: '90day' | 'monthly' | 'weekly' }) =>
+    apiClient.get('/proposal-followups/reports', { params }),
+  generateReport: (data: { report_type: '90day' | 'monthly' | 'weekly'; days_back?: number; no_response_days?: number; engage_email?: string }) =>
+    apiClient.post('/proposal-followups/reports/generate', data),
+  markFollowupComplete: (data: { thread_id: string; conversation_id: string; notes?: string }) =>
+    apiClient.post(`/proposal-followups/${data.thread_id}/mark-complete`, data),
+  generateDraft: (data: { thread_data: any }) =>
+    apiClient.post('/proposal-followups/generate-draft', data),
+  refineDraft: (data: { current_draft: string; edit_prompt: string }) =>
+    apiClient.post('/proposal-followups/refine-draft', data),
+  sendFollowupEmail: (data: { conversation_id: string; draft_body: string; subject: string; reply_to_message_id?: string }) =>
+    apiClient.post('/proposal-followups/send-email', data),
 
   // Lead assignments
   createLeadAssignment: (data: {
@@ -116,6 +132,13 @@ export const api = {
 
   // Health
   healthCheck: () => apiClient.get('/api/health'),
+
+  // Generic HTTP methods for direct API access
+  get: (url: string, config?: any) => apiClient.get(url, config),
+  post: (url: string, data?: any, config?: any) => apiClient.post(url, data, config),
+  put: (url: string, data?: any, config?: any) => apiClient.put(url, data, config),
+  patch: (url: string, data?: any, config?: any) => apiClient.patch(url, data, config),
+  delete: (url: string, config?: any) => apiClient.delete(url, config),
 };
 
 export default api;
