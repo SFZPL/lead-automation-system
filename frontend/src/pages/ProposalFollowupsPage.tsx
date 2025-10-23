@@ -691,59 +691,61 @@ const ProposalFollowupsPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      {hasStarted && (
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setSelectedTab('unanswered')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              selectedTab === 'unanswered'
-                ? 'border-orange-500 text-orange-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Unanswered Emails
-            {followupsQuery.data && (
-              <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-orange-100 text-orange-800">
-                {followupsQuery.data.summary.unanswered_count}
-              </span>
-            )}
-          </button>
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+        {hasStarted && (
+          <>
+            <button
+              onClick={() => setSelectedTab('unanswered')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                selectedTab === 'unanswered'
+                  ? 'border-orange-500 text-orange-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Unanswered Emails
+              {followupsQuery.data && (
+                <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-orange-100 text-orange-800">
+                  {followupsQuery.data.summary.unanswered_count}
+                </span>
+              )}
+            </button>
 
-          <button
-            onClick={() => setSelectedTab('pending')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              selectedTab === 'pending'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Pending Proposals
-            {followupsQuery.data && (
-              <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-blue-100 text-blue-800">
-                {followupsQuery.data.summary.pending_proposals_count}
-              </span>
-            )}
-          </button>
+            <button
+              onClick={() => setSelectedTab('pending')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                selectedTab === 'pending'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Pending Proposals
+              {followupsQuery.data && (
+                <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-blue-100 text-blue-800">
+                  {followupsQuery.data.summary.pending_proposals_count}
+                </span>
+              )}
+            </button>
+          </>
+        )}
 
-          <button
-            onClick={() => setSelectedTab('reports')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              selectedTab === 'reports'
-                ? 'border-purple-500 text-purple-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            📊 Saved Reports
-            {reportsQuery.data && (
-              <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-purple-100 text-purple-800">
-                {reportsQuery.data.length}
-              </span>
-            )}
-          </button>
-          </nav>
-        </div>
-      )}
+        <button
+          onClick={() => setSelectedTab('reports')}
+          className={`py-4 px-1 border-b-2 font-medium text-sm ${
+            selectedTab === 'reports'
+              ? 'border-purple-500 text-purple-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          📊 Saved Reports
+          {reportsQuery.data && (
+            <span className="ml-2 py-0.5 px-2 rounded-full text-xs bg-purple-100 text-purple-800">
+              {reportsQuery.data.length}
+            </span>
+          )}
+        </button>
+        </nav>
+      </div>
 
       {/* Content */}
       <div>
