@@ -64,6 +64,10 @@ const PerplexityPage: React.FC = () => {
     [leadId: number]: { [fieldName: string]: any };
   }>({});
 
+  // Prompt modal state for Teams app
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  const [modalPromptText, setModalPromptText] = useState('');
+
   // Streaming progress state
   const [enrichmentProgress, setEnrichmentProgress] = useState<{
     current: number;
@@ -681,44 +685,9 @@ const PerplexityPage: React.FC = () => {
                             </div>
                             <button
                               onClick={() => {
-                                // Try modern clipboard API first (works in browser)
-                                if (navigator.clipboard && navigator.clipboard.writeText) {
-                                  navigator.clipboard.writeText(batch.prompt)
-                                    .then(() => {
-                                      toast.success(`Prompt ${batch.batch_number} copied!`);
-                                    })
-                                    .catch(() => {
-                                      // Fallback for Teams/iframe (execCommand method)
-                                      const textarea = document.createElement('textarea');
-                                      textarea.value = batch.prompt;
-                                      textarea.style.position = 'fixed';
-                                      textarea.style.opacity = '0';
-                                      document.body.appendChild(textarea);
-                                      textarea.select();
-                                      try {
-                                        document.execCommand('copy');
-                                        toast.success(`Prompt ${batch.batch_number} copied!`);
-                                      } catch (err) {
-                                        toast.error('Copy failed. Please select and copy manually.');
-                                      }
-                                      document.body.removeChild(textarea);
-                                    });
-                                } else {
-                                  // Fallback for Teams/iframe (execCommand method)
-                                  const textarea = document.createElement('textarea');
-                                  textarea.value = batch.prompt;
-                                  textarea.style.position = 'fixed';
-                                  textarea.style.opacity = '0';
-                                  document.body.appendChild(textarea);
-                                  textarea.select();
-                                  try {
-                                    document.execCommand('copy');
-                                    toast.success(`Prompt ${batch.batch_number} copied!`);
-                                  } catch (err) {
-                                    toast.error('Copy failed. Please select and copy manually.');
-                                  }
-                                  document.body.removeChild(textarea);
-                                }
+                                // Show modal for manual copy (works reliably in Teams)
+                                setModalPromptText(batch.prompt);
+                                setShowPromptModal(true);
                               }}
                               className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
                             >
@@ -920,6 +889,34 @@ const PerplexityPage: React.FC = () => {
         </div>
       )}
       </div>
+
+      {/* Prompt Modal for Teams - Manual Copy */}
+      {showPromptModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Copy Prompt</h3>
+              <p className="text-sm text-gray-600 mt-1">Select all text below and copy it manually (Ctrl+A, then Ctrl+C)</p>
+            </div>
+            <div className="flex-1 overflow-auto p-6">
+              <textarea
+                readOnly
+                value={modalPromptText}
+                className="w-full h-full min-h-[400px] p-4 border border-gray-300 rounded-lg font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
+                onClick={(e) => e.currentTarget.select()}
+              />
+            </div>
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setShowPromptModal(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
