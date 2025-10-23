@@ -681,8 +681,44 @@ const PerplexityPage: React.FC = () => {
                             </div>
                             <button
                               onClick={() => {
-                                navigator.clipboard.writeText(batch.prompt);
-                                toast.success(`Prompt ${batch.batch_number} copied!`);
+                                // Try modern clipboard API first (works in browser)
+                                if (navigator.clipboard && navigator.clipboard.writeText) {
+                                  navigator.clipboard.writeText(batch.prompt)
+                                    .then(() => {
+                                      toast.success(`Prompt ${batch.batch_number} copied!`);
+                                    })
+                                    .catch(() => {
+                                      // Fallback for Teams/iframe (execCommand method)
+                                      const textarea = document.createElement('textarea');
+                                      textarea.value = batch.prompt;
+                                      textarea.style.position = 'fixed';
+                                      textarea.style.opacity = '0';
+                                      document.body.appendChild(textarea);
+                                      textarea.select();
+                                      try {
+                                        document.execCommand('copy');
+                                        toast.success(`Prompt ${batch.batch_number} copied!`);
+                                      } catch (err) {
+                                        toast.error('Copy failed. Please select and copy manually.');
+                                      }
+                                      document.body.removeChild(textarea);
+                                    });
+                                } else {
+                                  // Fallback for Teams/iframe (execCommand method)
+                                  const textarea = document.createElement('textarea');
+                                  textarea.value = batch.prompt;
+                                  textarea.style.position = 'fixed';
+                                  textarea.style.opacity = '0';
+                                  document.body.appendChild(textarea);
+                                  textarea.select();
+                                  try {
+                                    document.execCommand('copy');
+                                    toast.success(`Prompt ${batch.batch_number} copied!`);
+                                  } catch (err) {
+                                    toast.error('Copy failed. Please select and copy manually.');
+                                  }
+                                  document.body.removeChild(textarea);
+                                }
                               }}
                               className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
                             >
