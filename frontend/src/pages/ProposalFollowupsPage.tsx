@@ -925,6 +925,15 @@ const ProposalFollowupsPage: React.FC = () => {
                   </div>
                 )}
 
+                {/* Debug info */}
+                {console.log('reportsQuery state:', {
+                  isLoading: reportsQuery.isLoading,
+                  isError: reportsQuery.isError,
+                  data: reportsQuery.data,
+                  dataLength: reportsQuery.data?.length,
+                  isGeneratingReport
+                })}
+
                 {/* Report Generation Loading Indicator */}
                 {isGeneratingReport && (
                   <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
