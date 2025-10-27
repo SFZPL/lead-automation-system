@@ -375,13 +375,13 @@ class PerplexityWorkflow:
     def _check_for_duplicates(self, enriched_lead: Dict[str, Any]) -> Dict[str, Any]:
         """
         Check for duplicate leads in Odoo based on email and name.
-        Adds warning to Notes field if duplicates found.
+        If duplicates found, enrich the current lead AND apply same enrichment to all duplicates.
 
         Args:
             enriched_lead: The enriched lead data
 
         Returns:
-            Lead data with duplicate warning added if applicable
+            Lead data with duplicate information stored for batch update
         """
         try:
             email = enriched_lead.get('email', '').strip()
@@ -398,25 +398,34 @@ class PerplexityWorkflow:
             duplicates = [d for d in duplicates if d.get('id') != current_id]
 
             if duplicates:
-                # Build duplicate warning message
+                from datetime import datetime
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+                # Build list of duplicate IDs for updating
+                duplicate_ids = [d.get('id') for d in duplicates]
                 duplicate_info = []
-                for dup in duplicates[:3]:  # Show max 3 duplicates
+                for dup in duplicates:
                     dup_name = dup.get('name', 'Unknown')
                     dup_company = dup.get('partner_name', 'N/A')
                     dup_email = dup.get('email_from', 'N/A')
                     dup_id = dup.get('id', 'N/A')
                     duplicate_info.append(f"ID {dup_id}: {dup_name} at {dup_company} ({dup_email})")
 
-                warning = f"⚠️ DUPLICATE WARNING: Found {len(duplicates)} similar lead(s) in Odoo: {'; '.join(duplicate_info)}"
+                # Add note to the enriched lead about bulk update
+                bulk_update_note = f"🔄 Bulk Enrichment ({timestamp}): This enrichment was applied to {len(duplicates) + 1} duplicate lead(s): Current (ID {current_id}), {', '.join([f'ID {did}' for did in duplicate_ids])}"
 
-                # Add warning to Notes field
                 existing_notes = enriched_lead.get('Notes', '')
                 if existing_notes:
-                    enriched_lead['Notes'] = f"{existing_notes}. {warning}"
+                    enriched_lead['Notes'] = f"{existing_notes}. {bulk_update_note}"
                 else:
-                    enriched_lead['Notes'] = warning
+                    enriched_lead['Notes'] = bulk_update_note
 
-                print(f"⚠️  Duplicate detected for '{name}' ({email}): {len(duplicates)} similar lead(s) found")
+                # Store duplicate IDs in the enriched lead for batch update
+                enriched_lead['_duplicate_ids'] = duplicate_ids
+                enriched_lead['_bulk_update_note'] = bulk_update_note
+
+                print(f"🔄 Duplicate detected for '{name}' ({email}): Will update {len(duplicates)} additional lead(s)")
+                print(f"   Duplicates: {', '.join([f'ID {did}' for did in duplicate_ids])}")
 
         except Exception as e:
             print(f"Warning: Could not check for duplicates: {e}")
@@ -631,7 +640,10 @@ class PerplexityWorkflow:
         return enriched_lead
 
     def update_leads_in_odoo(self, enriched_leads: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Update the enriched leads back in Odoo"""
+        """
+        Update the enriched leads back in Odoo.
+        If duplicates are detected, applies same enrichment to all duplicate leads.
+        """
 
         if not self.odoo.connect():
             return {'success': False, 'error': 'Failed to connect to Odoo'}
@@ -640,27 +652,63 @@ class PerplexityWorkflow:
             'success': True,
             'updated': 0,
             'failed': 0,
-            'errors': []
+            'errors': [],
+            'duplicates_updated': 0
         }
 
         for lead in enriched_leads:
             try:
-                if 'id' in lead:
-                    success = self.odoo.update_lead(lead['id'], lead)
-                    if success:
-                        results['updated'] += 1
-                        print(f"[OK] Updated lead: {lead.get('Full Name', 'Unknown')}")
-                    else:
-                        results['failed'] += 1
-                        results['errors'].append(f"Failed to update lead {lead['id']}")
-                else:
+                if 'id' not in lead:
                     results['failed'] += 1
                     results['errors'].append("Lead missing ID field")
+                    continue
+
+                # Extract duplicate information if present
+                duplicate_ids = lead.pop('_duplicate_ids', [])
+                bulk_update_note = lead.pop('_bulk_update_note', '')
+
+                # Update the primary lead
+                success = self.odoo.update_lead(lead['id'], lead)
+                if success:
+                    results['updated'] += 1
+                    print(f"[OK] Updated lead: {lead.get('Full Name', 'Unknown')} (ID: {lead['id']})")
+                else:
+                    results['failed'] += 1
+                    results['errors'].append(f"Failed to update lead {lead['id']}")
+                    continue  # Don't update duplicates if primary failed
+
+                # Update all duplicate leads with the same enrichment data
+                if duplicate_ids:
+                    print(f"🔄 Applying same enrichment to {len(duplicate_ids)} duplicate lead(s)...")
+
+                    # Prepare enrichment data for duplicates (copy from primary)
+                    duplicate_enrichment = lead.copy()
+
+                    for dup_id in duplicate_ids:
+                        try:
+                            # Update the duplicate with the same enrichment
+                            duplicate_enrichment['id'] = dup_id
+                            dup_success = self.odoo.update_lead(dup_id, duplicate_enrichment)
+
+                            if dup_success:
+                                results['duplicates_updated'] += 1
+                                print(f"   [OK] Updated duplicate lead ID: {dup_id}")
+                            else:
+                                results['errors'].append(f"Failed to update duplicate lead {dup_id}")
+
+                        except Exception as dup_error:
+                            error_msg = f"Error updating duplicate lead {dup_id}: {str(dup_error)}"
+                            results['errors'].append(error_msg)
+                            print(f"   [ERROR] {error_msg}")
 
             except Exception as e:
                 results['failed'] += 1
                 error_msg = f"Error updating lead {lead.get('Full Name', 'Unknown')}: {str(e)}"
                 results['errors'].append(error_msg)
+
+        # Add summary message if duplicates were updated
+        if results['duplicates_updated'] > 0:
+            print(f"\n✅ Bulk Update Summary: {results['updated']} primary lead(s) + {results['duplicates_updated']} duplicate(s) = {results['updated'] + results['duplicates_updated']} total leads updated")
 
         return results
 
