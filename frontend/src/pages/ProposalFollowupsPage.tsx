@@ -547,7 +547,7 @@ const ProposalFollowupsPage: React.FC = () => {
           </button>
 
           <a
-            href={`https://outlook.office.com/mail/inbox/id/${thread.conversation_id}`}
+            href={`https://outlook.office.com/mail/search?q=${encodeURIComponent(`subject:"${thread.subject}"`)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
