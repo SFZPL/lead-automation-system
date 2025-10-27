@@ -201,6 +201,18 @@ const ProposalFollowupsPage: React.FC = () => {
     localStorage.setItem('proposalFollowups_showLeadsOnly', JSON.stringify(showLeadsOnly));
   }, [showLeadsOnly]);
 
+  // Debug: Log reports query state
+  React.useEffect(() => {
+    console.log('reportsQuery state:', {
+      isLoading: reportsQuery.isLoading,
+      isError: reportsQuery.isError,
+      data: reportsQuery.data,
+      dataLength: reportsQuery.data?.length,
+      isGeneratingReport,
+      selectedTab
+    });
+  }, [reportsQuery.isLoading, reportsQuery.data, isGeneratingReport, selectedTab]);
+
   React.useEffect(() => {
     localStorage.setItem('proposalFollowups_showFilteredEmails', JSON.stringify(showFilteredEmails));
   }, [showFilteredEmails]);
@@ -924,15 +936,6 @@ const ProposalFollowupsPage: React.FC = () => {
                     <p className="text-gray-600">Loading saved reports...</p>
                   </div>
                 )}
-
-                {/* Debug info */}
-                {console.log('reportsQuery state:', {
-                  isLoading: reportsQuery.isLoading,
-                  isError: reportsQuery.isError,
-                  data: reportsQuery.data,
-                  dataLength: reportsQuery.data?.length,
-                  isGeneratingReport
-                })}
 
                 {/* Report Generation Loading Indicator */}
                 {isGeneratingReport && (
