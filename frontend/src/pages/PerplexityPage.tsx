@@ -186,7 +186,7 @@ const PerplexityPage: React.FC = () => {
       data.results.forEach((result: EnrichedLeadResult) => {
         if (result.success) {
           initialState[result.lead_id] = {
-            approved: false,
+            approved: true,
             rejectedFields: new Set(),
           };
         }
@@ -271,7 +271,7 @@ const PerplexityPage: React.FC = () => {
                 data.results.forEach((result: EnrichedLeadResult) => {
                   if (result.success) {
                     initialState[result.lead_id] = {
-                      approved: false,
+                      approved: true,
                       rejectedFields: new Set(),
                     };
                   }
