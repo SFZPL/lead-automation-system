@@ -820,7 +820,8 @@ const ProposalFollowupsPage: React.FC = () => {
           </div>
         )}
 
-        {followupsQuery.data && (
+        {/* Unanswered and Pending tabs require followupsQuery.data */}
+        {followupsQuery.data && (selectedTab === 'unanswered' || selectedTab === 'pending') && (
           <div className="space-y-4">
             {selectedTab === 'unanswered' && (
               <>
@@ -912,120 +913,122 @@ const ProposalFollowupsPage: React.FC = () => {
               </div>
             )}
 
-            {selectedTab === 'reports' && (
-              <div className="space-y-4">
-                {/* Generate Report Button */}
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">Saved Reports</h2>
-                    <p className="text-sm text-gray-600">View and generate follow-up reports for your team</p>
-                  </div>
-                  <button
-                    onClick={() => setShowGenerateReportModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-                  >
-                    <DocumentTextIcon className="w-5 h-5" />
-                    Generate New Report
-                  </button>
-                </div>
+          </div>
+        )}
 
-                {/* Reports List */}
-                {reportsQuery.isLoading && (
-                  <div className="text-center py-12">
-                    <ArrowPathIcon className="w-12 h-12 text-purple-500 animate-spin mx-auto mb-4" />
-                    <p className="text-gray-600">Loading saved reports...</p>
-                  </div>
-                )}
+        {/* Reports tab is independent of followupsQuery */}
+        {selectedTab === 'reports' && (
+          <div className="space-y-4">
+            {/* Generate Report Button */}
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Saved Reports</h2>
+                <p className="text-sm text-gray-600">View and generate follow-up reports for your team</p>
+              </div>
+              <button
+                onClick={() => setShowGenerateReportModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+              >
+                <DocumentTextIcon className="w-5 h-5" />
+                Generate New Report
+              </button>
+            </div>
 
-                {/* Report Generation Loading Indicator */}
-                {isGeneratingReport && (
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <ArrowPathIcon className="w-8 h-8 text-purple-600 animate-spin" />
-                        <div>
-                          <p className="text-lg font-semibold text-purple-900">
-                            Generating {selectedReportType === '90day' ? '90-day' : selectedReportType} report...
-                          </p>
-                          <p className="text-sm text-purple-700 mt-1">
-                            Elapsed time: {formatTime(reportElapsedTime)} • Estimated: {
-                              selectedReportType === 'weekly' ? '~30 seconds' :
-                              selectedReportType === 'monthly' ? '~2 minutes' :
-                              '~5 minutes'
-                            }
-                          </p>
-                        </div>
-                      </div>
+            {/* Reports List */}
+            {reportsQuery.isLoading && (
+              <div className="text-center py-12">
+                <ArrowPathIcon className="w-12 h-12 text-purple-500 animate-spin mx-auto mb-4" />
+                <p className="text-gray-600">Loading saved reports...</p>
+              </div>
+            )}
+
+            {/* Report Generation Loading Indicator */}
+            {isGeneratingReport && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <ArrowPathIcon className="w-8 h-8 text-purple-600 animate-spin" />
+                    <div>
+                      <p className="text-lg font-semibold text-purple-900">
+                        Generating {selectedReportType === '90day' ? '90-day' : selectedReportType} report...
+                      </p>
+                      <p className="text-sm text-purple-700 mt-1">
+                        Elapsed time: {formatTime(reportElapsedTime)} • Estimated: {
+                          selectedReportType === 'weekly' ? '~30 seconds' :
+                          selectedReportType === 'monthly' ? '~2 minutes' :
+                          '~5 minutes'
+                        }
+                      </p>
                     </div>
                   </div>
-                )}
+                </div>
+              </div>
+            )}
 
-                {reportsQuery.data && reportsQuery.data.length === 0 && !isGeneratingReport && (
-                  <div className="text-center py-12 bg-gray-50 rounded-lg">
-                    <DocumentTextIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-600">No saved reports yet. Generate your first report!</p>
-                  </div>
-                )}
+            {reportsQuery.data && reportsQuery.data.length === 0 && !isGeneratingReport && (
+              <div className="text-center py-12 bg-gray-50 rounded-lg">
+                <DocumentTextIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-600">No saved reports yet. Generate your first report!</p>
+              </div>
+            )}
 
-                {reportsQuery.data && reportsQuery.data.length > 0 && (
-                  <div className="grid grid-cols-1 gap-4">
-                    {reportsQuery.data.map((report) => (
-                      <div
-                        key={report.id}
-                        onClick={() => {
-                          // Load this report's data into the query cache
-                          queryClient.setQueryData(
-                            ['proposal-followups', daysBack, noResponseDays, forceRefresh],
-                            report.result
-                          );
-                          // Switch to unanswered tab to show the analysis
-                          setSelectedTab('unanswered');
-                          setHasStarted(true);
-                        }}
-                        className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md hover:border-purple-300 transition-all"
-                      >
-                        <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <h3 className="text-lg font-semibold text-gray-900">
-                              {report.report_type === '90day' && '90-Day Report'}
-                              {report.report_type === 'monthly' && 'Monthly Report'}
-                              {report.report_type === 'weekly' && 'Weekly Report'}
-                            </h3>
-                            <p className="text-sm text-gray-600">
-                              Period: {report.report_period} • Generated: {formatDate(report.created_at)}
-                            </p>
-                          </div>
-                          <span className="px-3 py-1 text-sm font-medium rounded-full bg-purple-100 text-purple-800">
-                            {report.report_type}
-                          </span>
-                        </div>
-
-                        {/* Report Summary */}
-                        <div className="grid grid-cols-3 gap-4 mb-4">
-                          <div className="bg-orange-50 rounded-lg p-3">
-                            <p className="text-xs text-orange-600 font-medium">Unanswered</p>
-                            <p className="text-2xl font-bold text-orange-700">{report.result?.summary?.unanswered_count || 0}</p>
-                          </div>
-                          <div className="bg-blue-50 rounded-lg p-3">
-                            <p className="text-xs text-blue-600 font-medium">Pending Proposals</p>
-                            <p className="text-2xl font-bold text-blue-700">{report.result?.summary?.pending_proposals_count || 0}</p>
-                          </div>
-                          <div className="bg-purple-50 rounded-lg p-3">
-                            <p className="text-xs text-purple-600 font-medium">Total</p>
-                            <p className="text-2xl font-bold text-purple-700">{report.result?.summary?.total_count || 0}</p>
-                          </div>
-                        </div>
-
-                        {/* Report Parameters */}
-                        <div className="text-xs text-gray-500 space-x-4">
-                          <span>Lookback: {report.parameters.days_back} days</span>
-                          <span>•</span>
-                          <span>No Response: {report.parameters.no_response_days} days</span>
-                        </div>
+            {reportsQuery.data && reportsQuery.data.length > 0 && (
+              <div className="grid grid-cols-1 gap-4">
+                {reportsQuery.data.map((report) => (
+                  <div
+                    key={report.id}
+                    onClick={() => {
+                      // Load this report's data into the query cache
+                      queryClient.setQueryData(
+                        ['proposal-followups', daysBack, noResponseDays, forceRefresh],
+                        report.result
+                      );
+                      // Switch to unanswered tab to show the analysis
+                      setSelectedTab('unanswered');
+                      setHasStarted(true);
+                    }}
+                    className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md hover:border-purple-300 transition-all"
+                  >
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          {report.report_type === '90day' && '90-Day Report'}
+                          {report.report_type === 'monthly' && 'Monthly Report'}
+                          {report.report_type === 'weekly' && 'Weekly Report'}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Period: {report.report_period} • Generated: {formatDate(report.created_at)}
+                        </p>
                       </div>
-                    ))}
+                      <span className="px-3 py-1 text-sm font-medium rounded-full bg-purple-100 text-purple-800">
+                        {report.report_type}
+                      </span>
+                    </div>
+
+                    {/* Report Summary */}
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      <div className="bg-orange-50 rounded-lg p-3">
+                        <p className="text-xs text-orange-600 font-medium">Unanswered</p>
+                        <p className="text-2xl font-bold text-orange-700">{report.result?.summary?.unanswered_count || 0}</p>
+                      </div>
+                      <div className="bg-blue-50 rounded-lg p-3">
+                        <p className="text-xs text-blue-600 font-medium">Pending Proposals</p>
+                        <p className="text-2xl font-bold text-blue-700">{report.result?.summary?.pending_proposals_count || 0}</p>
+                      </div>
+                      <div className="bg-purple-50 rounded-lg p-3">
+                        <p className="text-xs text-purple-600 font-medium">Total</p>
+                        <p className="text-2xl font-bold text-purple-700">{report.result?.summary?.total_count || 0}</p>
+                      </div>
+                    </div>
+
+                    {/* Report Parameters */}
+                    <div className="text-xs text-gray-500 space-x-4">
+                      <span>Lookback: {report.parameters.days_back} days</span>
+                      <span>•</span>
+                      <span>No Response: {report.parameters.no_response_days} days</span>
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             )}
           </div>
