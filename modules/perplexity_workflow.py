@@ -137,10 +137,14 @@ class PerplexityWorkflow:
         lead_match = re.search(r'\*\*LEAD \d+:(.+)', perplexity_output, re.DOTALL)
         if lead_match:
             content = lead_match.group(1)
-            return self._parse_single_lead_section(content, original_lead)
+            enriched_lead = self._parse_single_lead_section(content, original_lead)
         else:
             # Fallback: if no marker found, parse the whole response
-            return self._parse_single_lead_section(perplexity_output, original_lead)
+            enriched_lead = self._parse_single_lead_section(perplexity_output, original_lead)
+
+        # Check for duplicates before returning
+        enriched_lead = self._check_for_duplicates(enriched_lead)
+        return enriched_lead
 
     def generate_enrichment_prompt(self) -> tuple[str, List[Dict[str, Any]]]:
         """Generate a prompt for manual Perplexity enrichment with current unenriched leads"""
@@ -208,12 +212,16 @@ class PerplexityWorkflow:
                 email = lead['email']
                 lead_section.append(f"- Email: {email}")
                 domain = email.split('@')[1] if '@' in email else None
-                if domain:
+                # Skip company research for personal email domains
+                personal_domains = ['gmail.com', 'hotmail.com', 'outlook.com', 'yahoo.com', 'icloud.com', 'me.com', 'live.com', 'msn.com', 'aol.com', 'mail.com', 'protonmail.com', 'yandex.com']
+                if domain and domain.lower() not in personal_domains:
                     lead_section.append(f"- Email Domain Company: {domain} (research this company too)")
 
             if lead.get('Company Name'):
                 lead_section.append(f"- Stated Company: {lead['Company Name']}")
 
+            # Detect country from phone or other data
+            country_hint = None
             if lead.get('Phone') or lead.get('Mobile'):
                 phone = lead.get('Phone') or lead.get('Mobile')
                 lead_section.append(f"- Phone: {phone}")
@@ -221,6 +229,11 @@ class PerplexityWorkflow:
                 country_hint = self._guess_country_from_phone(phone)
                 if country_hint:
                     lead_section.append(f"- Likely Location: {country_hint}")
+
+            # Also check for explicit country field
+            if not country_hint and lead.get('Country'):
+                country_hint = lead['Country']
+                lead_section.append(f"- Country: {country_hint}")
 
             lead_section.append("")
             prompt_parts.extend(lead_section)
@@ -277,13 +290,16 @@ class PerplexityWorkflow:
             "",
             "**SEARCH STRATEGY:**",
             "- **ALWAYS start with LinkedIn search** - this is the most important source",
+            "- **Primary LinkedIn Search Method:** Use the format '[Full Name] LinkedIn [Country]' (e.g., 'John Smith LinkedIn UAE') - this manual search method often finds profiles that other methods miss",
+            "- If country is known, ALWAYS include it in your LinkedIn search query",
             "- Look at the person's LinkedIn Experience section - the TOPMOST position is their current role",
             "- If LinkedIn shows multiple current positions (e.g., 'Present' on multiple roles), list the main full-time one as Job Title/Company, and list ALL others in Notes",
-            "- Research email domain companies as secondary confirmation",
+            "- Research email domain companies as secondary confirmation (skip for personal domains like gmail.com)",
             "- Cross-reference company websites and professional databases",
             "- Look for recent activity, posts, or mentions",
             "- If you find conflicting company information between stated company and LinkedIn, use the stated company BUT note the LinkedIn position in Notes",
             "- For foreign names, consider transliterations and cultural variations",
+            "- **CRITICAL:** Always try the manual LinkedIn search format '[Name] LinkedIn [Country]' even if other methods fail - this is how humans find profiles manually",
             "",
             "**CRITICAL REMINDER:**",
             "- LinkedIn is your PRIMARY source - always check it first",
@@ -356,6 +372,57 @@ class PerplexityWorkflow:
 
         return None
 
+    def _check_for_duplicates(self, enriched_lead: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Check for duplicate leads in Odoo based on email and name.
+        Adds warning to Notes field if duplicates found.
+
+        Args:
+            enriched_lead: The enriched lead data
+
+        Returns:
+            Lead data with duplicate warning added if applicable
+        """
+        try:
+            email = enriched_lead.get('email', '').strip()
+            name = enriched_lead.get('Full Name', '').strip()
+            current_id = enriched_lead.get('id')
+
+            if not email and not name:
+                return enriched_lead
+
+            # Check for duplicates
+            duplicates = self.odoo.find_duplicate_leads(email=email, name=name)
+
+            # Filter out the current lead itself
+            duplicates = [d for d in duplicates if d.get('id') != current_id]
+
+            if duplicates:
+                # Build duplicate warning message
+                duplicate_info = []
+                for dup in duplicates[:3]:  # Show max 3 duplicates
+                    dup_name = dup.get('name', 'Unknown')
+                    dup_company = dup.get('partner_name', 'N/A')
+                    dup_email = dup.get('email_from', 'N/A')
+                    dup_id = dup.get('id', 'N/A')
+                    duplicate_info.append(f"ID {dup_id}: {dup_name} at {dup_company} ({dup_email})")
+
+                warning = f"⚠️ DUPLICATE WARNING: Found {len(duplicates)} similar lead(s) in Odoo: {'; '.join(duplicate_info)}"
+
+                # Add warning to Notes field
+                existing_notes = enriched_lead.get('Notes', '')
+                if existing_notes:
+                    enriched_lead['Notes'] = f"{existing_notes}. {warning}"
+                else:
+                    enriched_lead['Notes'] = warning
+
+                print(f"⚠️  Duplicate detected for '{name}' ({email}): {len(duplicates)} similar lead(s) found")
+
+        except Exception as e:
+            print(f"Warning: Could not check for duplicates: {e}")
+
+        return enriched_lead
+
     def parse_perplexity_results(self, perplexity_output: str, original_leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Parse Perplexity output and convert to structured data for Odoo update"""
 
@@ -387,6 +454,8 @@ class PerplexityWorkflow:
 
                     if matching_lead:
                         lead_data = self._parse_single_lead_section(section, matching_lead)
+                        # Check for duplicates
+                        lead_data = self._check_for_duplicates(lead_data)
                         enriched_leads.append(lead_data)
                     else:
                         print(f"Warning: Could not find original lead for name '{perplexity_name}'. Available names: {list(original_leads_map.keys())}")
@@ -394,12 +463,14 @@ class PerplexityWorkflow:
                         if i-1 < len(original_leads):
                             print(f"Falling back to position-based matching for lead {i}")
                             lead_data = self._parse_single_lead_section(section, original_leads[i-1])
+                            lead_data = self._check_for_duplicates(lead_data)
                             enriched_leads.append(lead_data)
                 else:
                     print(f"Warning: Could not extract name from Perplexity section {i}")
                     # Fallback to position-based matching
                     if i-1 < len(original_leads):
                         lead_data = self._parse_single_lead_section(section, original_leads[i-1])
+                        lead_data = self._check_for_duplicates(lead_data)
                         enriched_leads.append(lead_data)
 
             except Exception as e:
@@ -491,14 +562,25 @@ class PerplexityWorkflow:
         location_match = re.search(r'Location:\s*(.+?)(?:\n|$)', section, re.IGNORECASE)
         if location_match:
             location = location_match.group(1).strip()
-            if location and location.lower() != 'not found':
+            # Remove citation references
+            location = re.sub(r'\[\d+\]', '', location).strip()
+
+            if location and location.lower() not in ['not found', 'not explicitly', 'n/a', 'none', 'not available']:
                 enriched_lead['Location'] = location
                 # Try to parse city, country from location
                 if ',' in location:
                     parts = [p.strip() for p in location.split(',')]
                     if len(parts) >= 2:
                         enriched_lead['City'] = parts[0]
-                        enriched_lead['Country'] = parts[-1]
+                        # Always populate Country field - last part is usually country
+                        country = parts[-1]
+                        enriched_lead['Country'] = country
+
+                        # Also populate street2 with full location for reference
+                        enriched_lead['street2'] = location
+                elif location:
+                    # If no comma, treat entire location as country
+                    enriched_lead['Country'] = location
 
         # Extract company description for potential use
         desc_match = re.search(r'Company Description:\s*(.+?)(?:\n|$)', section, re.IGNORECASE | re.MULTILINE)

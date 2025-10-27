@@ -1067,3 +1067,50 @@ class OdooClient:
 
         return language_mapping.get(language.lower())
 
+    def find_duplicate_leads(self, email: str = None, name: str = None) -> List[Dict[str, Any]]:
+        """
+        Find potential duplicate leads based on email or name
+
+        Args:
+            email: Email address to search for
+            name: Full name to search for
+
+        Returns:
+            List of duplicate leads found
+        """
+        try:
+            domain_filters = []
+
+            if email and email.strip():
+                # Search for exact email match
+                domain_filters.append(['email_from', '=ilike', email.strip()])
+
+            if name and name.strip():
+                # Search for exact or similar name match
+                domain_filters.append(['name', '=ilike', name.strip()])
+
+            if not domain_filters:
+                return []
+
+            # Combine filters with OR logic
+            domain = ['|'] * (len(domain_filters) - 1) + domain_filters if len(domain_filters) > 1 else domain_filters
+
+            # Search for matching leads
+            duplicate_ids = self._call_kw('crm.lead', 'search', [domain], {'limit': 10})
+
+            if not duplicate_ids:
+                return []
+
+            # Fetch basic info about duplicates
+            duplicates = self._call_kw('crm.lead', 'read', [duplicate_ids], {
+                'fields': ['id', 'name', 'partner_name', 'email_from', 'phone', 'mobile',
+                          'create_date', 'x_studio_quality']
+            })
+
+            logger.info(f"Found {len(duplicates)} potential duplicates for email='{email}' name='{name}'")
+            return duplicates
+
+        except Exception as e:
+            logger.error(f"Error finding duplicates: {e}")
+            return []
+
