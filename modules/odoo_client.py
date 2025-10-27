@@ -1069,14 +1069,15 @@ class OdooClient:
 
     def find_duplicate_leads(self, email: str = None, name: str = None) -> List[Dict[str, Any]]:
         """
-        Find potential duplicate leads based on email or name
+        Find potential UNENRICHED duplicate leads based on email or name
+        Only returns leads that haven't been enriched yet (empty quality field)
 
         Args:
             email: Email address to search for
             name: Full name to search for
 
         Returns:
-            List of duplicate leads found
+            List of unenriched duplicate leads found
         """
         try:
             domain_filters = []
@@ -1092,10 +1093,24 @@ class OdooClient:
             if not domain_filters:
                 return []
 
-            # Combine filters with OR logic
-            domain = ['|'] * (len(domain_filters) - 1) + domain_filters if len(domain_filters) > 1 else domain_filters
+            # Add unenriched filter - quality field must be empty/false
+            unenriched_filter = [
+                '|', '|',
+                ['x_studio_quality', '=', False],
+                ['x_studio_quality', '=', None],
+                ['x_studio_quality', '=', '']
+            ]
 
-            # Search for matching leads
+            # Combine: (email OR name) AND (unenriched)
+            if len(domain_filters) > 1:
+                # Multiple name/email filters with OR
+                name_email_domain = ['|'] * (len(domain_filters) - 1) + domain_filters
+                domain = ['&'] + name_email_domain + unenriched_filter
+            else:
+                # Single filter
+                domain = ['&'] + domain_filters + unenriched_filter
+
+            # Search for matching unenriched leads
             duplicate_ids = self._call_kw('crm.lead', 'search', [domain], {'limit': 10})
 
             if not duplicate_ids:
@@ -1107,7 +1122,7 @@ class OdooClient:
                           'create_date', 'x_studio_quality']
             })
 
-            logger.info(f"Found {len(duplicates)} potential duplicates for email='{email}' name='{name}'")
+            logger.info(f"Found {len(duplicates)} unenriched duplicate(s) for email='{email}' name='{name}'")
             return duplicates
 
         except Exception as e:
