@@ -166,12 +166,17 @@ const ProposalFollowupsPage: React.FC = () => {
     ['saved-reports'],
     async () => {
       const response = await api.getSavedReports();
+      console.log('Saved reports response:', response.data);
       return response.data.reports as SavedReport[];
     },
     {
       enabled: selectedTab === 'reports',
       refetchOnWindowFocus: false,
       staleTime: 5 * 60 * 1000, // 5 minutes
+      onError: (error) => {
+        console.error('Error fetching saved reports:', error);
+        toast.error('Failed to load saved reports');
+      }
     }
   );
 
