@@ -17,7 +17,7 @@ class AuthService:
     # In production, this should be an environment variable
     SECRET_KEY = secrets.token_urlsafe(32)
     ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days (for Teams persistence)
 
     def __init__(self, db: Database):
         self.db = db
@@ -56,7 +56,11 @@ class AuthService:
         except Exception as e:
             raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
-    def authenticate_user(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+    def create_refresh_token(self) -> str:
+        """Create a secure refresh token that never expires."""
+        return secrets.token_urlsafe(64)
+
+    def authenticate_user(self, email: str, password: str, device_info: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Authenticate a user with email and password."""
         user = self.db.get_user_by_email(email)
         if not user:
@@ -68,11 +72,40 @@ class AuthService:
         # Update last login
         self.db.update_last_login(user["id"])
 
+        # Generate refresh token for persistent login
+        refresh_token = self.create_refresh_token()
+        self.db.create_refresh_token(user["id"], refresh_token, device_info)
+
         return {
             "id": user["id"],
             "email": user["email"],
             "name": user["name"],
-            "role": user["role"]
+            "role": user["role"],
+            "refresh_token": refresh_token
+        }
+
+    def refresh_access_token(self, refresh_token: str) -> Optional[Dict[str, Any]]:
+        """Exchange refresh token for a new access token."""
+        token_data = self.db.get_refresh_token(refresh_token)
+        if not token_data:
+            return None
+
+        user_id = token_data["user_id"]
+        user = self.db.get_user_by_id(user_id)
+        if not user:
+            return None
+
+        # Generate new access token
+        access_token = self.create_access_token(user["id"], user["email"], user["role"])
+
+        return {
+            "access_token": access_token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user["name"],
+                "role": user["role"]
+            }
         }
 
     def register_user(self, email: str, name: str, password: str, role: str = "user") -> int:

@@ -277,6 +277,7 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                         "last_contact_date": last_received.isoformat(),
                         "subject": last_email.get("subject", ""),
                         "days_waiting": (datetime.now(timezone.utc) - last_received).days,
+                        "web_link": last_email.get("webLink"),
                         "classification": classification
                     }
 
@@ -353,6 +354,7 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                                 "proposal_date": proposal_date.isoformat(),
                                 "subject": last_email.get("subject", ""),
                                 "days_waiting": (datetime.now(timezone.utc) - proposal_date).days,
+                                "web_link": last_email.get("webLink"),
                                 "classification": classification
                             }
 

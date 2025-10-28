@@ -328,3 +328,59 @@ class SupabaseDatabase:
         except Exception as e:
             logger.error(f"Error getting saved reports: {e}")
             return []
+
+    def create_refresh_token(self, user_id: int, token: str, device_info: Optional[str] = None) -> int:
+        """Create a new refresh token for a user (never expires unless manually revoked)."""
+        try:
+            result = self.supabase.client.table("refresh_tokens").insert({
+                "user_id": user_id,
+                "token": token,
+                "device_info": device_info,
+                "is_active": True
+            }).execute()
+
+            if result.data:
+                return result.data[0]["id"]
+            return 0
+        except Exception as e:
+            logger.error(f"Error creating refresh token: {e}")
+            raise
+
+    def get_refresh_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Get refresh token details if it's valid and active."""
+        try:
+            result = self.supabase.client.table("refresh_tokens")\
+                .select("*")\
+                .eq("token", token)\
+                .eq("is_active", True)\
+                .execute()
+
+            if not result.data:
+                return None
+
+            return result.data[0]
+        except Exception as e:
+            logger.error(f"Error getting refresh token: {e}")
+            return None
+
+    def revoke_refresh_token(self, token: str):
+        """Revoke a refresh token."""
+        try:
+            self.supabase.client.table("refresh_tokens")\
+                .update({"is_active": False})\
+                .eq("token", token)\
+                .execute()
+        except Exception as e:
+            logger.error(f"Error revoking refresh token: {e}")
+            raise
+
+    def revoke_all_user_refresh_tokens(self, user_id: int):
+        """Revoke all refresh tokens for a user."""
+        try:
+            self.supabase.client.table("refresh_tokens")\
+                .update({"is_active": False})\
+                .eq("user_id", user_id)\
+                .execute()
+        except Exception as e:
+            logger.error(f"Error revoking user refresh tokens: {e}")
+            raise

@@ -2996,6 +2996,7 @@ class RegisterRequest(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str
+    refresh_token: str
     user: Dict[str, Any]
 
 
@@ -3085,9 +3086,15 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
             role=user["role"]
         )
 
+        # Create refresh token for persistent login (never expires)
+        refresh_token = auth_service.create_refresh_token()
+        device_info = f"Teams App"  # Could be enhanced with more details
+        auth_service.db.create_refresh_token(user["id"], refresh_token, device_info)
+
         return LoginResponse(
             access_token=access_token,
             token_type="bearer",
+            refresh_token=refresh_token,
             user={
                 "id": user["id"],
                 "email": user["email"],
@@ -3104,6 +3111,26 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
     except Exception as e:
         logger.error(f"Login error: {e}")
         raise HTTPException(status_code=500, detail="Authentication failed")
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+@app.post("/auth/refresh", response_model=LoginResponse)
+def refresh_token(request: RefreshTokenRequest, auth_service: AuthService = Depends(get_auth_service)):
+    """Exchange refresh token for new access token (persistent login)."""
+    result = auth_service.refresh_access_token(request.refresh_token)
+
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    return LoginResponse(
+        access_token=result["access_token"],
+        token_type="bearer",
+        refresh_token=request.refresh_token,  # Return same refresh token (it doesn't expire)
+        user=result["user"]
+    )
 
 
 @app.post("/auth/register", response_model=UserResponse)

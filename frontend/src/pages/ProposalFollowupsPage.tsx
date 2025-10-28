@@ -60,6 +60,7 @@ interface ProposalFollowupThread {
   days_waiting: number;
   last_contact_date?: string;
   proposal_date?: string;
+  web_link?: string;
   odoo_lead?: OdooLead | null;
   analysis?: ThreadAnalysis;
   classification?: EmailClassification;
@@ -114,6 +115,8 @@ const ProposalFollowupsPage: React.FC = () => {
   const [selectedReportType, setSelectedReportType] = useState<'90day' | 'monthly' | 'weekly'>('weekly');
   const [showDraftModal, setShowDraftModal] = useState<boolean>(false);
   const [selectedThread, setSelectedThread] = useState<ProposalFollowupThread | null>(null);
+  const [showThreadUrlModal, setShowThreadUrlModal] = useState<boolean>(false);
+  const [threadSearchUrl, setThreadSearchUrl] = useState<string>('');
   const [draftEmail, setDraftEmail] = useState<string>('');
   const [editPrompt, setEditPrompt] = useState<string>('');
   const [isGeneratingDraft, setIsGeneratingDraft] = useState<boolean>(false);
@@ -546,17 +549,20 @@ const ProposalFollowupsPage: React.FC = () => {
             Mark Complete
           </button>
 
-          <a
-            href={`https://outlook.office.com/mail/search?q=${encodeURIComponent(`subject:"${thread.subject}"`)}`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => {
+              // Use webLink if available, otherwise fall back to subject search
+              const url = thread.web_link || `https://outlook.office.com/mail/search?q=${encodeURIComponent(`subject:"${thread.subject}"`)}`;
+              setThreadSearchUrl(url);
+              setShowThreadUrlModal(true);
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
             Open Thread
-          </a>
+          </button>
 
           <button
             onClick={() => handleAssignLead(thread)}
@@ -1278,6 +1284,48 @@ const ProposalFollowupsPage: React.FC = () => {
           }}
           users={mockUsers}
         />
+      )}
+
+      {/* Thread URL Modal for Teams App */}
+      {showThreadUrlModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Open Email Thread</h3>
+              <p className="text-sm text-gray-600 mt-1">Copy this URL and open it in your browser to view the email thread</p>
+            </div>
+            <div className="p-6">
+              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <input
+                  type="text"
+                  readOnly
+                  value={threadSearchUrl}
+                  onClick={(e) => e.currentTarget.select()}
+                  className="w-full bg-transparent text-sm text-gray-700 font-mono outline-none"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Click the URL to select it, then press Ctrl+C (Windows) or Cmd+C (Mac) to copy
+              </p>
+            </div>
+            <div className="p-6 border-t border-gray-200 flex justify-between gap-3">
+              <a
+                href={threadSearchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 px-4 py-2 bg-blue-600 text-white text-center rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Open in New Tab
+              </a>
+              <button
+                onClick={() => setShowThreadUrlModal(false)}
+                className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

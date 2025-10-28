@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+// Unique storage keys to avoid conflicts with other Teams apps
+const PREZLAB_AUTH_TOKEN_KEY = 'prezlab_auth_token';
+
 // Create axios instance with base configuration
 
 export const apiClient = axios.create({
@@ -13,8 +16,8 @@ export const apiClient = axios.create({
 // Add request interceptor
 apiClient.interceptors.request.use(
   (config) => {
-    // Add authentication token if available
-    const token = localStorage.getItem('auth_token');
+    // Add authentication token if available (try both storages)
+    const token = localStorage.getItem(PREZLAB_AUTH_TOKEN_KEY) || sessionStorage.getItem(PREZLAB_AUTH_TOKEN_KEY);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -33,19 +36,23 @@ apiClient.interceptors.response.use(
   (error) => {
     // Handle common errors
     if (error.response?.status === 401) {
-      // Handle unauthorized - redirect to login if needed
-      localStorage.removeItem('auth_token');
-      // window.location.href = '/login';
+      // Token expired - will be handled by AuthContext refresh logic
+      console.log('401 error - auth token may have expired');
+      // Don't remove tokens here - let AuthContext handle refresh
     } else if (error.response?.status === 500) {
       console.error('Server error:', error.response.data);
     }
-    
+
     return Promise.reject(error);
   }
 );
 
 // API helper functions
 export const api = {
+  // Authentication
+  login: (email: string, password: string) => apiClient.post('/auth/login', { email, password }),
+  refreshToken: (refresh_token: string) => apiClient.post('/auth/refresh', { refresh_token }),
+
   // Configuration
   getConfig: () => apiClient.get('/api/config'),
   validateConfig: () => apiClient.post('/api/validate-config'),

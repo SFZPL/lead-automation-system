@@ -369,6 +369,10 @@ class OutlookClient:
 
                                 logger.debug(f"   📧 Post from: {sender_name} <{sender_email}>")
 
+                                # Construct webLink for group conversation
+                                # Format: https://outlook.office.com/mail/group_email/inbox/id/conversation_id
+                                web_link = f"https://outlook.office.com/mail/{group_email}/inbox/id/{conv_id}"
+
                                 # Format as email message
                                 email_msg = {
                                     "id": post.get("id", conv_id),
@@ -384,6 +388,7 @@ class OutlookClient:
                                     "body": post.get("body", {}),
                                     "hasAttachments": conv.get("hasAttachments", False),
                                     "conversationId": conv_id,
+                                    "webLink": web_link,
                                     "toRecipients": [],
                                     "ccRecipients": [],
                                     "importance": "normal"
