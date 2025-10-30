@@ -361,9 +361,15 @@ const PerplexityPage: React.FC = () => {
     setIsPushing(true);
 
     try {
+      // Get auth token
+      const token = localStorage.getItem('prezlab_auth_token') || sessionStorage.getItem('prezlab_auth_token');
+
       const response = await fetch(`${API_BASE_URL}/perplexity/push-approved`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           approved_leads: approvedLeads,
           send_emails: true,
