@@ -995,6 +995,8 @@ def push_approved_enrichments(
         emails_sent = 0
         email_errors = []
 
+        logger.info(f"📧 Email sending request: send_emails={payload.send_emails}, has_email_data={bool(payload.email_data)}, email_data_count={len(payload.email_data) if payload.email_data else 0}")
+
         if payload.send_emails and payload.email_data:
             from modules.outlook_client import OutlookClient
             import os
@@ -1007,25 +1009,32 @@ def push_approved_enrichments(
             user_identifier = str(current_user["id"])
 
             try:
+                logger.info(f"🔐 Retrieving Outlook tokens for user {user_identifier}")
                 tokens = outlook.get_user_auth_tokens(user_identifier)
                 if not tokens or 'access_token' not in tokens:
+                    logger.error(f"❌ No Outlook tokens found for user {user_identifier}")
                     email_errors.append(f"No authenticated Outlook account found for {current_user['email']}. Please authenticate your Outlook account in Settings.")
                 else:
                     access_token = tokens['access_token']
+                    logger.info(f"✅ Got Outlook access token for user {user_identifier}, preparing to send {len(payload.approved_leads)} emails")
 
                     for lead in payload.approved_leads:
                         lead_id = lead.get('id')
                         lead_email = lead.get('email')
 
                         if not lead_id or not lead_email:
+                            logger.warning(f"⚠️ Skipping lead: missing ID or email (id={lead_id}, email={lead_email})")
                             continue
 
                         email_draft = payload.email_data.get(str(lead_id))
                         if not email_draft:
+                            logger.warning(f"⚠️ No email draft found for lead {lead_id}")
                             continue
 
                         subject = email_draft.get('subject', 'Thank you for your interest in PrezLab')
                         body = email_draft.get('body', '').replace('\n', '<br>')
+
+                        logger.info(f"📤 Sending email to {lead_email} (Lead {lead_id}): '{subject}'")
 
                         try:
                             success = outlook.send_email_with_attachment(
