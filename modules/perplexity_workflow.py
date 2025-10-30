@@ -244,6 +244,12 @@ class PerplexityWorkflow:
         prompt_parts.extend([
             "**INFORMATION TO FIND FOR EACH LEAD:**",
             "",
+            "**CRITICAL: PRESERVE ORIGINAL NAMES - DO NOT TRANSLATE OR TRANSLITERATE**",
+            "- If a lead's name is in Arabic (e.g., 'المصمم علاء حداد'), keep it EXACTLY as is in the LEAD header",
+            "- Do NOT translate Arabic names to English",
+            "- Do NOT transliterate Arabic names to Latin characters",
+            "- Format: **LEAD X: [EXACT ORIGINAL NAME FROM INPUT]**",
+            "",
             "For each person, please research and provide:",
             "1. **LinkedIn Profile URL** - Direct link to their personal LinkedIn (REQUIRED - this is the primary source of truth)",
             "2. **Current Job Title/Role** - Their CURRENT position from LinkedIn's Experience section (the topmost/most recent role)",

@@ -990,6 +990,7 @@ def push_approved_enrichments(
         errors = outcome.get("errors", [])
 
         logger.info(f"Successfully pushed {updated} leads to Odoo, {failed} failed")
+        logger.info(f"🔍 DEBUG: About to check email sending. Payload attributes: send_emails={hasattr(payload, 'send_emails')}, email_data={hasattr(payload, 'email_data')}")
 
         # Send emails if requested
         emails_sent = 0
