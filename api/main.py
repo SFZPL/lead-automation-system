@@ -956,7 +956,10 @@ async def enrich_batch_stream(payload: EnrichBatchRequest):
 
 
 @app.post("/perplexity/push-approved", response_model=PushApprovedResponse)
-def push_approved_enrichments(payload: PushApprovedRequest) -> PushApprovedResponse:
+def push_approved_enrichments(
+    payload: PushApprovedRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> PushApprovedResponse:
     """Push approved enrichment data to Odoo and optionally send outreach emails"""
     config = Config()
     workflow = PerplexityWorkflow(config)
@@ -999,11 +1002,14 @@ def push_approved_enrichments(payload: PushApprovedRequest) -> PushApprovedRespo
             outlook = OutlookClient()
             pdf_path = os.path.join(os.path.dirname(__file__), '..', 'knowledge_base', 'PrezLab Company Profile.pdf')
 
-            # Get Outlook access token
+            # Get authenticated user's Outlook access token
+            # Use current user's ID as identifier (matches the auth flow)
+            user_identifier = str(current_user["id"])
+
             try:
-                tokens = outlook.get_user_auth_tokens('automated.response@prezlab.com')
+                tokens = outlook.get_user_auth_tokens(user_identifier)
                 if not tokens or 'access_token' not in tokens:
-                    email_errors.append("No authenticated Outlook account found. Please authenticate first.")
+                    email_errors.append(f"No authenticated Outlook account found for {current_user['email']}. Please authenticate your Outlook account in Settings.")
                 else:
                     access_token = tokens['access_token']
 
@@ -1034,7 +1040,7 @@ def push_approved_enrichments(payload: PushApprovedRequest) -> PushApprovedRespo
 
                             if success:
                                 emails_sent += 1
-                                logger.info(f"Email sent successfully to {lead_email}")
+                                logger.info(f"Email sent successfully to {lead_email} from {current_user['email']}")
                             else:
                                 email_errors.append(f"Failed to send email to {lead_email}")
 
@@ -1792,6 +1798,72 @@ def get_saved_reports(
         )
     except Exception as e:
         logger.error(f"Error fetching saved reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/outlook/conversation/{conversation_id}")
+def get_conversation_thread(
+    conversation_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Fetch all messages in an Outlook conversation thread."""
+    try:
+        outlook = get_outlook_client()
+        user_identifier = str(current_user["id"])
+
+        # Get user's Outlook tokens
+        tokens = outlook.get_user_auth_tokens(user_identifier)
+        if not tokens or 'access_token' not in tokens:
+            raise HTTPException(
+                status_code=401,
+                detail="No authenticated Outlook account found. Please authenticate in Settings."
+            )
+
+        access_token = tokens['access_token']
+
+        # Fetch conversation messages
+        messages = outlook.get_conversation_messages(access_token, conversation_id)
+
+        if not messages:
+            return {
+                "conversation_id": conversation_id,
+                "messages": [],
+                "count": 0
+            }
+
+        # Format messages for frontend
+        formatted_messages = []
+        for msg in messages:
+            from_data = msg.get("from", {}).get("emailAddress", {})
+            to_recipients = msg.get("toRecipients", [])
+            cc_recipients = msg.get("ccRecipients", [])
+
+            formatted_messages.append({
+                "id": msg.get("id"),
+                "subject": msg.get("subject", ""),
+                "from": {
+                    "name": from_data.get("name", "Unknown"),
+                    "email": from_data.get("address", "")
+                },
+                "to": [{"name": r.get("emailAddress", {}).get("name", ""), "email": r.get("emailAddress", {}).get("address", "")} for r in to_recipients],
+                "cc": [{"name": r.get("emailAddress", {}).get("name", ""), "email": r.get("emailAddress", {}).get("address", "")} for r in cc_recipients],
+                "receivedDateTime": msg.get("receivedDateTime", ""),
+                "body": msg.get("body", {}).get("content", ""),
+                "bodyPreview": msg.get("bodyPreview", ""),
+                "hasAttachments": msg.get("hasAttachments", False),
+                "webLink": msg.get("webLink", "")
+            })
+
+        return {
+            "conversation_id": conversation_id,
+            "messages": formatted_messages,
+            "count": len(formatted_messages)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching conversation thread: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

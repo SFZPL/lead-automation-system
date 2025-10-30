@@ -821,3 +821,96 @@ class OutlookClient:
         except Exception as exc:
             logger.error(f"Unexpected error sending reply: {exc}")
             return False
+
+    def get_user_auth_tokens(self, user_identifier: str, token_store=None) -> Optional[Dict[str, Any]]:
+        """
+        Get authenticated user's Outlook tokens with auto-refresh.
+
+        Args:
+            user_identifier: User identifier (email or user ID)
+            token_store: EmailTokenStore instance (will create if not provided)
+
+        Returns:
+            Dictionary with access_token, refresh_token, etc., or None if not authenticated
+        """
+        if token_store is None:
+            from modules.email_token_store import EmailTokenStore
+            token_store = EmailTokenStore()
+
+        tokens = token_store.get_tokens(user_identifier)
+        if not tokens:
+            logger.warning(f"No tokens found for user: {user_identifier}")
+            return None
+
+        # Check if token is expired and refresh if needed
+        if token_store.is_token_expired(user_identifier):
+            logger.info(f"Access token expired for {user_identifier}, refreshing...")
+            try:
+                refresh_token = tokens.get("refresh_token")
+                if not refresh_token:
+                    logger.error("No refresh token available")
+                    return None
+
+                # Refresh the token
+                token_response = self.refresh_access_token(refresh_token)
+                new_access_token = token_response.get("access_token")
+                expires_in = token_response.get("expires_in", 3600)
+
+                # Update stored token
+                token_store.update_access_token(user_identifier, new_access_token, expires_in)
+
+                # Update tokens dict with new access token
+                tokens["access_token"] = new_access_token
+                logger.info(f"Successfully refreshed access token for {user_identifier}")
+
+            except Exception as e:
+                logger.error(f"Failed to refresh token for {user_identifier}: {e}")
+                return None
+
+        return tokens
+
+    def get_conversation_messages(
+        self,
+        access_token: str,
+        conversation_id: str,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all messages in a conversation thread.
+
+        Args:
+            access_token: OAuth2 access token
+            conversation_id: Conversation ID to fetch messages for
+            limit: Maximum number of messages to return
+
+        Returns:
+            List of message dictionaries sorted by date (oldest first)
+        """
+        try:
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+            # Use $filter to get messages by conversation ID
+            url = f"{self.GRAPH_API_BASE}/me/messages"
+            params = {
+                "$filter": f"conversationId eq '{conversation_id}'",
+                "$top": limit,
+                "$orderby": "receivedDateTime asc",
+                "$select": "id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,bodyPreview,hasAttachments,importance,conversationId,webLink"
+            }
+
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            messages = data.get("value", [])
+
+            logger.info(f"Fetched {len(messages)} messages for conversation {conversation_id}")
+            return messages
+
+        except requests.exceptions.HTTPError as exc:
+            logger.error(f"Error fetching conversation messages: {exc}")
+            if exc.response.status_code == 401:
+                raise RuntimeError("Access token expired. Please refresh token.")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected error fetching conversation messages: {exc}")
+            return []

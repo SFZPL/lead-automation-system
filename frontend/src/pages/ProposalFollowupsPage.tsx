@@ -124,6 +124,9 @@ const ProposalFollowupsPage: React.FC = () => {
   const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
   const [reportGenerationStartTime, setReportGenerationStartTime] = useState<number | null>(null);
+  const [showThreadViewerModal, setShowThreadViewerModal] = useState<boolean>(false);
+  const [threadMessages, setThreadMessages] = useState<any[]>([]);
+  const [isLoadingThread, setIsLoadingThread] = useState<boolean>(false);
 
   // Mock users list - TODO: Replace with actual API call to fetch users
   const mockUsers = [
@@ -353,6 +356,27 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   };
 
+  const handleViewThread = async (thread: ProposalFollowupThread) => {
+    setSelectedThread(thread);
+    setIsLoadingThread(true);
+    setShowThreadViewerModal(true);
+    setThreadMessages([]);
+
+    try {
+      const response = await api.get(`/outlook/conversation/${thread.conversation_id}`);
+      setThreadMessages(response.data.messages || []);
+    } catch (error: any) {
+      console.error('Error fetching thread:', error);
+      if (error.response?.status === 401) {
+        toast.error('Please authenticate your Outlook account in Settings');
+      } else {
+        toast.error('Failed to load thread messages');
+      }
+    } finally {
+      setIsLoadingThread(false);
+    }
+  };
+
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -550,18 +574,13 @@ const ProposalFollowupsPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => {
-              // Use webLink if available, otherwise fall back to subject search
-              const url = thread.web_link || `https://outlook.office.com/mail/search?q=${encodeURIComponent(`subject:"${thread.subject}"`)}`;
-              setThreadSearchUrl(url);
-              setShowThreadUrlModal(true);
-            }}
+            onClick={() => handleViewThread(thread)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
-            Open Thread
+            View Thread
           </button>
 
           <button
@@ -1286,39 +1305,92 @@ const ProposalFollowupsPage: React.FC = () => {
         />
       )}
 
-      {/* Thread URL Modal for Teams App */}
-      {showThreadUrlModal && (
+      {/* Thread Viewer Modal */}
+      {showThreadViewerModal && selectedThread && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Open Email Thread</h3>
-              <p className="text-sm text-gray-600 mt-1">Copy this URL and open it in your browser to view the email thread</p>
-            </div>
-            <div className="p-6">
-              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <input
-                  type="text"
-                  readOnly
-                  value={threadSearchUrl}
-                  onClick={(e) => e.currentTarget.select()}
-                  className="w-full bg-transparent text-sm text-gray-700 font-mono outline-none"
-                />
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Email Thread</h3>
+                  <p className="text-sm text-gray-600 mt-1">{selectedThread.subject}</p>
+                  <p className="text-xs text-gray-500 mt-1">From: {selectedThread.external_email}</p>
+                </div>
+                <button
+                  onClick={() => setShowThreadViewerModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XCircleIcon className="w-6 h-6" />
+                </button>
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Click the URL to select it, then press Ctrl+C (Windows) or Cmd+C (Mac) to copy
-              </p>
             </div>
-            <div className="p-6 border-t border-gray-200 flex justify-between gap-3">
-              <a
-                href={threadSearchUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 px-4 py-2 bg-blue-600 text-white text-center rounded-lg hover:bg-blue-700 transition-colors font-medium"
-              >
-                Open in New Tab
-              </a>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {isLoadingThread ? (
+                <div className="flex items-center justify-center py-12">
+                  <ArrowPathIcon className="w-8 h-8 animate-spin text-blue-600" />
+                  <span className="ml-2 text-gray-600">Loading messages...</span>
+                </div>
+              ) : threadMessages.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  No messages found in this thread
+                </div>
+              ) : (
+                threadMessages.map((message, index) => (
+                  <div
+                    key={message.id}
+                    className="bg-gray-50 rounded-lg p-4 border border-gray-200"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <div className="font-semibold text-gray-900">
+                          {message.from.name}
+                        </div>
+                        <div className="text-sm text-gray-600">{message.from.email}</div>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(message.receivedDateTime).toLocaleString()}
+                      </div>
+                    </div>
+
+                    {message.to && message.to.length > 0 && (
+                      <div className="text-xs text-gray-600 mb-2">
+                        <span className="font-medium">To:</span>{' '}
+                        {message.to.map((r: any) => r.email).join(', ')}
+                      </div>
+                    )}
+
+                    {message.cc && message.cc.length > 0 && (
+                      <div className="text-xs text-gray-600 mb-2">
+                        <span className="font-medium">CC:</span>{' '}
+                        {message.cc.map((r: any) => r.email).join(', ')}
+                      </div>
+                    )}
+
+                    <div className="mt-3 text-sm text-gray-700">
+                      {message.body ? (
+                        <div
+                          className="prose prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{ __html: message.body }}
+                        />
+                      ) : (
+                        <div className="text-gray-500 italic">{message.bodyPreview}</div>
+                      )}
+                    </div>
+
+                    {message.hasAttachments && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        📎 Has attachments
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-200 flex justify-end gap-3">
               <button
-                onClick={() => setShowThreadUrlModal(false)}
+                onClick={() => setShowThreadViewerModal(false)}
                 className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
               >
                 Close
