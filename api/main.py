@@ -2353,20 +2353,25 @@ def outlook_auth_callback_post(
         from datetime import datetime, timedelta
         expires_at = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
 
-        db.update_user_settings(
-            user_id=current_user["id"],
-            outlook_tokens={
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "expires_in": expires_in,
-                "expires_at": expires_at,
-                "user_email": user_email,
-                "user_name": user_name,
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
-            },
-            user_identifier=user_identifier
-        )
+        try:
+            db.update_user_settings(
+                user_id=current_user["id"],
+                outlook_tokens={
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "expires_in": expires_in,
+                    "expires_at": expires_at,
+                    "user_email": user_email,
+                    "user_name": user_name,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                },
+                user_identifier=user_identifier
+            )
+            logger.info(f"✅ Successfully saved Outlook tokens to database for user {current_user['id']} ({user_email})")
+        except Exception as db_error:
+            logger.error(f"❌ Failed to save Outlook tokens to database: {db_error}")
+            # Don't fail the request if database save fails, file system backup exists
 
         return {
             "success": True,

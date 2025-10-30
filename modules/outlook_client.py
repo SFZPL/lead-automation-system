@@ -844,16 +844,23 @@ class OutlookClient:
             try:
                 from api.supabase_database import SupabaseDatabase
                 db = SupabaseDatabase()
+                logger.info(f"✅ Successfully loaded Supabase database for token retrieval")
             except Exception as e:
-                logger.warning(f"Could not load database: {e}")
+                logger.error(f"❌ Could not load database: {e}")
 
         if db is not None:
             try:
                 # user_identifier is the user ID (as string)
                 user_id = int(user_identifier) if user_identifier.isdigit() else None
                 if user_id:
+                    logger.info(f"🔍 Attempting to retrieve Outlook tokens from database for user {user_id}")
                     settings = db.get_user_settings(user_id)
                     outlook_tokens = settings.get("outlook_tokens")
+
+                    if outlook_tokens:
+                        logger.info(f"✅ Found Outlook tokens in database for user {user_id}")
+                    else:
+                        logger.warning(f"⚠️ No Outlook tokens found in database for user {user_id}")
 
                     if outlook_tokens and isinstance(outlook_tokens, dict):
                         # Check if token is expired
