@@ -8,12 +8,14 @@ import json
 from typing import Dict, List, Any, Optional
 from config import Config
 from modules.odoo_client import OdooClient
+from modules.email_template_generator import EmailTemplateGenerator
 
 
 class PerplexityWorkflow:
     def __init__(self, config: Config):
         self.config = config
         self.odoo = OdooClient(config)
+        self.email_generator = EmailTemplateGenerator()
 
     def analyze_lead_complexity(self, lead: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze a single lead's enrichment complexity"""
@@ -636,6 +638,18 @@ class PerplexityWorkflow:
 
         # Mark as enriched
         enriched_lead['Enriched'] = 'Yes'
+
+        # Generate email draft for outreach
+        try:
+            email_draft = self.email_generator.generate_draft(enriched_lead)
+            enriched_lead['email_draft'] = email_draft
+        except Exception as e:
+            print(f"Warning: Failed to generate email draft: {e}")
+            enriched_lead['email_draft'] = {
+                'subject': 'Thank you for your interest in PrezLab',
+                'body': '',
+                'has_company': False
+            }
 
         return enriched_lead
 

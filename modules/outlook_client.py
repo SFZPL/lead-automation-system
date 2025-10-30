@@ -661,6 +661,100 @@ class OutlookClient:
             logger.error(f"Unexpected error sending email: {exc}")
             return False
 
+    def send_email_with_attachment(
+        self,
+        access_token: str,
+        to: List[str],
+        subject: str,
+        body: str,
+        attachment_path: str,
+        attachment_name: str,
+        cc: Optional[List[str]] = None,
+        bcc: Optional[List[str]] = None,
+    ) -> bool:
+        """
+        Send an email with a file attachment using Microsoft Graph API.
+
+        Args:
+            access_token: Valid access token
+            to: List of recipient email addresses
+            subject: Email subject
+            body: Email body (HTML supported)
+            attachment_path: Path to the file to attach
+            attachment_name: Name to give the attachment in the email
+            cc: List of CC email addresses (optional)
+            bcc: List of BCC email addresses (optional)
+
+        Returns:
+            True if email sent successfully, False otherwise
+        """
+        import base64
+        import os
+
+        try:
+            # Read and encode the attachment
+            if not os.path.exists(attachment_path):
+                logger.error(f"Attachment file not found: {attachment_path}")
+                return False
+
+            with open(attachment_path, 'rb') as f:
+                attachment_content = base64.b64encode(f.read()).decode('utf-8')
+
+            # Get file size
+            file_size = os.path.getsize(attachment_path)
+
+            url = f"{self.GRAPH_API_BASE}/me/sendMail"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            }
+
+            # Build recipients
+            to_recipients = [{"emailAddress": {"address": email}} for email in to]
+            cc_recipients = [{"emailAddress": {"address": email}} for email in (cc or [])]
+            bcc_recipients = [{"emailAddress": {"address": email}} for email in (bcc or [])]
+
+            # Build message with attachment
+            message = {
+                "message": {
+                    "subject": subject,
+                    "body": {
+                        "contentType": "HTML",
+                        "content": body
+                    },
+                    "toRecipients": to_recipients,
+                    "attachments": [
+                        {
+                            "@odata.type": "#microsoft.graph.fileAttachment",
+                            "name": attachment_name,
+                            "contentType": "application/pdf",
+                            "contentBytes": attachment_content
+                        }
+                    ]
+                }
+            }
+
+            if cc_recipients:
+                message["message"]["ccRecipients"] = cc_recipients
+
+            if bcc_recipients:
+                message["message"]["bccRecipients"] = bcc_recipients
+
+            response = requests.post(url, headers=headers, json=message)
+            response.raise_for_status()
+
+            logger.info(f"Email with attachment sent successfully to {', '.join(to)}")
+            return True
+
+        except requests.exceptions.HTTPError as exc:
+            logger.error(f"Error sending email with attachment: {exc}")
+            if exc.response.status_code == 401:
+                raise RuntimeError("Access token expired. Please refresh token.")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected error sending email with attachment: {exc}")
+            return False
+
     def send_reply(
         self,
         access_token: str,

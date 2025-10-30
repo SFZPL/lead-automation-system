@@ -23,7 +23,7 @@ interface LayoutProps {
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
-  { name: 'Perplexity Enrichment', href: '/enrichment', icon: SparklesIcon },
+  { name: 'Unenriched Leads', href: '/enrichment', icon: SparklesIcon },
   { name: 'Lost Lead Insights', href: '/lost-leads', icon: ClipboardDocumentListIcon },
   { name: 'Follow-ups Hub', href: '/followups', icon: EnvelopeIcon },
   { name: 'Pre-discovery Call Flow', href: '/call-flow', icon: ClipboardDocumentListIcon },

@@ -273,6 +273,8 @@ class EnrichBatchResponse(BaseModel):
 
 class PushApprovedRequest(BaseModel):
     approved_leads: List[Dict[str, Any]]
+    send_emails: Optional[bool] = False
+    email_data: Optional[Dict[int, Dict[str, str]]] = None  # lead_id -> {subject, body}
 
 
 class PushApprovedResponse(BaseModel):
@@ -280,6 +282,8 @@ class PushApprovedResponse(BaseModel):
     successful: int
     failed: int
     errors: List[str]
+    emails_sent: Optional[int] = 0
+    email_errors: Optional[List[str]] = []
 
 
 class FollowUpCall(BaseModel):
@@ -953,7 +957,7 @@ async def enrich_batch_stream(payload: EnrichBatchRequest):
 
 @app.post("/perplexity/push-approved", response_model=PushApprovedResponse)
 def push_approved_enrichments(payload: PushApprovedRequest) -> PushApprovedResponse:
-    """Push approved enrichment data to Odoo"""
+    """Push approved enrichment data to Odoo and optionally send outreach emails"""
     config = Config()
     workflow = PerplexityWorkflow(config)
 
@@ -984,11 +988,71 @@ def push_approved_enrichments(payload: PushApprovedRequest) -> PushApprovedRespo
 
         logger.info(f"Successfully pushed {updated} leads to Odoo, {failed} failed")
 
+        # Send emails if requested
+        emails_sent = 0
+        email_errors = []
+
+        if payload.send_emails and payload.email_data:
+            from modules.outlook_client import OutlookClient
+            import os
+
+            outlook = OutlookClient()
+            pdf_path = os.path.join(os.path.dirname(__file__), '..', 'knowledge_base', 'PrezLab Company Profile.pdf')
+
+            # Get Outlook access token
+            try:
+                tokens = outlook.get_user_auth_tokens('automated.response@prezlab.com')
+                if not tokens or 'access_token' not in tokens:
+                    email_errors.append("No authenticated Outlook account found. Please authenticate first.")
+                else:
+                    access_token = tokens['access_token']
+
+                    for lead in payload.approved_leads:
+                        lead_id = lead.get('id')
+                        lead_email = lead.get('email')
+
+                        if not lead_id or not lead_email:
+                            continue
+
+                        email_draft = payload.email_data.get(str(lead_id))
+                        if not email_draft:
+                            continue
+
+                        subject = email_draft.get('subject', 'Thank you for your interest in PrezLab')
+                        body = email_draft.get('body', '').replace('\n', '<br>')
+
+                        try:
+                            success = outlook.send_email_with_attachment(
+                                access_token=access_token,
+                                to=[lead_email],
+                                subject=subject,
+                                body=body,
+                                attachment_path=pdf_path,
+                                attachment_name='PrezLab Company Profile.pdf',
+                                cc=['engage@prezlab.com']
+                            )
+
+                            if success:
+                                emails_sent += 1
+                                logger.info(f"Email sent successfully to {lead_email}")
+                            else:
+                                email_errors.append(f"Failed to send email to {lead_email}")
+
+                        except Exception as email_error:
+                            logger.error(f"Error sending email to {lead_email}: {email_error}")
+                            email_errors.append(f"Error sending to {lead_email}: {str(email_error)}")
+
+            except Exception as auth_error:
+                logger.error(f"Error getting Outlook authentication: {auth_error}")
+                email_errors.append(f"Authentication error: {str(auth_error)}")
+
         return PushApprovedResponse(
             total=len(payload.approved_leads),
             successful=updated,
             failed=failed,
-            errors=errors
+            errors=errors,
+            emails_sent=emails_sent,
+            email_errors=email_errors
         )
 
     except Exception as e:

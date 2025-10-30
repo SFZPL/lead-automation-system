@@ -7,6 +7,7 @@ import {
   SparklesIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  EnvelopeIcon,
 } from '@heroicons/react/24/outline';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
@@ -24,11 +25,18 @@ interface PromptData {
   leads: LeadPreview[];
 }
 
+interface EmailDraft {
+  subject: string;
+  body: string;
+  has_company: boolean;
+}
+
 interface EnrichedLeadResult {
   lead_id: number;
   success: boolean;
   current_data?: Record<string, any>;
   suggested_data?: Record<string, any>;
+  email_draft?: EmailDraft;
   error?: string;
 }
 
@@ -62,6 +70,11 @@ const PerplexityPage: React.FC = () => {
   // Editable fields state - tracks manual edits to suggested values
   const [fieldEdits, setFieldEdits] = useState<{
     [leadId: number]: { [fieldName: string]: any };
+  }>({});
+
+  // Email draft edits state
+  const [emailEdits, setEmailEdits] = useState<{
+    [leadId: number]: { subject: string; body: string };
   }>({});
 
   // Prompt modal state for Teams app
@@ -328,13 +341,34 @@ const PerplexityPage: React.FC = () => {
       return;
     }
 
+    // Prepare email data for approved leads
+    const emailData: Record<number, { subject: string; body: string }> = {};
+    enrichmentResults
+      .filter((result) => result.success && approvalState[result.lead_id]?.approved)
+      .forEach((result) => {
+        const leadId = result.lead_id;
+        const draft = result.suggested_data?.email_draft;
+
+        if (draft) {
+          // Use edited version if available, otherwise use original draft
+          emailData[leadId] = {
+            subject: emailEdits[leadId]?.subject || draft.subject,
+            body: emailEdits[leadId]?.body || draft.body,
+          };
+        }
+      });
+
     setIsPushing(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/perplexity/push-approved`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approved_leads: approvedLeads }),
+        body: JSON.stringify({
+          approved_leads: approvedLeads,
+          send_emails: true,
+          email_data: emailData
+        }),
       });
 
       if (!response.ok) {
@@ -344,11 +378,22 @@ const PerplexityPage: React.FC = () => {
       const data = await response.json();
 
       if (data.successful > 0) {
+        const emailMessage = data.emails_sent > 0
+          ? ` and sent ${data.emails_sent} email${data.emails_sent !== 1 ? 's' : ''}`
+          : '';
+
         toast.success(
           `Successfully pushed ${data.successful} lead${
             data.successful !== 1 ? 's' : ''
-          } to Odoo${data.failed > 0 ? ` (${data.failed} failed)` : ''}`
+          } to Odoo${emailMessage}${data.failed > 0 ? ` (${data.failed} failed)` : ''}`
         );
+
+        // Show email errors if any
+        if (data.email_errors && data.email_errors.length > 0) {
+          data.email_errors.forEach((error: string) => {
+            toast.error(`Email error: ${error}`, { duration: 5000 });
+          });
+        }
 
         // Clear successful leads from the list
         setEnrichmentResults((prev) =>
@@ -520,7 +565,7 @@ const PerplexityPage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {Object.keys(result.suggested_data)
-            .filter((key) => key !== 'id')
+            .filter((key) => key !== 'id' && key !== 'email_draft')
             .map((fieldName) =>
               renderFieldComparison(
                 result.lead_id,
@@ -530,6 +575,73 @@ const PerplexityPage: React.FC = () => {
               )
             )}
         </div>
+
+        {/* Email Draft Preview */}
+        {result.suggested_data?.email_draft && (
+          <div className="mt-6 border-t border-gray-200 pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-md font-semibold text-gray-900 flex items-center gap-2">
+                <EnvelopeIcon className="w-5 h-5 text-primary-600" />
+                Email Draft
+                {result.suggested_data.email_draft.has_company && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                    Personalized
+                  </span>
+                )}
+              </h4>
+            </div>
+
+            <div className="space-y-4">
+              {/* Subject Line */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Subject
+                </label>
+                <input
+                  type="text"
+                  value={emailEdits[result.lead_id]?.subject || result.suggested_data.email_draft.subject}
+                  onChange={(e) => {
+                    setEmailEdits({
+                      ...emailEdits,
+                      [result.lead_id]: {
+                        subject: e.target.value,
+                        body: emailEdits[result.lead_id]?.body || result.suggested_data!.email_draft!.body,
+                      },
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              {/* Email Body */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Body
+                </label>
+                <textarea
+                  value={emailEdits[result.lead_id]?.body || result.suggested_data.email_draft.body}
+                  onChange={(e) => {
+                    setEmailEdits({
+                      ...emailEdits,
+                      [result.lead_id]: {
+                        subject: emailEdits[result.lead_id]?.subject || result.suggested_data!.email_draft!.subject,
+                        body: e.target.value,
+                      },
+                    });
+                  }}
+                  rows={12}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> This email will be sent from your authenticated Outlook account with engage@prezlab.com CC'd and the PrezLab Company Profile attached when you push to Odoo.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
