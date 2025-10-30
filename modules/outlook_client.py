@@ -822,17 +822,82 @@ class OutlookClient:
             logger.error(f"Unexpected error sending reply: {exc}")
             return False
 
-    def get_user_auth_tokens(self, user_identifier: str, token_store=None) -> Optional[Dict[str, Any]]:
+    def get_user_auth_tokens(self, user_identifier: str, token_store=None, db=None) -> Optional[Dict[str, Any]]:
         """
         Get authenticated user's Outlook tokens with auto-refresh.
+        Reads from database first (persistent), then falls back to file system.
 
         Args:
             user_identifier: User identifier (email or user ID)
             token_store: EmailTokenStore instance (will create if not provided)
+            db: Database instance (will try to import if not provided)
 
         Returns:
             Dictionary with access_token, refresh_token, etc., or None if not authenticated
         """
+        from datetime import datetime, timedelta
+
+        tokens = None
+
+        # Try to get tokens from database first (persistent across deployments)
+        if db is None:
+            try:
+                from api.supabase_database import SupabaseDatabase
+                db = SupabaseDatabase()
+            except Exception as e:
+                logger.warning(f"Could not load database: {e}")
+
+        if db is not None:
+            try:
+                # user_identifier is the user ID (as string)
+                user_id = int(user_identifier) if user_identifier.isdigit() else None
+                if user_id:
+                    settings = db.get_user_settings(user_id)
+                    outlook_tokens = settings.get("outlook_tokens")
+
+                    if outlook_tokens and isinstance(outlook_tokens, dict):
+                        # Check if token is expired
+                        expires_at_str = outlook_tokens.get("expires_at")
+                        is_expired = True
+
+                        if expires_at_str:
+                            try:
+                                expires_at = datetime.fromisoformat(expires_at_str)
+                                is_expired = datetime.utcnow() >= (expires_at - timedelta(minutes=5))
+                            except:
+                                pass
+
+                        # If expired, refresh it
+                        if is_expired and outlook_tokens.get("refresh_token"):
+                            logger.info(f"Access token expired for user {user_identifier}, refreshing from database...")
+                            try:
+                                refresh_token = outlook_tokens.get("refresh_token")
+                                token_response = self.refresh_access_token(refresh_token)
+                                new_access_token = token_response.get("access_token")
+                                expires_in = token_response.get("expires_in", 3600)
+
+                                # Update database
+                                new_expires_at = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
+                                outlook_tokens["access_token"] = new_access_token
+                                outlook_tokens["expires_at"] = new_expires_at
+                                outlook_tokens["updated_at"] = datetime.utcnow().isoformat()
+
+                                db.update_user_settings(
+                                    user_id=user_id,
+                                    outlook_tokens=outlook_tokens
+                                )
+
+                                logger.info(f"Successfully refreshed access token from database for user {user_identifier}")
+                                return outlook_tokens
+                            except Exception as e:
+                                logger.error(f"Failed to refresh token from database: {e}")
+                        else:
+                            logger.info(f"Using valid tokens from database for user {user_identifier}")
+                            return outlook_tokens
+            except Exception as e:
+                logger.warning(f"Error reading tokens from database: {e}")
+
+        # Fall back to file system (legacy/backwards compatibility)
         if token_store is None:
             from modules.email_token_store import EmailTokenStore
             token_store = EmailTokenStore()
@@ -844,7 +909,7 @@ class OutlookClient:
 
         # Check if token is expired and refresh if needed
         if token_store.is_token_expired(user_identifier):
-            logger.info(f"Access token expired for {user_identifier}, refreshing...")
+            logger.info(f"Access token expired for {user_identifier}, refreshing from file system...")
             try:
                 refresh_token = tokens.get("refresh_token")
                 if not refresh_token:
@@ -861,7 +926,7 @@ class OutlookClient:
 
                 # Update tokens dict with new access token
                 tokens["access_token"] = new_access_token
-                logger.info(f"Successfully refreshed access token for {user_identifier}")
+                logger.info(f"Successfully refreshed access token from file system for {user_identifier}")
 
             except Exception as e:
                 logger.error(f"Failed to refresh token for {user_identifier}: {e}")
