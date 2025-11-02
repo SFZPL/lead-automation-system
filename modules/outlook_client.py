@@ -961,19 +961,28 @@ class OutlookClient:
         try:
             headers = {"Authorization": f"Bearer {access_token}"}
 
-            # Use $filter to get messages by conversation ID
+            # First, search for messages with this conversation ID
+            # Note: Graph API's conversationId filter can be flaky, so we'll fetch messages and filter client-side
             url = f"{self.GRAPH_API_BASE}/me/messages"
             params = {
-                "$filter": f"conversationId eq '{conversation_id}'",
-                "$top": limit,
-                "$orderby": "receivedDateTime asc",
+                "$top": 250,  # Fetch more to ensure we get the full conversation
+                "$orderby": "receivedDateTime desc",
                 "$select": "id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,bodyPreview,hasAttachments,importance,conversationId,webLink"
             }
 
             response = requests.get(url, headers=headers, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
-            messages = data.get("value", [])
+            all_messages = data.get("value", [])
+
+            # Filter messages by conversation ID client-side
+            messages = [msg for msg in all_messages if msg.get("conversationId") == conversation_id]
+
+            # Sort by date (oldest first)
+            messages.sort(key=lambda x: x.get("receivedDateTime", ""))
+
+            # Limit results
+            messages = messages[:limit]
 
             logger.info(f"Fetched {len(messages)} messages for conversation {conversation_id}")
             return messages
@@ -982,6 +991,12 @@ class OutlookClient:
             logger.error(f"Error fetching conversation messages: {exc}")
             if exc.response.status_code == 401:
                 raise RuntimeError("Access token expired. Please refresh token.")
+            # For other HTTP errors, log the response content for debugging
+            try:
+                error_detail = exc.response.json()
+                logger.error(f"Graph API error detail: {error_detail}")
+            except:
+                pass
             raise
         except Exception as exc:
             logger.error(f"Unexpected error fetching conversation messages: {exc}")
