@@ -976,6 +976,7 @@ def push_approved_enrichments(
 
     try:
         outcome = workflow.update_leads_in_odoo(payload.approved_leads)
+        logger.info(f"[EMAIL-DEBUG-0] Odoo update returned. success={outcome.get('success')}, type={type(outcome)}")
 
         if not outcome.get("success", False):
             return PushApprovedResponse(
@@ -989,14 +990,14 @@ def push_approved_enrichments(
         failed = outcome.get("failed", 0)
         errors = outcome.get("errors", [])
 
-        logger.info(f"Successfully pushed {updated} leads to Odoo, {failed} failed")
-        logger.info(f"🔍 DEBUG: About to check email sending. Payload attributes: send_emails={hasattr(payload, 'send_emails')}, email_data={hasattr(payload, 'email_data')}")
+        logger.info(f"[EMAIL-DEBUG-1] Successfully pushed {updated} leads to Odoo, {failed} failed")
+        logger.info(f"[EMAIL-DEBUG-2] About to check email sending. send_emails={payload.send_emails}, has_email_data={bool(payload.email_data)}")
 
         # Send emails if requested
         emails_sent = 0
         email_errors = []
 
-        logger.info(f"📧 Email sending request: send_emails={payload.send_emails}, has_email_data={bool(payload.email_data)}, email_data_count={len(payload.email_data) if payload.email_data else 0}")
+        logger.info(f"[EMAIL-DEBUG-3] Email sending request: send_emails={payload.send_emails}, email_data_count={len(payload.email_data) if payload.email_data else 0}")
 
         if payload.send_emails and payload.email_data:
             from modules.outlook_client import OutlookClient
