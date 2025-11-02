@@ -975,6 +975,13 @@ class OutlookClient:
             data = response.json()
             all_messages = data.get("value", [])
 
+            logger.info(f"Fetched {len(all_messages)} total messages from mailbox")
+            logger.info(f"Looking for conversation ID: {conversation_id}")
+
+            # Log first few conversation IDs to debug
+            if all_messages:
+                logger.info(f"Sample conversation IDs: {[msg.get('conversationId') for msg in all_messages[:3]]}")
+
             # Filter messages by conversation ID client-side
             messages = [msg for msg in all_messages if msg.get("conversationId") == conversation_id]
 

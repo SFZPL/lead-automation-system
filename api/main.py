@@ -1689,7 +1689,8 @@ def get_proposal_followups(
     no_response_days: int = 3,
     engage_email: str = "automated.response@prezlab.com",
     force_refresh: bool = False,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
 ):
     """
     Get proposal follow-up analysis from engage inbox.
@@ -1700,6 +1701,7 @@ def get_proposal_followups(
         engage_email: Email of the engage monitoring account
         force_refresh: Force refresh analysis instead of using cache
         current_user: Current authenticated user
+        db: Database instance
 
     Returns:
         Summary and categorized threads needing follow-up with last_updated timestamp
@@ -1727,11 +1729,10 @@ def get_proposal_followups(
 
     # Get completed thread IDs to filter them out
     completed_thread_ids = set()
-    if supabase.is_connected():
-        try:
-            completed_thread_ids = set(supabase.get_completed_followups())
-        except Exception as e:
-            logger.warning(f"Failed to get completed followups: {e}")
+    try:
+        completed_thread_ids = set(db.get_completed_followups())
+    except Exception as e:
+        logger.warning(f"Failed to get completed followups: {e}")
 
     # Try to get from Supabase cache first (if available)
     if not force_refresh and supabase.is_connected():
