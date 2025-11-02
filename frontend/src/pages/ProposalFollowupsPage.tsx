@@ -75,7 +75,7 @@ interface ProposalFollowupData {
 }
 
 interface SavedReport {
-  id: number;
+  id: string;  // UUID from Supabase
   report_type: '90day' | 'monthly' | 'weekly';
   report_period: string;
   created_at: string;
