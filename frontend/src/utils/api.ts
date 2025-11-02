@@ -93,7 +93,7 @@ export const api = {
     apiClient.get('/proposal-followups/reports', { params }),
   generateReport: (data: { report_type: '90day' | 'monthly' | 'weekly'; days_back?: number; no_response_days?: number; engage_email?: string }) =>
     apiClient.post('/proposal-followups/reports/generate', data),
-  deleteReport: (reportId: number) =>
+  deleteReport: (reportId: string) =>
     apiClient.delete(`/proposal-followups/reports/${reportId}`),
   markFollowupComplete: (data: { thread_id: string; conversation_id: string; notes?: string }) =>
     apiClient.post(`/proposal-followups/${data.thread_id}/mark-complete`, data),

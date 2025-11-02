@@ -131,7 +131,7 @@ const ProposalFollowupsPage: React.FC = () => {
   const [threadMessages, setThreadMessages] = useState<any[]>([]);
   const [isLoadingThread, setIsLoadingThread] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
-  const [reportToDelete, setReportToDelete] = useState<number | null>(null);
+  const [reportToDelete, setReportToDelete] = useState<string | null>(null);
 
   // Mock users list - TODO: Replace with actual API call to fetch users
   const mockUsers = [
@@ -386,7 +386,7 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   };
 
-  const handleDeleteReport = async (reportId: number, event: React.MouseEvent) => {
+  const handleDeleteReport = async (reportId: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent triggering the card click
     setReportToDelete(reportId);
     setShowDeleteConfirm(true);

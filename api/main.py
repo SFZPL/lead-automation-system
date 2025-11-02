@@ -1943,7 +1943,7 @@ def get_saved_reports(
 
 @app.delete("/proposal-followups/reports/{report_id}")
 def delete_saved_report(
-    report_id: int,
+    report_id: str,  # UUID string from Supabase
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):

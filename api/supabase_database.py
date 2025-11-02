@@ -329,8 +329,8 @@ class SupabaseDatabase:
             logger.error(f"Error getting saved reports: {e}")
             return []
 
-    def delete_report(self, report_id: int) -> bool:
-        """Delete a saved report."""
+    def delete_report(self, report_id: str) -> bool:
+        """Delete a saved report by UUID."""
         try:
             result = self.supabase.client.table("analysis_cache")\
                 .delete()\
