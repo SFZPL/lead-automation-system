@@ -130,6 +130,8 @@ const ProposalFollowupsPage: React.FC = () => {
   const [showThreadViewerModal, setShowThreadViewerModal] = useState<boolean>(false);
   const [threadMessages, setThreadMessages] = useState<any[]>([]);
   const [isLoadingThread, setIsLoadingThread] = useState<boolean>(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+  const [reportToDelete, setReportToDelete] = useState<number | null>(null);
 
   // Mock users list - TODO: Replace with actual API call to fetch users
   const mockUsers = [
@@ -386,14 +388,18 @@ const ProposalFollowupsPage: React.FC = () => {
 
   const handleDeleteReport = async (reportId: number, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent triggering the card click
+    setReportToDelete(reportId);
+    setShowDeleteConfirm(true);
+  };
 
-    if (!window.confirm('Are you sure you want to delete this report?')) {
-      return;
-    }
+  const confirmDelete = async () => {
+    if (!reportToDelete) return;
 
     try {
-      await api.deleteReport(reportId);
+      await api.deleteReport(reportToDelete);
       toast.success('Report deleted successfully!');
+      setShowDeleteConfirm(false);
+      setReportToDelete(null);
       // Refresh the reports list
       reportsQuery.refetch();
     } catch (error) {
@@ -1370,6 +1376,35 @@ const ProposalFollowupsPage: React.FC = () => {
           }}
           users={mockUsers}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Delete Report</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this report? This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setReportToDelete(null);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Thread Viewer Modal */}
