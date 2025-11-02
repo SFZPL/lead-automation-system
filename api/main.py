@@ -1981,13 +1981,28 @@ def get_conversation_thread(
 
         access_token = tokens['access_token']
 
-        # Fetch conversation messages from shared mailbox (engage email)
-        # Default to automated.response@prezlab.com for proposal followups
-        messages = outlook.get_conversation_messages(
-            access_token,
-            conversation_id,
-            shared_mailbox="automated.response@prezlab.com"
-        )
+        # Try to fetch from shared mailbox first, fall back to personal mailbox if access denied
+        messages = []
+        try:
+            # First try shared mailbox (engage email)
+            logger.info(f"Attempting to fetch conversation from shared mailbox: automated.response@prezlab.com")
+            messages = outlook.get_conversation_messages(
+                access_token,
+                conversation_id,
+                shared_mailbox="automated.response@prezlab.com"
+            )
+        except Exception as e:
+            if "403" in str(e) or "Forbidden" in str(e) or "Access" in str(e):
+                # User doesn't have permission to shared mailbox, try personal mailbox
+                logger.info(f"Shared mailbox access denied, falling back to personal mailbox")
+                messages = outlook.get_conversation_messages(
+                    access_token,
+                    conversation_id,
+                    shared_mailbox=None  # Use personal mailbox
+                )
+            else:
+                # Re-raise other errors
+                raise
 
         if not messages:
             return {
