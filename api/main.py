@@ -1981,8 +1981,13 @@ def get_conversation_thread(
 
         access_token = tokens['access_token']
 
-        # Fetch conversation messages
-        messages = outlook.get_conversation_messages(access_token, conversation_id)
+        # Fetch conversation messages from shared mailbox (engage email)
+        # Default to automated.response@prezlab.com for proposal followups
+        messages = outlook.get_conversation_messages(
+            access_token,
+            conversation_id,
+            shared_mailbox="automated.response@prezlab.com"
+        )
 
         if not messages:
             return {

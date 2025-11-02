@@ -945,7 +945,8 @@ class OutlookClient:
         self,
         access_token: str,
         conversation_id: str,
-        limit: int = 50
+        limit: int = 50,
+        shared_mailbox: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get all messages in a conversation thread.
@@ -954,6 +955,7 @@ class OutlookClient:
             access_token: OAuth2 access token
             conversation_id: Conversation ID to fetch messages for
             limit: Maximum number of messages to return
+            shared_mailbox: Email address of shared mailbox to search (default: user's mailbox)
 
         Returns:
             List of message dictionaries sorted by date (oldest first)
@@ -961,9 +963,16 @@ class OutlookClient:
         try:
             headers = {"Authorization": f"Bearer {access_token}"}
 
-            # First, search for messages with this conversation ID
-            # Note: Graph API's conversationId filter can be flaky, so we'll fetch messages and filter client-side
-            url = f"{self.GRAPH_API_BASE}/me/messages"
+            # Determine which mailbox to search
+            if shared_mailbox:
+                # Search in shared mailbox
+                url = f"{self.GRAPH_API_BASE}/users/{shared_mailbox}/messages"
+                logger.info(f"Searching shared mailbox: {shared_mailbox}")
+            else:
+                # Search in user's personal mailbox
+                url = f"{self.GRAPH_API_BASE}/me/messages"
+                logger.info(f"Searching personal mailbox")
+
             params = {
                 "$top": 250,  # Fetch more to ensure we get the full conversation
                 "$orderby": "receivedDateTime desc",
