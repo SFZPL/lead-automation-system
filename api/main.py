@@ -1558,6 +1558,83 @@ Write only the email body without subject line or signature. Use proper business
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class SendLostLeadEmailRequest(BaseModel):
+    """Request to send re-engagement email for lost lead."""
+    lead_id: int
+    subject: str
+    body: str
+    cc: List[str] = []
+
+
+@app.post("/lost-leads/send-email")
+def send_lost_lead_email(
+    request: SendLostLeadEmailRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Send a re-engagement email to a lost lead."""
+    try:
+        from modules.outlook_client import OutlookClient
+        from modules.odoo_client import OdooClient
+
+        # Get lead details from Odoo
+        config = Config()
+        odoo = OdooClient(config)
+        if not odoo.connect():
+            raise HTTPException(status_code=500, detail="Failed to connect to Odoo")
+
+        # Fetch the lead to get email
+        lead = odoo._call_kw(
+            'crm.lead', 'search_read',
+            [[['id', '=', request.lead_id]]],
+            {'fields': ['email_from', 'partner_name', 'contact_name'], 'limit': 1}
+        )
+
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        lead_email = lead[0].get('email_from')
+        if not lead_email:
+            raise HTTPException(status_code=400, detail="Lead has no email address")
+
+        # Get Outlook tokens
+        outlook = OutlookClient()
+        user_identifier = str(current_user["id"])
+        tokens = outlook.get_user_auth_tokens(user_identifier)
+
+        if not tokens or 'access_token' not in tokens:
+            raise HTTPException(
+                status_code=401,
+                detail="No authenticated Outlook account found. Please authenticate in Settings."
+            )
+
+        # Send the email
+        success = outlook.send_email_with_attachment(
+            access_token=tokens['access_token'],
+            to=[lead_email],
+            subject=request.subject,
+            body=request.body.replace('\n', '<br>'),
+            cc=request.cc,
+            attachment_path=None,  # No attachment for re-engagement emails
+            attachment_name=None
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+
+        logger.info(f"Re-engagement email sent to {lead_email} for lead {request.lead_id}")
+
+        return {
+            "success": True,
+            "message": f"Email sent successfully to {lead_email}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending re-engagement email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # PROPOSAL FOLLOW-UP ENDPOINTS
 # ============================================================================

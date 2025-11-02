@@ -131,6 +131,9 @@ const LostLeadsPage: React.FC = () => {
   const [selectedSavedItem, setSelectedSavedItem] = useState<SharedAnalysis | null>(null);
   const [draftEmail, setDraftEmail] = useState<string>('');
   const [isGeneratingDraft, setIsGeneratingDraft] = useState<boolean>(false);
+  const [draftSubject, setDraftSubject] = useState<string>('');
+  const [draftCc, setDraftCc] = useState<string>('engage@prezlab.com');
+  const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false);
   const [editingInPlace, setEditingInPlace] = useState<boolean>(false);
   const [editedTitle, setEditedTitle] = useState<string>('');
 
@@ -1052,14 +1055,44 @@ const LostLeadsPage: React.FC = () => {
             {/* Draft Editor */}
             {!isGeneratingDraft && (
               <>
+                {/* Subject Field */}
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email Draft (editable)
+                    Subject
+                  </label>
+                  <input
+                    type="text"
+                    value={draftSubject}
+                    onChange={(e) => setDraftSubject(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="Email subject..."
+                  />
+                </div>
+
+                {/* CC Field */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    CC (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={draftCc}
+                    onChange={(e) => setDraftCc(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="email1@example.com, email2@example.com"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">engage@prezlab.com is included by default</p>
+                </div>
+
+                {/* Email Body */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Email Body (editable)
                   </label>
                   <textarea
                     value={draftEmail}
                     onChange={(e) => setDraftEmail(e.target.value)}
-                    rows={14}
+                    rows={10}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md font-sans text-sm"
                     placeholder="Draft email will appear here..."
                   />
@@ -1079,14 +1112,61 @@ const LostLeadsPage: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(draftEmail);
-                      toast.success('Draft copied to clipboard!');
+                    onClick={async () => {
+                      if (!selectedSavedItem?.lead_id) {
+                        toast.error('No lead selected');
+                        return;
+                      }
+
+                      setIsSendingEmail(true);
+                      try {
+                        const token = localStorage.getItem('prezlab_auth_token') || sessionStorage.getItem('prezlab_auth_token');
+
+                        // Parse CC emails
+                        const ccEmails = draftCc.split(',').map(e => e.trim()).filter(e => e);
+
+                        const response = await fetch(`${process.env.REACT_APP_API_BASE || 'http://localhost:8000'}/lost-leads/send-email`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                          },
+                          body: JSON.stringify({
+                            lead_id: selectedSavedItem.lead_id,
+                            subject: draftSubject,
+                            body: draftEmail,
+                            cc: ccEmails
+                          })
+                        });
+
+                        if (!response.ok) {
+                          const error = await response.json();
+                          throw new Error(error.detail || 'Failed to send email');
+                        }
+
+                        toast.success('Email sent successfully!');
+                        setShowDraftModal(false);
+                        setDraftEmail('');
+                        setDraftSubject('');
+                        setDraftCc('engage@prezlab.com');
+                      } catch (error: any) {
+                        console.error('Send email error:', error);
+                        toast.error(error.message || 'Failed to send email');
+                      } finally {
+                        setIsSendingEmail(false);
+                      }
                     }}
-                    disabled={!draftEmail.trim()}
-                    className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!draftEmail.trim() || !draftSubject.trim() || isSendingEmail}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    Copy to Clipboard
+                    {isSendingEmail ? (
+                      <>
+                        <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      'Send Email'
+                    )}
                   </button>
                 </div>
               </>
