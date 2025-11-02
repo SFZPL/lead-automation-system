@@ -1020,6 +1020,8 @@ def push_approved_enrichments(
                 else:
                     access_token = tokens['access_token']
                     logger.info(f"✅ Got Outlook access token for user {user_identifier}, preparing to send {len(payload.approved_leads)} emails")
+                    logger.info(f"📋 Email data keys: {list(payload.email_data.keys())}")
+                    logger.info(f"📋 Lead IDs to process: {[lead.get('id') for lead in payload.approved_leads]}")
 
                     for lead in payload.approved_leads:
                         lead_id = lead.get('id')
