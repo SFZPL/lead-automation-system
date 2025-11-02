@@ -1031,9 +1031,10 @@ def push_approved_enrichments(
                             logger.warning(f"⚠️ Skipping lead: missing ID or email (id={lead_id}, email={lead_email})")
                             continue
 
-                        email_draft = payload.email_data.get(str(lead_id))
+                        # Try both integer and string keys (frontend sends as int)
+                        email_draft = payload.email_data.get(lead_id) or payload.email_data.get(str(lead_id))
                         if not email_draft:
-                            logger.warning(f"⚠️ No email draft found for lead {lead_id}")
+                            logger.warning(f"⚠️ No email draft found for lead {lead_id} (tried both int and str keys)")
                             continue
 
                         subject = email_draft.get('subject', 'Thank you for your interest in PrezLab')
