@@ -1533,22 +1533,28 @@ Please write a professional, personalized re-engagement email that:
 6. IMPORTANT: Do NOT use em dashes (—). Use regular hyphens (-) or commas instead.
 7. IMPORTANT: Do NOT include any signature block (no "Best regards", "Sincerely", "Best", etc.). The user's Outlook signature will be added automatically.
 
-Write only the email body without subject line or signature. Use proper business email formatting."""
+Return your response in JSON format with two fields:
+{{
+  "subject": "A compelling, personalized subject line (max 60 characters)",
+  "body": "The email body text"
+}}
+
+The subject line should be attention-grabbing but professional, specific to this lead's situation, and NOT generic."""
 
         messages = [
-            {"role": "system", "content": "You are an expert sales professional writing re-engagement emails to lost leads."},
+            {"role": "system", "content": "You are an expert sales professional writing re-engagement emails to lost leads. Always respond in valid JSON format."},
             {"role": "user", "content": prompt}
         ]
 
-        draft = llm.chat_completion(messages, max_tokens=6000, temperature=0.7)
+        result = llm.chat_completion_json(messages, max_tokens=6000, temperature=0.7)
 
-        if not draft or not draft.strip():
+        if not result or not result.get("body") or not result.get("subject"):
             raise HTTPException(status_code=500, detail="Failed to generate draft email")
 
         return {
             "success": True,
-            "draft": draft,
-            "subject_suggestion": f"Following up - {company_name}" if company_name else "Checking in"
+            "draft": result["body"],
+            "subject_suggestion": result["subject"]
         }
 
     except HTTPException:
