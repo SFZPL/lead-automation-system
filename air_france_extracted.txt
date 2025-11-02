@@ -1,0 +1,40 @@
+Air France Discovery Call Flow (Dialogue-Friendly)
+
+If they start with: “I just want to know more about your services…”
+🎙️ Objection handling response:
+“Of course—we’ll definitely go through our services. To make sure we share the value that’s most relevant to you, it would really help to understand the needs, challenges, or opportunities that motivated you to have this conversation with us. That way, we can prioritize what’s most fit for your purpose.”
+1. Business Problem
+🎙️ Opening prompt:
+“Before we dive in, I’d love to understand—what challenge or opportunity made you feel this is the right time to explore working with a partner like us?”
+“Often airlines face challenges balancing global brand consistency with regional adaptation. Is that something you’re experiencing, or is it something different driving this?”
+(Objective: identify and validate their core business problem)
+2. Current State
+🎙️ Explore context:
+“How are you currently handling your communication and design needs? Is it in-house teams, agencies, or a mix?”
+“What’s working well in your current approach, and where do you feel things could be stronger?”
+(Objective: create mutual understanding of where they are today)
+3. Cause Analysis
+🎙️ Dig deeper with empathy:
+“From what we see with large organizations, sometimes the issue isn’t the lack of creative talent but rather the absence of a unified system or process. Does that resonate with what you’re seeing internally?”
+“Do you think the challenge is more around resourcing, alignment, or translating strategy into clear communication?”
+(Objective: co-identify root causes without making them defensive)
+4. Negative Impact
+🎙️ Explore consequences:
+“When these challenges happen—what’s the impact? For example, does it delay approvals, reduce clarity in executive meetings, or create rework across teams?”
+“How do you think these issues affect the bigger picture—like internal decision-making or external brand perception?”
+(Objective: help them articulate the cost of inaction)
+5. Desired Outcome
+🎙️ Future state:
+“If everything went right, what would success look like for you in 6 months’ time?”
+“What outcomes would make you say, ‘this was worth the investment’?”
+(Objective: align on the why and the results they care about)
+6. Process
+🎙️ Bridge to solution space:
+“How do you usually like to engage with external partners—do you prefer project-based collaborations, or longer-term systems and frameworks that your teams can use repeatedly?”
+“What does a smooth process look like for you in terms of timelines, reviews, and sign-offs?”
+(Objective: understand their way of working so you can adapt Prezlab’s approach)
+7. Stakeholders
+🎙️ Map decision-makers & influencers:
+“Who else on your side will be involved in shaping or approving this kind of work?”
+“Is this primarily for your team, or will it connect with leadership, marketing, or other departments?”
+(Objective: identify champions, blockers, and decision paths)

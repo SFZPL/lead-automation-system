@@ -976,6 +976,7 @@ def push_approved_enrichments(
 
     try:
         outcome = workflow.update_leads_in_odoo(payload.approved_leads)
+        print("[EMAIL-DEBUG-0-PRINT] Odoo update completed - checking outcome")
         logger.info(f"[EMAIL-DEBUG-0] Odoo update returned. success={outcome.get('success')}, type={type(outcome)}")
 
         if not outcome.get("success", False):
