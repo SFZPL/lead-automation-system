@@ -615,6 +615,24 @@ class OdooClient:
                     if city and city.lower() not in ['not found', 'n/a', 'none']:
                         odoo_fields['city'] = city
 
+            # Country - Map to country_id by looking up the country
+            if 'Country' in values and values['Country']:
+                if is_empty(current_data.get('country_id')):
+                    country_name = str(values['Country']).strip()
+                    if country_name and country_name.lower() not in ['not found', 'n/a', 'none']:
+                        try:
+                            # Search for country in res.country
+                            countries = self._call_kw(
+                                'res.country', 'search_read',
+                                [[['name', 'ilike', country_name]]],
+                                {'fields': ['id', 'name'], 'limit': 1}
+                            )
+                            if countries:
+                                odoo_fields['country_id'] = countries[0]['id']
+                                logger.info(f"Setting country to '{countries[0]['name']}' (ID: {countries[0]['id']})")
+                        except Exception as country_error:
+                            logger.warning(f"Error setting country field: {country_error}")
+
             # Source - Always set to "Inbound" for enriched leads (if not already set)
             if is_empty(current_data.get('source_id')):
                 try:
