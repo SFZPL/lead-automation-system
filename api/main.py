@@ -1514,7 +1514,6 @@ Lead Information:
 - Name: {lead_name}
 - Company: {company_name}
 - Lost Reason: {lost_reason}
-- Lead ID: {lead.get("id")}
 
 Analysis Summary:
 {summary}
@@ -1531,8 +1530,10 @@ Please write a professional, personalized re-engagement email that:
 3. Proposes a specific next step or meeting
 4. Maintains a warm, non-pushy tone
 5. Is concise (3-4 paragraphs maximum)
+6. IMPORTANT: Do NOT use em dashes (—). Use regular hyphens (-) or commas instead.
+7. IMPORTANT: Do NOT include any signature block (no "Best regards", "Sincerely", "Best", etc.). The user's Outlook signature will be added automatically.
 
-Write only the email body without subject line. Use proper business email formatting."""
+Write only the email body without subject line or signature. Use proper business email formatting."""
 
         messages = [
             {"role": "system", "content": "You are an expert sales professional writing re-engagement emails to lost leads."},
