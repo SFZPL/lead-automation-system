@@ -329,6 +329,19 @@ class SupabaseDatabase:
             logger.error(f"Error getting saved reports: {e}")
             return []
 
+    def delete_report(self, report_id: int) -> bool:
+        """Delete a saved report."""
+        try:
+            result = self.supabase.client.table("analysis_cache")\
+                .delete()\
+                .eq("id", report_id)\
+                .execute()
+
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting report {report_id}: {e}")
+            return False
+
     def create_refresh_token(self, user_id: int, token: str, device_info: Optional[str] = None) -> int:
         """Create a new refresh token for a user (never expires unless manually revoked)."""
         try:

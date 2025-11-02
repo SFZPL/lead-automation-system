@@ -1725,6 +1725,14 @@ def get_proposal_followups(
         "engage_email": engage_email
     }
 
+    # Get completed thread IDs to filter them out
+    completed_thread_ids = set()
+    if supabase.is_connected():
+        try:
+            completed_thread_ids = set(supabase.get_completed_followups())
+        except Exception as e:
+            logger.warning(f"Failed to get completed followups: {e}")
+
     # Try to get from Supabase cache first (if available)
     if not force_refresh and supabase.is_connected():
         try:
@@ -1736,11 +1744,23 @@ def get_proposal_followups(
 
             if cached_data:
                 logger.info(f"✅ Returning cached proposal follow-ups from Supabase for user {user_id}")
+                # Filter out completed threads
+                unanswered = [thread for thread in cached_data.get("unanswered", [])
+                             if thread.get("conversation_id") not in completed_thread_ids]
+                pending_proposals = [thread for thread in cached_data.get("pending_proposals", [])
+                                    if thread.get("conversation_id") not in completed_thread_ids]
+
+                # Update summary counts
+                summary = cached_data["summary"].copy()
+                summary["unanswered_count"] = len(unanswered)
+                summary["pending_proposals_count"] = len(pending_proposals)
+                summary["total_count"] = len(unanswered) + len(pending_proposals)
+
                 # Convert cached data back to response model
                 response = ProposalFollowupResponse(
-                    summary=ProposalFollowupSummary(**cached_data["summary"]),
-                    unanswered=[ProposalFollowupThread(**thread) for thread in cached_data.get("unanswered", [])],
-                    pending_proposals=[ProposalFollowupThread(**thread) for thread in cached_data.get("pending_proposals", [])],
+                    summary=ProposalFollowupSummary(**summary),
+                    unanswered=[ProposalFollowupThread(**thread) for thread in unanswered],
+                    pending_proposals=[ProposalFollowupThread(**thread) for thread in pending_proposals],
                     filtered=[ProposalFollowupThread(**thread) for thread in cached_data.get("filtered", [])]
                 )
                 return response
@@ -1751,6 +1771,15 @@ def get_proposal_followups(
     if not force_refresh and proposal_followups_cache["data"] and proposal_followups_cache["params"] == cache_params:
         logger.info("Returning cached proposal follow-ups analysis from memory")
         cached_response = proposal_followups_cache["data"]
+        # Filter out completed threads
+        cached_response.unanswered = [thread for thread in cached_response.unanswered
+                                     if thread.conversation_id not in completed_thread_ids]
+        cached_response.pending_proposals = [thread for thread in cached_response.pending_proposals
+                                            if thread.conversation_id not in completed_thread_ids]
+        # Update counts
+        cached_response.summary.unanswered_count = len(cached_response.unanswered)
+        cached_response.summary.pending_proposals_count = len(cached_response.pending_proposals)
+        cached_response.summary.total_count = len(cached_response.unanswered) + len(cached_response.pending_proposals)
         cached_response.summary.last_updated = proposal_followups_cache["timestamp"]
         return cached_response
 
@@ -1763,13 +1792,24 @@ def get_proposal_followups(
             no_response_days=no_response_days
         )
 
+        # Filter out completed threads from fresh results
+        unanswered = [thread for thread in result["unanswered"]
+                     if thread.get("conversation_id") not in completed_thread_ids]
+        pending_proposals = [thread for thread in result["pending_proposals"]
+                            if thread.get("conversation_id") not in completed_thread_ids]
+
+        # Update summary counts
+        result["summary"]["unanswered_count"] = len(unanswered)
+        result["summary"]["pending_proposals_count"] = len(pending_proposals)
+        result["summary"]["total_count"] = len(unanswered) + len(pending_proposals)
+
         # Create timestamp
         timestamp = datetime.utcnow().isoformat() + "Z"
 
         response = ProposalFollowupResponse(
             summary=ProposalFollowupSummary(**result["summary"], last_updated=timestamp),
-            unanswered=[ProposalFollowupThread(**thread) for thread in result["unanswered"]],
-            pending_proposals=[ProposalFollowupThread(**thread) for thread in result["pending_proposals"]],
+            unanswered=[ProposalFollowupThread(**thread) for thread in unanswered],
+            pending_proposals=[ProposalFollowupThread(**thread) for thread in pending_proposals],
             filtered=[ProposalFollowupThread(**thread) for thread in result.get("filtered", [])]
         )
 
@@ -1897,6 +1937,26 @@ def get_saved_reports(
         )
     except Exception as e:
         logger.error(f"Error fetching saved reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/proposal-followups/reports/{report_id}")
+def delete_saved_report(
+    report_id: int,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Delete a saved follow-up report."""
+    try:
+        success = db.delete_report(report_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete report")
+
+        return {"success": True, "message": "Report deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting report {report_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

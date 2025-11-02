@@ -14,6 +14,7 @@ import {
   UserPlusIcon,
   XCircleIcon,
   SparklesIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 import AssignLeadModal from '../components/AssignLeadModal';
@@ -118,6 +119,8 @@ const ProposalFollowupsPage: React.FC = () => {
   const [showThreadUrlModal, setShowThreadUrlModal] = useState<boolean>(false);
   const [threadSearchUrl, setThreadSearchUrl] = useState<string>('');
   const [draftEmail, setDraftEmail] = useState<string>('');
+  const [draftSubject, setDraftSubject] = useState<string>('');
+  const [draftCc, setDraftCc] = useState<string>('engage@prezlab.com');
   const [editPrompt, setEditPrompt] = useState<string>('');
   const [isGeneratingDraft, setIsGeneratingDraft] = useState<boolean>(false);
   const [isRefiningDraft, setIsRefiningDraft] = useState<boolean>(false);
@@ -273,6 +276,8 @@ const ProposalFollowupsPage: React.FC = () => {
     setIsGeneratingDraft(true);
     setShowDraftModal(true);
     setDraftEmail('');
+    setDraftSubject(`Re: ${thread.subject}`);
+    setDraftCc('engage@prezlab.com');
     setEditPrompt('');
 
     try {
@@ -314,8 +319,8 @@ const ProposalFollowupsPage: React.FC = () => {
   };
 
   const handleSendEmail = async () => {
-    if (!selectedThread || !draftEmail.trim()) {
-      toast.error('No draft to send');
+    if (!selectedThread || !draftEmail.trim() || !draftSubject.trim()) {
+      toast.error('Please fill in subject and email body');
       return;
     }
 
@@ -324,11 +329,13 @@ const ProposalFollowupsPage: React.FC = () => {
       await api.sendFollowupEmail({
         conversation_id: selectedThread.conversation_id,
         draft_body: draftEmail,
-        subject: selectedThread.subject
+        subject: draftSubject
       });
       toast.success('Email sent successfully and marked as complete!');
       setShowDraftModal(false);
       setDraftEmail('');
+      setDraftSubject('');
+      setDraftCc('engage@prezlab.com');
       setSelectedThread(null);
       // Refresh the follow-ups to remove completed item
       followupsQuery.refetch();
@@ -374,6 +381,24 @@ const ProposalFollowupsPage: React.FC = () => {
       }
     } finally {
       setIsLoadingThread(false);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: number, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent triggering the card click
+
+    if (!window.confirm('Are you sure you want to delete this report?')) {
+      return;
+    }
+
+    try {
+      await api.deleteReport(reportId);
+      toast.success('Report deleted successfully!');
+      // Refresh the reports list
+      reportsQuery.refetch();
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      toast.error('Failed to delete report');
     }
   };
 
@@ -1025,9 +1050,18 @@ const ProposalFollowupsPage: React.FC = () => {
                           Period: {report.report_period} • Generated: {formatDate(report.created_at)}
                         </p>
                       </div>
-                      <span className="px-3 py-1 text-sm font-medium rounded-full bg-purple-100 text-purple-800">
-                        {report.report_type}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-1 text-sm font-medium rounded-full bg-purple-100 text-purple-800">
+                          {report.report_type}
+                        </span>
+                        <button
+                          onClick={(e) => handleDeleteReport(report.id, e)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete report"
+                        >
+                          <TrashIcon className="w-5 h-5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Report Summary */}
@@ -1164,6 +1198,8 @@ const ProposalFollowupsPage: React.FC = () => {
                 onClick={() => {
                   setShowDraftModal(false);
                   setDraftEmail('');
+                  setDraftSubject('');
+                  setDraftCc('engage@prezlab.com');
                   setSelectedThread(null);
                   setEditPrompt('');
                 }}
@@ -1184,6 +1220,35 @@ const ProposalFollowupsPage: React.FC = () => {
             {/* Draft Editor */}
             {!isGeneratingDraft && (
               <>
+                {/* Subject Field */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Subject
+                  </label>
+                  <input
+                    type="text"
+                    value={draftSubject}
+                    onChange={(e) => setDraftSubject(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="Email subject..."
+                  />
+                </div>
+
+                {/* CC Field */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    CC (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={draftCc}
+                    onChange={(e) => setDraftCc(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="email1@example.com, email2@example.com"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">engage@prezlab.com is included by default</p>
+                </div>
+
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Email Draft (editable)
@@ -1244,6 +1309,8 @@ const ProposalFollowupsPage: React.FC = () => {
                     onClick={() => {
                       setShowDraftModal(false);
                       setDraftEmail('');
+                      setDraftSubject('');
+                      setDraftCc('engage@prezlab.com');
                       setSelectedThread(null);
                       setEditPrompt('');
                     }}
@@ -1265,7 +1332,7 @@ const ProposalFollowupsPage: React.FC = () => {
 
                   <button
                     onClick={handleSendEmail}
-                    disabled={isSendingEmail || !draftEmail.trim()}
+                    disabled={isSendingEmail || !draftEmail.trim() || !draftSubject.trim()}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isSendingEmail ? (
