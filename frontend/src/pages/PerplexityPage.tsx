@@ -88,6 +88,9 @@ const PerplexityPage: React.FC = () => {
     currentLeadName: string;
   } | null>(null);
 
+  // Email sending toggle
+  const [sendEmailsEnabled, setSendEmailsEnabled] = useState<boolean>(true);
+
   const fetchPrompt = async () => {
     setIsFetchingPrompt(true);
     setEnrichmentResults([]);
@@ -372,7 +375,7 @@ const PerplexityPage: React.FC = () => {
         },
         body: JSON.stringify({
           approved_leads: approvedLeads,
-          send_emails: true,
+          send_emails: sendEmailsEnabled,
           email_data: emailData
         }),
       });
@@ -665,28 +668,56 @@ const PerplexityPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Mode Toggle - Compact tabs */}
-        <div className="mb-6 flex gap-2">
-          <button
-            onClick={() => setMode('manual')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              mode === 'manual'
-                ? 'bg-primary-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            Manual Mode
-          </button>
-          <button
-            onClick={() => setMode('api')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              mode === 'api'
-                ? 'bg-primary-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            API Mode
-          </button>
+        {/* Mode Toggle and Email Settings */}
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMode('manual')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                mode === 'manual'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              Manual Mode
+            </button>
+            <button
+              onClick={() => setMode('api')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                mode === 'api'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              API Mode
+            </button>
+          </div>
+
+          {/* Email Toggle */}
+          <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-gray-200">
+            <EnvelopeIcon className={`w-5 h-5 ${sendEmailsEnabled ? 'text-primary-600' : 'text-gray-400'}`} />
+            <label className="flex items-center cursor-pointer">
+              <span className="text-sm font-medium text-gray-700 mr-3">Send Emails</span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={sendEmailsEnabled}
+                  onChange={(e) => setSendEmailsEnabled(e.target.checked)}
+                  className="sr-only"
+                />
+                <div
+                  className={`block w-10 h-6 rounded-full transition-colors ${
+                    sendEmailsEnabled ? 'bg-primary-600' : 'bg-gray-300'
+                  }`}
+                ></div>
+                <div
+                  className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                    sendEmailsEnabled ? 'translate-x-4' : ''
+                  }`}
+                ></div>
+              </div>
+            </label>
+          </div>
         </div>
 
         {/* Step 1: Fetch Leads */}
