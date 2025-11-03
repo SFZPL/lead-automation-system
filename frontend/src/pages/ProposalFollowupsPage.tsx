@@ -1171,7 +1171,10 @@ const ProposalFollowupsPage: React.FC = () => {
                         error: 'Failed to generate report'
                       }
                     );
-                    await reportsQuery.refetch();
+                    // Invalidate and refetch reports query to show the new report
+                    await queryClient.invalidateQueries(['saved-reports']);
+                    // Switch to reports tab to view the new report
+                    setSelectedTab('reports');
                   } catch (error) {
                     console.error('Error generating report:', error);
                   } finally {
