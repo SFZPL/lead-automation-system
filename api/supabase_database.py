@@ -315,9 +315,9 @@ class SupabaseDatabase:
                 .select("*")\
                 .eq("analysis_type", analysis_type)\
                 .eq("is_shared", True)\
-                .not_.is_("report_type", "null")\
                 .order("created_at", desc=True)
 
+            # Only filter by report_type if explicitly requested
             if report_type:
                 query = query.eq("report_type", report_type)
 
