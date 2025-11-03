@@ -56,55 +56,42 @@ class OdooClient:
         })
     
     def connect(self) -> bool:
-        """Connect to Odoo and authenticate"""
+        """Connect to Odoo and authenticate using XML-RPC (no session conflicts)"""
         try:
+            import xmlrpc.client
+
+            # Use XML-RPC for authentication instead of web sessions
+            # This prevents session conflicts with other applications
+            base_url = self.config.ODOO_URL.rstrip('/')
+
+            # Setup XML-RPC endpoints
+            common = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/common', allow_none=True)
+
+            # Authenticate and get UID
+            self.uid = common.authenticate(
+                self.config.ODOO_DB,
+                self.config.ODOO_USERNAME,
+                self.config.ODOO_PASSWORD,
+                {}
+            )
+
+            if not self.uid:
+                raise RuntimeError("XML-RPC authentication failed. Check credentials.")
+
+            # Store the object endpoint for later use
+            self.models = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/object', allow_none=True)
+
+            # Also setup HTTP session for call_kw endpoint (still needed for some operations)
             self.session = requests.Session()
             self.session.verify = False if self.config.ODOO_INSECURE_SSL else True
             self.session.headers.update({'Content-Type': 'application/json'})
-            
-            base_url = self.config.ODOO_URL
-            auth_endpoint = self._make_endpoint(base_url, "/web/session/authenticate")
             self.call_kw_endpoint = self._make_endpoint(base_url, "/web/dataset/call_kw")
-            
-            try:
-                result = self._json_http(auth_endpoint, {
-                    'db': self.config.ODOO_DB,
-                    'login': self.config.ODOO_USERNAME,
-                    'password': self.config.ODOO_PASSWORD,
-                })
-            except requests.HTTPError as http_err:
-                # Handle Odoo redirect case
-                resp = http_err.response
-                if resp and resp.status_code == 404 and 'www.odoo.com/typo' in (resp.url or ''):
-                    try:
-                        from urllib.parse import urlparse, parse_qs
-                        query = parse_qs(urlparse(resp.url).query)
-                        hosting = (query.get('hosting') or [None])[0]
-                        if hosting:
-                            base_url = f"https://{hosting}"
-                            auth_endpoint = self._make_endpoint(base_url, "/web/session/authenticate")
-                            self.call_kw_endpoint = self._make_endpoint(base_url, "/web/dataset/call_kw")
-                            result = self._json_http(auth_endpoint, {
-                                'db': self.config.ODOO_DB,
-                                'login': self.config.ODOO_USERNAME,
-                                'password': self.config.ODOO_PASSWORD,
-                            })
-                        else:
-                            raise
-                    except Exception:
-                        raise
-                else:
-                    raise
-            
-            self.uid = (result or {}).get('uid')
-            if not self.uid:
-                raise RuntimeError("Authentication failed. Check credentials.")
-            
-            logger.info(f"Successfully connected to Odoo as user ID: {self.uid}")
+
+            logger.info(f"Successfully connected to Odoo via XML-RPC as user ID: {self.uid}")
             return True
-            
+
         except Exception as e:
-            logger.error(f"Failed to connect to Odoo: {e}")
+            logger.error(f"Failed to connect to Odoo via XML-RPC: {e}")
             return False
     
     def find_user_id(self, name: str) -> Optional[int]:
