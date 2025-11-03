@@ -2070,14 +2070,17 @@ def generate_saved_report(
             report_period = datetime.now().strftime("%Y-W%W")
 
         # Generate the analysis
+        logger.info(f"Starting report generation for {request.report_type} (days_back={days_back})")
         analyzer = ProposalFollowupAnalyzer()
         result = analyzer.get_proposal_followups(
             user_identifier=request.engage_email,
             days_back=days_back,
             no_response_days=request.no_response_days
         )
+        logger.info(f"Analysis completed. Found {result.get('summary', {}).get('total_count', 0)} follow-ups")
 
         # Save as shared report
+        logger.info(f"Attempting to save report to database for user {user_id}")
         report_id = db.save_report(
             user_id=user_id,
             analysis_type="proposal_followups",
@@ -2091,6 +2094,7 @@ def generate_saved_report(
             },
             is_shared=True
         )
+        logger.info(f"Report saved successfully with ID: {report_id}")
 
         return {
             "success": True,

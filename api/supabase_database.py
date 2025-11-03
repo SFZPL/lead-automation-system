@@ -273,9 +273,11 @@ class SupabaseDatabase:
         result: Dict[str, Any],
         parameters: Optional[Dict[str, Any]] = None,
         is_shared: bool = True
-    ) -> int:
+    ) -> str:
         """Save a scheduled report."""
         try:
+            logger.info(f"Preparing to save report: type={report_type}, period={report_period}, user={user_id}")
+
             data = {
                 "user_id": user_id,
                 "analysis_type": analysis_type,
@@ -286,13 +288,18 @@ class SupabaseDatabase:
                 "is_shared": is_shared
             }
 
-            result = self.supabase.client.table("analysis_cache").insert(data).execute()
+            logger.info(f"Inserting report into analysis_cache table")
+            insert_result = self.supabase.client.table("analysis_cache").insert(data).execute()
 
-            if result.data:
-                return result.data[0]["id"]
-            return 0
+            if insert_result.data:
+                report_id = insert_result.data[0]["id"]
+                logger.info(f"Report saved successfully to database with ID: {report_id}")
+                return report_id
+            else:
+                logger.error(f"Report insert returned no data. Response: {insert_result}")
+                return ""
         except Exception as e:
-            logger.error(f"Error saving report: {e}")
+            logger.error(f"Error saving report: {e}", exc_info=True)
             raise
 
     def get_saved_reports(
