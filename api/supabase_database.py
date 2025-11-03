@@ -288,8 +288,10 @@ class SupabaseDatabase:
                 "is_shared": is_shared
             }
 
-            logger.info(f"Inserting report into analysis_cache table")
+            logger.info(f"Inserting report into analysis_cache table with data: {data.keys()}")
+            logger.info(f"Report type value: '{report_type}', Report period value: '{report_period}'")
             insert_result = self.supabase.client.table("analysis_cache").insert(data).execute()
+            logger.info(f"Insert result data: {insert_result.data}")
 
             if insert_result.data:
                 report_id = insert_result.data[0]["id"]
