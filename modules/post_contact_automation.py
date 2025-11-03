@@ -78,7 +78,7 @@ class PostContactAutomationService(LoggingMixin):
         }
 
     def _ensure_odoo_connection(self) -> None:
-        if self.odoo.session is None:
+        if not hasattr(self.odoo, "uid") or self.odoo.uid is None:
             if not self.odoo.connect():
                 raise RuntimeError("Failed to connect to Odoo")
 

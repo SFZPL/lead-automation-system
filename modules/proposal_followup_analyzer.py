@@ -63,7 +63,7 @@ class ProposalFollowupAnalyzer:
 
     def _ensure_odoo_connection(self) -> None:
         """Ensure Odoo client is connected."""
-        if self.odoo.session is None:
+        if not hasattr(self.odoo, "uid") or self.odoo.uid is None:
             if not self.odoo.connect():
                 raise RuntimeError("Failed to connect to Odoo")
 

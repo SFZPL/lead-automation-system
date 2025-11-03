@@ -112,50 +112,32 @@ def _call_kw(session: 'requests.Session', call_kw_endpoint: str, model: str, met
     })
 
 
-def connect_to_odoo() -> Tuple['requests.Session', int, str]:
-    if requests is None:
-        raise RuntimeError("The 'requests' package is required. Please install it with 'pip install requests'.")
-    session = requests.Session()
-    # Follow redirects by default; disable SSL verification if requested
-    session.verify = False if INSECURE_SSL else True
-    session.headers.update({'Content-Type': 'application/json'})
-    base_url = CURRENT_BASE_URL
-    auth_endpoint = _make_endpoint(base_url, "/web/session/authenticate")
-    call_kw_endpoint = _make_endpoint(base_url, "/web/dataset/call_kw")
+def connect_to_odoo():
+    """Connect to Odoo using XML-RPC (no session conflicts)"""
+    import xmlrpc.client
+
+    base_url = CURRENT_BASE_URL.rstrip('/')
+
+    # Use XML-RPC for authentication - no web sessions created
+    common = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/common', allow_none=True)
+
     try:
-        result = _json_http(session, auth_endpoint, {
-            'db': ODOO_DB,
-            'login': ODOO_USERNAME,
-            'password': ODOO_PASSWORD,
-        })
-    except requests.HTTPError as http_err:
-        # Handle Odoo typo redirect case: try switching to the hosting domain if indicated
-        resp = http_err.response
-        if resp is not None and resp.status_code == 404 and 'www.odoo.com/typo' in (resp.url or ''):
-            try:
-                from urllib.parse import urlparse, parse_qs
-                query = parse_qs(urlparse(resp.url).query)
-                hosting = (query.get('hosting') or [None])[0]
-                if hosting:
-                    base_url = f"https://{hosting}"
-                    auth_endpoint = _make_endpoint(base_url, "/web/session/authenticate")
-                    call_kw_endpoint = _make_endpoint(base_url, "/web/dataset/call_kw")
-                    # Retry authenticate on hosting domain
-                    result = _json_http(session, auth_endpoint, {
-                        'db': ODOO_DB,
-                        'login': ODOO_USERNAME,
-                        'password': ODOO_PASSWORD,
-                    })
-                else:
-                    raise
-            except Exception:
-                raise
-        else:
-            raise
-    uid = (result or {}).get('uid')
+        uid = common.authenticate(
+            ODOO_DB,
+            ODOO_USERNAME,
+            ODOO_PASSWORD,
+            {}
+        )
+    except Exception as e:
+        raise RuntimeError(f"XML-RPC authentication to Odoo failed: {e}")
+
     if not uid:
         raise RuntimeError("Authentication to Odoo failed. Check credentials.")
-    return session, uid, call_kw_endpoint
+
+    # Return models proxy for execute_kw calls
+    models = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/object', allow_none=True)
+
+    return models, uid
 
 
 def get_selection_labels(session: 'requests.Session', call_kw_endpoint: str, uid: int, password: str,
