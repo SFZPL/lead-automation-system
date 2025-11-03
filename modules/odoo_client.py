@@ -44,16 +44,24 @@ class OdooClient:
         return data.get('result')
     
     def _call_kw(self, model: str, method: str, args: List[Any] = None, kwargs: Dict[str, Any] = None) -> Any:
-        """Make call_kw request to Odoo"""
-        if not self.call_kw_endpoint:
+        """Make call_kw request to Odoo using XML-RPC (no session required)"""
+        if not hasattr(self, 'models') or not self.models:
             raise RuntimeError("Not connected to Odoo. Call connect() first.")
-        
-        return self._json_http(self.call_kw_endpoint, {
-            'model': model,
-            'method': method,
-            'args': args or [],
-            'kwargs': kwargs or {},
-        })
+
+        # Use XML-RPC execute_kw instead of HTTP call_kw to avoid session requirements
+        try:
+            return self.models.execute_kw(
+                self.config.ODOO_DB,
+                self.uid,
+                self.config.ODOO_PASSWORD,
+                model,
+                method,
+                args or [],
+                kwargs or {}
+            )
+        except Exception as e:
+            logger.error(f"XML-RPC call failed for {model}.{method}: {e}")
+            raise OdooRpcError(str(e))
     
     def connect(self) -> bool:
         """Connect to Odoo and authenticate using XML-RPC (no session conflicts)"""
@@ -81,13 +89,8 @@ class OdooClient:
             # Store the object endpoint for later use
             self.models = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/object', allow_none=True)
 
-            # Also setup HTTP session for call_kw endpoint (still needed for some operations)
-            self.session = requests.Session()
-            self.session.verify = False if self.config.ODOO_INSECURE_SSL else True
-            self.session.headers.update({'Content-Type': 'application/json'})
-            self.call_kw_endpoint = self._make_endpoint(base_url, "/web/dataset/call_kw")
-
             logger.info(f"Successfully connected to Odoo via XML-RPC as user ID: {self.uid}")
+            logger.info(f"All Odoo operations will use XML-RPC (no web sessions)")
             return True
 
         except Exception as e:
