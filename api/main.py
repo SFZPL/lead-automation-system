@@ -3337,44 +3337,43 @@ class UserResponse(BaseModel):
 @app.post("/auth/login", response_model=LoginResponse)
 def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_service), db: Database = Depends(get_database)):
     """Authenticate user against Odoo and return access token."""
-    # Try to authenticate against Odoo
+    # Try to authenticate against Odoo using XML-RPC (no session conflicts)
     from modules.odoo_client import OdooClient
     from config import Config
+    import xmlrpc.client
 
     config = Config()
-    odoo = OdooClient(config)
-
-    # Create a temporary session to test Odoo credentials
-    import requests
-    test_session = requests.Session()
-    test_session.verify = False if config.ODOO_INSECURE_SSL else True
-    test_session.headers.update({'Content-Type': 'application/json'})
-
-    base_url = config.ODOO_URL
-    auth_endpoint = f"{base_url.rstrip('/')}/web/session/authenticate"
+    base_url = config.ODOO_URL.rstrip('/')
 
     try:
-        # Test Odoo authentication
-        payload = {
-            'jsonrpc': '2.0',
-            'method': 'call',
-            'params': {
-                'db': config.ODOO_DB,
-                'login': request.email,
-                'password': request.password,
-            },
-            'id': 1,
-        }
-        resp = test_session.post(auth_endpoint, json=payload, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
+        # Use XML-RPC for authentication - this won't create web sessions
+        # that conflict with other applications
+        common = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/common', allow_none=True)
 
-        if 'error' in data and data['error']:
+        # Authenticate and get UID
+        odoo_uid = common.authenticate(
+            config.ODOO_DB,
+            request.email,
+            request.password,
+            {}
+        )
+
+        if not odoo_uid:
             raise HTTPException(status_code=401, detail="Invalid Odoo credentials")
 
-        result = data.get('result', {})
-        odoo_uid = result.get('uid')
-        odoo_name = result.get('name', request.email)
+        # Get user info
+        models = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/object', allow_none=True)
+        user_info = models.execute_kw(
+            config.ODOO_DB,
+            odoo_uid,
+            request.password,
+            'res.users',
+            'read',
+            [odoo_uid],
+            {'fields': ['name', 'email']}
+        )
+
+        odoo_name = user_info[0].get('name', request.email) if user_info else request.email
 
         if not odoo_uid:
             raise HTTPException(status_code=401, detail="Invalid Odoo credentials")
