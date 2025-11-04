@@ -386,6 +386,22 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   };
 
+  const handleOpenInOutlook = (thread: ProposalFollowupThread) => {
+    // Extract subject for search (remove RE:, FW: prefixes)
+    const cleanSubject = thread.subject
+      .replace(/^(RE:|FW:|FWD:)\s*/gi, '')
+      .trim();
+
+    // Create Outlook search URL for the PL Engage group
+    // Format: outlook:search?query=subject:"Your Subject"&scope=folder:PL Engage
+    const searchQuery = encodeURIComponent(`subject:"${cleanSubject}"`);
+    const outlookUrl = `https://outlook.office.com/mail/group/prezlab.com/engage/inbox?search=${searchQuery}`;
+
+    // Open in new tab
+    window.open(outlookUrl, '_blank');
+    toast.success('Opening thread in Outlook...');
+  };
+
   const handleDeleteReport = async (reportId: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent triggering the card click
     setReportToDelete(reportId);
@@ -612,6 +628,17 @@ const ProposalFollowupsPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
             View Thread
+          </button>
+
+          <button
+            onClick={() => handleOpenInOutlook(thread)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+            title="Open in Outlook with search"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M7.88 12.04q0 .45-.11.87-.1.41-.33.74-.22.33-.58.52-.37.2-.87.2t-.85-.2q-.35-.21-.57-.55-.22-.33-.33-.75-.1-.42-.1-.86t.1-.87q.1-.43.34-.76.22-.34.59-.54.36-.2.87-.2t.86.2q.35.21.57.55.22.34.31.77.1.43.1.88zM24 12v9.38q0 .46-.33.8-.33.32-.8.32H7.13q-.46 0-.8-.33-.32-.33-.32-.8V18H1.6q-.33 0-.57-.24-.23-.23-.23-.57V6.8q0-.33.22-.57.22-.23.58-.23h4.5v-.1q0-.46.33-.8.33-.32.8-.32h12.87q.47 0 .8.33.34.33.34.8z"/>
+            </svg>
+            Open in Outlook
           </button>
 
           <button
