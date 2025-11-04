@@ -392,14 +392,16 @@ const ProposalFollowupsPage: React.FC = () => {
       .replace(/^(RE:|FW:|FWD:)\s*/gi, '')
       .trim();
 
-    // Create Outlook search URL for the PL Engage group
-    // Format: outlook:search?query=subject:"Your Subject"&scope=folder:PL Engage
-    const searchQuery = encodeURIComponent(`subject:"${cleanSubject}"`);
-    const outlookUrl = `https://outlook.office.com/mail/group/prezlab.com/engage/inbox?search=${searchQuery}`;
+    // Build search query that includes both subject and group context
+    // Use "from:" operator to search within engage group emails
+    const searchQuery = encodeURIComponent(`subject:"${cleanSubject}" from:engage@prezlab.com`);
+
+    // Use general Outlook mail search (group-specific URLs don't work reliably)
+    const outlookUrl = `https://outlook.office.com/mail/?search=${searchQuery}`;
 
     // Open in new tab
     window.open(outlookUrl, '_blank');
-    toast.success('Opening thread in Outlook...');
+    toast.success('Searching for thread in Outlook...');
   };
 
   const handleDeleteReport = async (reportId: string, event: React.MouseEvent) => {
