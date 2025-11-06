@@ -1983,7 +1983,11 @@ def export_report_pdf(
 
         # Parse report data
         report_data = report.get("report_data", {})
-        followups = report_data.get("followups", [])
+
+        # Combine unanswered and pending_proposals into followups list
+        unanswered = report_data.get("unanswered", [])
+        pending_proposals = report_data.get("pending_proposals", [])
+        followups = unanswered + pending_proposals
 
         # Generate executive summary using OpenAI
         executive_summary = generate_executive_summary(followups, report.get("report_type", ""))
