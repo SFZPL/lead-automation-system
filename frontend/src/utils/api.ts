@@ -7,7 +7,7 @@ const PREZLAB_AUTH_TOKEN_KEY = 'prezlab_auth_token';
 
 export const apiClient = axios.create({
   baseURL: process.env.REACT_APP_API_BASE || 'http://localhost:8000',
-  timeout: 600000, // 10 minutes for long operations
+  timeout: 0, // No timeout for long-running operations like 90-day reports
   headers: {
     'Content-Type': 'application/json',
   },
