@@ -338,6 +338,30 @@ class SupabaseDatabase:
             logger.error(f"Error getting saved reports: {e}")
             return []
 
+    def get_report(self, report_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single report by UUID."""
+        try:
+            result = self.supabase.client.table("analysis_cache")\
+                .select("*")\
+                .eq("id", report_id)\
+                .execute()
+
+            if not result.data:
+                return None
+
+            item = result.data[0]
+            return {
+                "id": item["id"],
+                "report_type": item["report_type"],
+                "report_period": item["report_period"],
+                "created_at": item["created_at"],
+                "report_data": json.loads(item["results"]) if item.get("results") else {},
+                "parameters": json.loads(item["parameters"]) if item.get("parameters") else {}
+            }
+        except Exception as e:
+            logger.error(f"Error getting report {report_id}: {e}")
+            return None
+
     def delete_report(self, report_id: str) -> bool:
         """Delete a saved report by UUID."""
         try:
