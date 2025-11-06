@@ -147,7 +147,7 @@ class ProposalFollowupAnalyzer:
             access_token=tokens['access_token'],
             group_email=engage_group['mail'],
             days_back=days_back,
-            limit=2000
+            limit=5000
         )
 
         logger.info(f"Found {len(emails)} emails in engage group from past {days_back} days")
