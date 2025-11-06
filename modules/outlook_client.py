@@ -462,7 +462,7 @@ class OutlookClient:
 
             # Find the group by email
             groups = self.get_user_groups(access_token)
-            group = next((g for g in groups if g.get("mail", "").lower() == group_email.lower()), None)
+            group = next((g for g in groups if g.get("mail") and g.get("mail").lower() == group_email.lower()), None)
 
             if not group:
                 logger.error(f"Group not found with email: {group_email}")
