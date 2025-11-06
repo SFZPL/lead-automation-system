@@ -8,10 +8,17 @@ from typing import Any, Dict, List, Optional, Literal
 
 from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
 from pydantic import BaseModel
 import json
 import asyncio
+from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 import os
 import sys
@@ -1959,6 +1966,229 @@ def delete_saved_report(
     except Exception as e:
         logger.error(f"Error deleting report {report_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/proposal-followups/reports/{report_id}/export")
+def export_report_pdf(
+    report_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Export a follow-up report as PDF with executive summary."""
+    try:
+        # Get report from database
+        report = db.get_report(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Parse report data
+        report_data = report.get("report_data", {})
+        followups = report_data.get("followups", [])
+
+        # Generate executive summary using OpenAI
+        executive_summary = generate_executive_summary(followups, report.get("report_type", ""))
+
+        # Create PDF
+        pdf_buffer = BytesIO()
+        doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
+        story = []
+        styles = getSampleStyleSheet()
+
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#1f2937'),
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=16,
+            textColor=colors.HexColor('#374151'),
+            spaceAfter=12,
+            spaceBefore=20
+        )
+
+        # Title
+        story.append(Paragraph("Proposal Follow-up Report", title_style))
+        story.append(Spacer(1, 0.3*inch))
+
+        # Report metadata
+        report_type = report.get("report_type", "").replace("_", " ").title()
+        report_period = report.get("report_period", "")
+        created_at = report.get("created_at", "")
+
+        metadata_data = [
+            ["Report Type:", report_type],
+            ["Period:", report_period],
+            ["Generated:", created_at[:10] if created_at else ""],
+            ["Total Follow-ups:", str(len(followups))]
+        ]
+
+        metadata_table = Table(metadata_data, colWidths=[2*inch, 4*inch])
+        metadata_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#374151')),
+            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+
+        story.append(metadata_table)
+        story.append(Spacer(1, 0.5*inch))
+
+        # Executive Summary
+        story.append(Paragraph("Executive Summary", heading_style))
+        story.append(Paragraph(executive_summary, styles['BodyText']))
+        story.append(Spacer(1, 0.3*inch))
+
+        # Statistics
+        story.append(Paragraph("Key Statistics", heading_style))
+
+        # Calculate stats
+        urgent_count = len([f for f in followups if f.get("days_since_proposal", 0) > 14])
+        recent_count = len([f for f in followups if f.get("days_since_proposal", 0) <= 7])
+
+        stats_data = [
+            ["Total Follow-ups Needed:", str(len(followups))],
+            ["Urgent (>14 days):", str(urgent_count)],
+            ["Recent (≤7 days):", str(recent_count)],
+        ]
+
+        stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
+        stats_table.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#374151')),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f3f4f6')),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+        ]))
+
+        story.append(stats_table)
+        story.append(Spacer(1, 0.5*inch))
+
+        # Follow-up threads
+        story.append(PageBreak())
+        story.append(Paragraph("Follow-up Threads", heading_style))
+        story.append(Spacer(1, 0.2*inch))
+
+        for idx, followup in enumerate(followups[:50], 1):  # Limit to first 50 for PDF size
+            # Thread header
+            subject = followup.get("subject", "No subject")
+            external_email = followup.get("external_email", "Unknown")
+            days_since = followup.get("days_since_proposal", 0)
+
+            thread_title = f"{idx}. {subject}"
+            story.append(Paragraph(thread_title, styles['Heading3']))
+
+            # Thread details
+            details_data = [
+                ["Contact:", external_email],
+                ["Days Since Proposal:", str(days_since)],
+            ]
+
+            details_table = Table(details_data, colWidths=[1.5*inch, 4.5*inch])
+            details_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#4b5563')),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ]))
+
+            story.append(details_table)
+            story.append(Spacer(1, 0.2*inch))
+
+        if len(followups) > 50:
+            story.append(Paragraph(
+                f"<i>Note: Only showing first 50 of {len(followups)} total follow-ups. View full report in the app.</i>",
+                styles['BodyText']
+            ))
+
+        # Build PDF
+        doc.build(story)
+        pdf_buffer.seek(0)
+
+        # Save to temp file and return
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            tmp_file.write(pdf_buffer.getvalue())
+            tmp_path = tmp_file.name
+
+        return FileResponse(
+            tmp_path,
+            media_type='application/pdf',
+            filename=f'follow-up-report-{report_id}.pdf'
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting report {report_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def generate_executive_summary(followups: List[Dict], report_type: str) -> str:
+    """Generate an executive summary of the follow-ups using OpenAI."""
+    try:
+        from openai import OpenAI
+        client = OpenAI()
+
+        # Prepare summary of followups for AI
+        urgent = [f for f in followups if f.get("days_since_proposal", 0) > 14]
+        recent = [f for f in followups if f.get("days_since_proposal", 0) <= 7]
+
+        prompt = f"""Based on this proposal follow-up report, write a concise executive summary (3-4 paragraphs):
+
+Report Type: {report_type}
+Total Follow-ups Needed: {len(followups)}
+Urgent (>14 days): {len(urgent)}
+Recent (≤7 days): {len(recent)}
+
+Key patterns to analyze:
+- Average days since proposal: {sum(f.get('days_since_proposal', 0) for f in followups) / len(followups) if followups else 0:.1f}
+- Distribution of follow-up urgency
+
+Provide:
+1. Overview of the follow-up situation
+2. Key concerns and priorities
+3. Recommended actions
+
+Keep it professional and actionable."""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a sales operations analyst providing executive summaries."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"Error generating executive summary: {e}")
+        # Return fallback summary
+        return f"""This report contains {len(followups)} proposal follow-ups requiring attention.
+
+Of these, {len([f for f in followups if f.get('days_since_proposal', 0) > 14])} are considered urgent (over 14 days since proposal),
+while {len([f for f in followups if f.get('days_since_proposal', 0) <= 7])} are recent (within 7 days).
+
+Priority should be given to the urgent follow-ups to maintain engagement and move deals forward.
+The team should systematically work through these opportunities to maximize conversion rates."""
 
 
 @app.get("/outlook/conversation/{conversation_id}")

@@ -95,6 +95,8 @@ export const api = {
     apiClient.post('/proposal-followups/reports/generate', data),
   deleteReport: (reportId: string) =>
     apiClient.delete(`/proposal-followups/reports/${reportId}`),
+  exportReport: (reportId: string) =>
+    apiClient.get(`/proposal-followups/reports/${reportId}/export`, { responseType: 'blob' }),
   markFollowupComplete: (data: { thread_id: string; conversation_id: string; notes?: string }) =>
     apiClient.post(`/proposal-followups/${data.thread_id}/mark-complete`, data),
   generateDraft: (data: { thread_data: any }) =>

@@ -15,6 +15,7 @@ import {
   XCircleIcon,
   SparklesIcon,
   TrashIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 import AssignLeadModal from '../components/AssignLeadModal';
@@ -423,6 +424,38 @@ const ProposalFollowupsPage: React.FC = () => {
     } catch (error) {
       console.error('Error deleting report:', error);
       toast.error('Failed to delete report');
+    }
+  };
+
+  const handleExportReport = async (reportId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent triggering the card click
+
+    try {
+      toast.loading('Generating PDF report...');
+
+      const response = await api.exportReport(reportId);
+
+      // Create blob from response
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `follow-up-report-${reportId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.dismiss();
+      toast.success('Report exported successfully!');
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      toast.dismiss();
+      toast.error('Failed to export report');
     }
   };
 
@@ -1089,6 +1122,13 @@ const ProposalFollowupsPage: React.FC = () => {
                         <span className="px-3 py-1 text-sm font-medium rounded-full bg-purple-100 text-purple-800">
                           {report.report_type}
                         </span>
+                        <button
+                          onClick={(e) => handleExportReport(report.id, e)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Export PDF"
+                        >
+                          <ArrowDownTrayIcon className="w-5 h-5" />
+                        </button>
                         <button
                           onClick={(e) => handleDeleteReport(report.id, e)}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
