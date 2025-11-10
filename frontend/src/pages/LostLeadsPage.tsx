@@ -17,6 +17,7 @@ import {
   PencilIcon,
   DocumentTextIcon,
   XCircleIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 
@@ -124,7 +125,7 @@ const LostLeadsPage: React.FC = () => {
   const [loadingStep, setLoadingStep] = useState<number>(0);
   const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
   const [saveTitle, setSaveTitle] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analyze' | 'saved'>('analyze');
+  const [activeTab, setActiveTab] = useState<'analyze' | 'saved' | 'reports'>('analyze');
   const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null);
   const [editingAnalysisId, setEditingAnalysisId] = useState<string | null>(null);
   const [showDraftModal, setShowDraftModal] = useState<boolean>(false);
@@ -136,6 +137,10 @@ const LostLeadsPage: React.FC = () => {
   const [isSendingEmail, setIsSendingEmail] = useState<boolean>(false);
   const [editingInPlace, setEditingInPlace] = useState<boolean>(false);
   const [editedTitle, setEditedTitle] = useState<string>('');
+  const [reportLimit, setReportLimit] = useState<number>(50);
+  const [reportTypeFilter, setReportTypeFilter] = useState<string>('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
+  const [reportData, setReportData] = useState<any>(null);
 
   const queryClient = useQueryClient();
 
@@ -508,6 +513,25 @@ const LostLeadsPage: React.FC = () => {
     );
   };
 
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
+    setReportData(null);
+    try {
+      const response = await api.generateLostLeadsReport({
+        limit: reportLimit,
+        salesperson,
+        type_filter: reportTypeFilter || undefined
+      });
+      setReportData(response.data.report);
+      toast.success('Report generated successfully!');
+    } catch (error) {
+      console.error('Error generating report:', error);
+      toast.error('Failed to generate report');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   return (
     <div className="space-y-6 px-4 sm:px-6 lg:px-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -572,6 +596,19 @@ const LostLeadsPage: React.FC = () => {
             <div className="flex items-center gap-2">
               <HeartIcon className="h-4 w-4" />
               Re-Engage ({savedAnalyses.length})
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`whitespace-nowrap border-b-2 px-1 py-4 text-sm font-medium ${
+              activeTab === 'reports'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <ChartBarIcon className="h-4 w-4" />
+              Reports & Analytics
             </div>
           </button>
         </nav>
@@ -1172,6 +1209,179 @@ const LostLeadsPage: React.FC = () => {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Reports Tab Content */}
+      {activeTab === 'reports' && (
+        <div className="space-y-6">
+          {/* Report Generation Controls */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Generate Lost Leads Report</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label htmlFor="reportLimit" className="block text-sm font-medium text-gray-700 mb-1">
+                  Number of Leads
+                </label>
+                <input
+                  id="reportLimit"
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={reportLimit}
+                  onChange={(e) => setReportLimit(Math.min(Math.max(1, Number(e.target.value) || 1), 200))}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="reportTypeFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                  Type Filter
+                </label>
+                <select
+                  id="reportTypeFilter"
+                  value={reportTypeFilter}
+                  onChange={(e) => setReportTypeFilter(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                >
+                  <option value="">All (Leads & Opportunities)</option>
+                  <option value="lead">Leads Only</option>
+                  <option value="opportunity">Opportunities Only</option>
+                </select>
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  onClick={handleGenerateReport}
+                  disabled={isGeneratingReport}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isGeneratingReport ? (
+                    <>
+                      <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <ChartBarIcon className="h-4 w-4" />
+                      Generate Report
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Report Results */}
+          {reportData && (
+            <div className="space-y-6">
+              {/* Summary Statistics */}
+              <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Summary Statistics</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-red-50 rounded-lg p-4">
+                    <div className="text-sm font-medium text-red-600">Total Missed Value</div>
+                    <div className="text-2xl font-bold text-red-900 mt-1">
+                      ${reportData.summary.total_missed_value.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <div className="text-sm font-medium text-blue-600">Average Deal Size</div>
+                    <div className="text-2xl font-bold text-blue-900 mt-1">
+                      ${reportData.summary.average_deal_value.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-4">
+                    <div className="text-sm font-medium text-purple-600">Total Lost Leads</div>
+                    <div className="text-2xl font-bold text-purple-900 mt-1">
+                      {reportData.summary.total_count}
+                    </div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-4">
+                    <div className="text-sm font-medium text-green-600">Leads vs Opportunities</div>
+                    <div className="text-sm font-bold text-green-900 mt-1">
+                      {reportData.summary.leads_count} / {reportData.summary.opportunities_count}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lost Reasons Analysis */}
+              <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Lost Reasons Analysis</h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">By Frequency</h4>
+                    <div className="space-y-2">
+                      {reportData.reasons_analysis.by_frequency.slice(0, 5).map((reason: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <span className="text-sm font-medium text-gray-900">{reason.reason}</span>
+                          <span className="text-sm text-gray-600">{reason.count} leads</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">By Value</h4>
+                    <div className="space-y-2">
+                      {reportData.reasons_analysis.by_value.slice(0, 5).map((reason: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <span className="text-sm font-medium text-gray-900">{reason.reason}</span>
+                          <span className="text-sm text-gray-600">${reason.total_value.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Top Re-contact Opportunities */}
+              <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Top 10 Re-contact Opportunities</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Score</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {reportData.top_opportunities.map((opp: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              opp.reconnect_score > 70 ? 'bg-green-100 text-green-800' :
+                              opp.reconnect_score > 50 ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {opp.reconnect_score}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900">{opp.name}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{opp.partner_name || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">${opp.expected_revenue.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{opp.lost_reason}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              opp.type === 'opportunity' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {opp.type}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

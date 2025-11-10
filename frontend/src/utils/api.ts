@@ -78,6 +78,8 @@ export const api = {
     apiClient.post(`/lost-leads/${leadId}/analysis`, data),
   generateLostLeadDraft: (data: { lead_data: any; analysis_data: any }) =>
     apiClient.post('/lost-leads/generate-draft', data),
+  generateLostLeadsReport: (params?: { limit?: number; salesperson?: string; type_filter?: string }) =>
+    apiClient.post('/lost-leads/generate-report', null, { params }),
 
   // Dashboard
   getDashboardSummary: (params?: { engage_email?: string }) =>
