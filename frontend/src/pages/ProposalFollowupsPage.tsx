@@ -367,7 +367,8 @@ const ProposalFollowupsPage: React.FC = () => {
 
       // Force refresh to immediately remove from list
       setForceRefresh(true);
-      setTimeout(() => setForceRefresh(false), 100);
+      // Also invalidate the query cache to ensure fresh data
+      followupsQuery.refetch();
     } catch (error) {
       console.error('Error marking complete:', error);
       toast.error('Failed to mark as complete');
