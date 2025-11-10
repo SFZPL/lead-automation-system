@@ -619,6 +619,10 @@ class LostLeadAnalyzer:
             if lead.get("type") == "opportunity":
                 score += 10
 
+            # Extract stage name from stage_id
+            stage = lead.get("stage_id")
+            stage_name = stage[1] if isinstance(stage, list) and len(stage) > 1 else (stage or "Unknown")
+
             scored_leads.append({
                 "lead_id": lead.get("id"),
                 "name": lead.get("name"),
@@ -628,6 +632,7 @@ class LostLeadAnalyzer:
                 "phone": lead.get("phone") or lead.get("mobile"),
                 "expected_revenue": value,
                 "lost_reason": reason[1] if isinstance(reason, list) and len(reason) > 1 else (reason or "Unknown"),
+                "stage_name": stage_name,
                 "type": lead.get("type"),
                 "write_date": lead.get("write_date"),
                 "reconnect_score": round(score, 2)

@@ -1283,13 +1283,13 @@ const LostLeadsPage: React.FC = () => {
                   <div className="bg-red-50 rounded-lg p-4">
                     <div className="text-sm font-medium text-red-600">Total Missed Value</div>
                     <div className="text-2xl font-bold text-red-900 mt-1">
-                      ${reportData.summary.total_missed_value.toLocaleString()}
+                      AED {reportData.summary.total_missed_value.toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-4">
                     <div className="text-sm font-medium text-blue-600">Average Deal Size</div>
                     <div className="text-2xl font-bold text-blue-900 mt-1">
-                      ${reportData.summary.average_deal_value.toLocaleString()}
+                      AED {reportData.summary.average_deal_value.toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-purple-50 rounded-lg p-4">
@@ -1328,7 +1328,7 @@ const LostLeadsPage: React.FC = () => {
                       {reportData.reasons_analysis.by_value.slice(0, 5).map((reason: any, idx: number) => (
                         <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                           <span className="text-sm font-medium text-gray-900">{reason.reason}</span>
-                          <span className="text-sm text-gray-600">${reason.total_value.toLocaleString()}</span>
+                          <span className="text-sm text-gray-600">AED {reason.total_value.toLocaleString()}</span>
                         </div>
                       ))}
                     </div>
@@ -1347,6 +1347,7 @@ const LostLeadsPage: React.FC = () => {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                       </tr>
@@ -1365,7 +1366,8 @@ const LostLeadsPage: React.FC = () => {
                           </td>
                           <td className="px-4 py-3 text-sm font-medium text-gray-900">{opp.name}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">{opp.partner_name || '-'}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900">${opp.expected_revenue.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">AED {opp.expected_revenue.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{opp.stage_name || '-'}</td>
                           <td className="px-4 py-3 text-sm text-gray-600">{opp.lost_reason}</td>
                           <td className="px-4 py-3 text-sm">
                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
