@@ -352,12 +352,19 @@ const ProposalFollowupsPage: React.FC = () => {
 
   const handleMarkComplete = async (thread: ProposalFollowupThread) => {
     try {
-      await api.markFollowupComplete({
+      const response = await api.markFollowupComplete({
         thread_id: thread.conversation_id,
         conversation_id: thread.conversation_id,
         notes: 'Manually marked as complete'
       });
-      toast.success('Follow-up marked as complete!');
+
+      // Check if already completed
+      if (response.data?.message) {
+        toast.success(response.data.message);
+      } else {
+        toast.success('Follow-up marked as complete!');
+      }
+
       // Force refresh to immediately remove from list
       setForceRefresh(true);
       setTimeout(() => setForceRefresh(false), 100);

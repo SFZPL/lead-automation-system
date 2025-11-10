@@ -2400,6 +2400,17 @@ def mark_followup_complete(
 
     except Exception as e:
         logger.error(f"Error marking follow-up complete: {e}")
+
+        # Check if it's a duplicate key error (already marked complete)
+        error_str = str(e)
+        if "duplicate key" in error_str or "23505" in error_str or "already exists" in error_str:
+            # Thread already marked complete - return success to avoid confusing the user
+            return {
+                "success": True,
+                "completion": {"already_completed": True},
+                "message": "This follow-up was already marked as complete"
+            }
+
         raise HTTPException(status_code=500, detail=str(e))
 
 
