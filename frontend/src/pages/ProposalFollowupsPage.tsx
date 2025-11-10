@@ -389,16 +389,20 @@ const ProposalFollowupsPage: React.FC = () => {
   };
 
   const handleOpenInOutlook = (thread: ProposalFollowupThread) => {
-    // Extract subject for search (remove RE:, FW: prefixes)
-    const cleanSubject = thread.subject
-      .replace(/^(RE:|FW:|FWD:)\s*/gi, '')
+    // Extract core subject for search (remove RE:, FW:, FYI: prefixes and clean up)
+    let cleanSubject = thread.subject
+      .replace(/^(RE:|FW:|FWD:|For Your Information:)\s*/gi, '')
       .trim();
 
-    // Build search query that includes both subject and group context
-    // Use "from:" operator to search within engage group emails
-    const searchQuery = encodeURIComponent(`subject:"${cleanSubject}" from:engage@prezlab.com`);
+    // Take only first 50 chars to avoid overly specific searches
+    if (cleanSubject.length > 50) {
+      cleanSubject = cleanSubject.substring(0, 50);
+    }
 
-    // Use general Outlook mail search (group-specific URLs don't work reliably)
+    // Build search query - just search by subject keywords without quotes for better matching
+    const searchQuery = encodeURIComponent(`${cleanSubject} from:engage@prezlab.com`);
+
+    // Use general Outlook mail search
     const outlookUrl = `https://outlook.office.com/mail/?search=${searchQuery}`;
 
     // Open in new tab
