@@ -1648,6 +1648,41 @@ def send_lost_lead_email(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/lost-leads/generate-report")
+def generate_lost_leads_report(
+    limit: int = 50,
+    salesperson: Optional[str] = None,
+    type_filter: Optional[str] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Generate comprehensive lost leads report with statistics and analysis.
+
+    Returns:
+        - Summary statistics (total missed value, average deal size, counts)
+        - Reasons analysis (by frequency and by value)
+        - Top 10 opportunities to re-contact (scored by value, recency, reason)
+    """
+    analyzer = get_lost_lead_analyzer()
+
+    try:
+        logger.info(f"Generating lost leads report: limit={limit}, salesperson={salesperson}, type={type_filter}")
+        report = analyzer.generate_lost_leads_report(
+            limit=limit,
+            salesperson_name=salesperson,
+            type_filter=type_filter
+        )
+
+        return {
+            "success": True,
+            "report": report
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating lost leads report: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # PROPOSAL FOLLOW-UP ENDPOINTS
 # ============================================================================
