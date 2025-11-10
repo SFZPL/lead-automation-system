@@ -365,10 +365,8 @@ const ProposalFollowupsPage: React.FC = () => {
         toast.success('Follow-up marked as complete!');
       }
 
-      // Force refresh to immediately remove from list
-      setForceRefresh(true);
-      // Also invalidate the query cache to ensure fresh data
-      followupsQuery.refetch();
+      // Refetch to update the list (uses cached data, doesn't regenerate report)
+      await followupsQuery.refetch();
     } catch (error) {
       console.error('Error marking complete:', error);
       toast.error('Failed to mark as complete');
