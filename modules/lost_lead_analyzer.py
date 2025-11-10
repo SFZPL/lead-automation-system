@@ -500,6 +500,9 @@ class LostLeadAnalyzer:
         # Analyze lost reasons
         reasons_analysis = self._analyze_lost_reasons(lost_leads)
 
+        # Analyze by stage
+        stage_analysis = self._analyze_by_stage(lost_leads)
+
         # Identify top opportunities to re-contact (highest value + recent + specific reasons)
         top_opportunities = self._identify_reconnect_opportunities(lost_leads)
 
@@ -513,6 +516,7 @@ class LostLeadAnalyzer:
                 "report_generated_at": datetime.now().isoformat()
             },
             "reasons_analysis": reasons_analysis,
+            "stage_analysis": stage_analysis,
             "top_opportunities": top_opportunities[:10],  # Top 10
             "all_lost_leads": lost_leads  # Full list for reference
         }
@@ -521,6 +525,7 @@ class LostLeadAnalyzer:
         """Analyze and categorize reasons for losing leads."""
         reasons_count = {}
         reasons_value = {}
+        total_count = len(lost_leads)
 
         for lead in lost_leads:
             reason = lead.get("lost_reason_id")
@@ -549,6 +554,7 @@ class LostLeadAnalyzer:
                 {
                     "reason": reason,
                     "count": count,
+                    "percentage": round((count / total_count * 100), 1) if total_count > 0 else 0,
                     "total_value": round(reasons_value.get(reason, 0), 2)
                 }
                 for reason, count in sorted_reasons
@@ -558,6 +564,7 @@ class LostLeadAnalyzer:
                     {
                         "reason": reason,
                         "count": reasons_count[reason],
+                        "percentage": round((reasons_count[reason] / total_count * 100), 1) if total_count > 0 else 0,
                         "total_value": round(value, 2)
                     }
                     for reason, value in reasons_value.items()
@@ -566,6 +573,46 @@ class LostLeadAnalyzer:
                 reverse=True
             )
         }
+
+    def _analyze_by_stage(self, lost_leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Analyze lost leads by stage."""
+        stage_count = {}
+        stage_value = {}
+        total_count = len(lost_leads)
+
+        for lead in lost_leads:
+            stage = lead.get("stage_id")
+            # Extract stage name (same logic as in _identify_reconnect_opportunities)
+            if isinstance(stage, (list, tuple)) and len(stage) > 1:
+                stage_name = stage[1]
+            elif stage and stage != False:
+                stage_name = str(stage)
+            else:
+                stage_name = "Unknown"
+
+            # Count occurrences
+            stage_count[stage_name] = stage_count.get(stage_name, 0) + 1
+
+            # Sum values
+            value = lead.get("expected_revenue", 0) or 0
+            stage_value[stage_name] = stage_value.get(stage_name, 0) + value
+
+        # Sort by count
+        sorted_stages = sorted(
+            stage_count.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        return [
+            {
+                "stage": stage,
+                "count": count,
+                "percentage": round((count / total_count * 100), 1) if total_count > 0 else 0,
+                "total_value": round(stage_value.get(stage, 0), 2)
+            }
+            for stage, count in sorted_stages
+        ]
 
     def _identify_reconnect_opportunities(self, lost_leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

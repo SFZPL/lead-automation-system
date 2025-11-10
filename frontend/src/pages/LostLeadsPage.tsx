@@ -1310,14 +1310,14 @@ const LostLeadsPage: React.FC = () => {
               {/* Lost Reasons Analysis */}
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Lost Reasons Analysis</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   <div>
                     <h4 className="text-sm font-medium text-gray-700 mb-3">By Frequency</h4>
                     <div className="space-y-2">
                       {reportData.reasons_analysis.by_frequency.slice(0, 5).map((reason: any, idx: number) => (
                         <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                           <span className="text-sm font-medium text-gray-900">{reason.reason}</span>
-                          <span className="text-sm text-gray-600">{reason.count} leads</span>
+                          <span className="text-sm text-gray-600">{reason.count} leads ({reason.percentage}%)</span>
                         </div>
                       ))}
                     </div>
@@ -1328,7 +1328,18 @@ const LostLeadsPage: React.FC = () => {
                       {reportData.reasons_analysis.by_value.slice(0, 5).map((reason: any, idx: number) => (
                         <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                           <span className="text-sm font-medium text-gray-900">{reason.reason}</span>
-                          <span className="text-sm text-gray-600">AED {reason.total_value.toLocaleString()}</span>
+                          <span className="text-sm text-gray-600">AED {reason.total_value.toLocaleString()} ({reason.percentage}%)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">By Stage</h4>
+                    <div className="space-y-2">
+                      {reportData.stage_analysis?.slice(0, 5).map((stage: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <span className="text-sm font-medium text-gray-900">{stage.stage}</span>
+                          <span className="text-sm text-gray-600">{stage.count} leads ({stage.percentage}%)</span>
                         </div>
                       ))}
                     </div>
