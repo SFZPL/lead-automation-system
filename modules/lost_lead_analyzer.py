@@ -435,3 +435,206 @@ class LostLeadAnalyzer:
             "emails": context["emails"],
         }
 
+    def generate_lost_leads_report(
+        self,
+        limit: int = 50,
+        salesperson_name: Optional[str] = None,
+        type_filter: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate comprehensive lost leads report with statistics and analysis.
+
+        Args:
+            limit: Number of lost leads to analyze
+            salesperson_name: Filter by salesperson
+            type_filter: Filter by 'lead' or 'opportunity' or None for both
+
+        Returns:
+            Dict with statistics, reasons analysis, and top opportunities to re-contact
+        """
+        self._ensure_odoo_connection()
+        self._ensure_llm()
+
+        # Fetch lost leads
+        logger.info(f"Fetching {limit} lost leads for report generation")
+        lost_leads = self.odoo.get_lost_leads(
+            limit=limit,
+            salesperson_name=salesperson_name,
+            type_filter=type_filter
+        )
+
+        if not lost_leads:
+            return {
+                "summary": {
+                    "total_count": 0,
+                    "total_missed_value": 0,
+                    "average_deal_value": 0,
+                    "leads_count": 0,
+                    "opportunities_count": 0
+                },
+                "reasons_analysis": {},
+                "top_opportunities": []
+            }
+
+        # Calculate statistics
+        total_missed_value = sum(
+            lead.get("expected_revenue", 0) or 0
+            for lead in lost_leads
+        )
+
+        deals_with_value = [
+            lead.get("expected_revenue", 0) or 0
+            for lead in lost_leads
+            if (lead.get("expected_revenue", 0) or 0) > 0
+        ]
+
+        average_deal_value = (
+            sum(deals_with_value) / len(deals_with_value)
+            if deals_with_value
+            else 0
+        )
+
+        leads_count = sum(1 for lead in lost_leads if lead.get("type") == "lead")
+        opportunities_count = sum(1 for lead in lost_leads if lead.get("type") == "opportunity")
+
+        # Analyze lost reasons
+        reasons_analysis = self._analyze_lost_reasons(lost_leads)
+
+        # Identify top opportunities to re-contact (highest value + recent + specific reasons)
+        top_opportunities = self._identify_reconnect_opportunities(lost_leads)
+
+        return {
+            "summary": {
+                "total_count": len(lost_leads),
+                "total_missed_value": round(total_missed_value, 2),
+                "average_deal_value": round(average_deal_value, 2),
+                "leads_count": leads_count,
+                "opportunities_count": opportunities_count,
+                "report_generated_at": datetime.now().isoformat()
+            },
+            "reasons_analysis": reasons_analysis,
+            "top_opportunities": top_opportunities[:10],  # Top 10
+            "all_lost_leads": lost_leads  # Full list for reference
+        }
+
+    def _analyze_lost_reasons(self, lost_leads: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze and categorize reasons for losing leads."""
+        reasons_count = {}
+        reasons_value = {}
+
+        for lead in lost_leads:
+            reason = lead.get("lost_reason_id")
+            if reason:
+                # Reason comes as [id, "Reason Name"] tuple
+                reason_name = reason[1] if isinstance(reason, list) and len(reason) > 1 else str(reason)
+            else:
+                reason_name = "Unknown/Not Specified"
+
+            # Count occurrences
+            reasons_count[reason_name] = reasons_count.get(reason_name, 0) + 1
+
+            # Sum values
+            value = lead.get("expected_revenue", 0) or 0
+            reasons_value[reason_name] = reasons_value.get(reason_name, 0) + value
+
+        # Sort by count
+        sorted_reasons = sorted(
+            reasons_count.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        return {
+            "by_frequency": [
+                {
+                    "reason": reason,
+                    "count": count,
+                    "total_value": round(reasons_value.get(reason, 0), 2)
+                }
+                for reason, count in sorted_reasons
+            ],
+            "by_value": sorted(
+                [
+                    {
+                        "reason": reason,
+                        "count": reasons_count[reason],
+                        "total_value": round(value, 2)
+                    }
+                    for reason, value in reasons_value.items()
+                ],
+                key=lambda x: x["total_value"],
+                reverse=True
+            )
+        }
+
+    def _identify_reconnect_opportunities(self, lost_leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Identify the best opportunities to re-contact based on multiple factors.
+
+        Scoring criteria:
+        - Deal value (higher is better)
+        - Recency (more recent losses are better)
+        - Lost reason (some reasons are better for re-contact than others)
+        - Opportunity type (opportunities usually better than leads)
+        """
+        reconnect_worthy_reasons = [
+            "price too high",
+            "timing",
+            "budget",
+            "not ready",
+            "deferred",
+            "postponed",
+            "evaluating alternatives",
+            "went with competitor"
+        ]
+
+        scored_leads = []
+        for lead in lost_leads:
+            score = 0
+
+            # Deal value score (0-40 points)
+            value = lead.get("expected_revenue", 0) or 0
+            if value > 0:
+                score += min(40, value / 1000)  # $1k = 1 point, capped at 40
+
+            # Recency score (0-30 points)
+            write_date = lead.get("write_date")
+            if write_date:
+                try:
+                    date_obj = datetime.fromisoformat(write_date.replace("Z", "+00:00"))
+                    days_ago = (datetime.now() - date_obj.replace(tzinfo=None)).days
+                    # More recent = higher score
+                    score += max(0, 30 - (days_ago / 10))  # Lose 1 point per 10 days
+                except Exception:
+                    pass
+
+            # Lost reason score (0-20 points)
+            reason = lead.get("lost_reason_id")
+            if reason:
+                reason_name = (reason[1] if isinstance(reason, list) and len(reason) > 1 else str(reason)).lower()
+                if any(worthy in reason_name for worthy in reconnect_worthy_reasons):
+                    score += 20
+
+            # Type score (0-10 points)
+            if lead.get("type") == "opportunity":
+                score += 10
+
+            scored_leads.append({
+                "lead_id": lead.get("id"),
+                "name": lead.get("name"),
+                "partner_name": lead.get("partner_name"),
+                "contact_name": lead.get("contact_name"),
+                "email": lead.get("email_from"),
+                "phone": lead.get("phone") or lead.get("mobile"),
+                "expected_revenue": value,
+                "lost_reason": reason[1] if isinstance(reason, list) and len(reason) > 1 else (reason or "Unknown"),
+                "type": lead.get("type"),
+                "write_date": lead.get("write_date"),
+                "reconnect_score": round(score, 2)
+            })
+
+        # Sort by score descending
+        scored_leads.sort(key=lambda x: x["reconnect_score"], reverse=True)
+
+        return scored_leads
+
