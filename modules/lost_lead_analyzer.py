@@ -620,8 +620,14 @@ class LostLeadAnalyzer:
                 score += 10
 
             # Extract stage name from stage_id
+            # Odoo returns stage_id as [id, "Stage Name"] tuple or False if not set
             stage = lead.get("stage_id")
-            stage_name = stage[1] if isinstance(stage, list) and len(stage) > 1 else (stage or "Unknown")
+            if isinstance(stage, (list, tuple)) and len(stage) > 1:
+                stage_name = stage[1]
+            elif stage and stage != False:
+                stage_name = str(stage)
+            else:
+                stage_name = "Unknown"
 
             scored_leads.append({
                 "lead_id": lead.get("id"),
