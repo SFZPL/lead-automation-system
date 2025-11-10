@@ -264,6 +264,45 @@ class SupabaseDatabase:
             logger.error(f"Error checking follow-up completion: {e}")
             return False
 
+    def favorite_followup(self, thread_id: str, conversation_id: str) -> bool:
+        """Mark a follow-up thread as favorited."""
+        try:
+            self.supabase.client.table("followup_favorites").insert({
+                "thread_id": thread_id,
+                "conversation_id": conversation_id,
+                "favorited_at": datetime.now().isoformat()
+            }).execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error favoriting follow-up: {e}")
+            return False
+
+    def unfavorite_followup(self, thread_id: str) -> bool:
+        """Remove favorite from a follow-up thread."""
+        try:
+            self.supabase.client.table("followup_favorites")\
+                .delete()\
+                .eq("thread_id", thread_id)\
+                .execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error unfavoriting follow-up: {e}")
+            return False
+
+    def get_favorited_followups(self, thread_ids: Optional[List[str]] = None) -> List[str]:
+        """Get list of favorited thread IDs."""
+        try:
+            query = self.supabase.client.table("followup_favorites").select("thread_id")
+
+            if thread_ids:
+                query = query.in_("thread_id", thread_ids)
+
+            result = query.execute()
+            return [item["thread_id"] for item in result.data]
+        except Exception as e:
+            logger.error(f"Error getting favorited follow-ups: {e}")
+            return []
+
     def save_report(
         self,
         user_id: int,

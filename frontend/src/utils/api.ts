@@ -101,6 +101,10 @@ export const api = {
     apiClient.get(`/proposal-followups/reports/${reportId}/export`, { responseType: 'blob' }),
   markFollowupComplete: (data: { thread_id: string; conversation_id: string; notes?: string }) =>
     apiClient.post(`/proposal-followups/${data.thread_id}/mark-complete`, data),
+  favoriteFollowup: (data: { thread_id: string; conversation_id: string }) =>
+    apiClient.post(`/proposal-followups/${data.thread_id}/favorite`, data),
+  unfavoriteFollowup: (thread_id: string) =>
+    apiClient.delete(`/proposal-followups/${thread_id}/favorite`),
   generateDraft: (data: { thread_data: any }) =>
     apiClient.post('/proposal-followups/generate-draft', data),
   refineDraft: (data: { current_draft: string; edit_prompt: string }) =>

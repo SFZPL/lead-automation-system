@@ -16,7 +16,9 @@ import {
   SparklesIcon,
   TrashIcon,
   ArrowDownTrayIcon,
+  StarIcon,
 } from '@heroicons/react/24/outline';
+import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import api from '../utils/api';
 import AssignLeadModal from '../components/AssignLeadModal';
 
@@ -66,6 +68,7 @@ interface ProposalFollowupThread {
   odoo_lead?: OdooLead | null;
   analysis?: ThreadAnalysis;
   classification?: EmailClassification;
+  is_favorited?: boolean;
 }
 
 interface ProposalFollowupData {
@@ -373,6 +376,27 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   };
 
+  const handleToggleFavorite = async (thread: ProposalFollowupThread) => {
+    try {
+      if (thread.is_favorited) {
+        await api.unfavoriteFollowup(thread.conversation_id);
+        toast.success('Removed from favorites');
+      } else {
+        await api.favoriteFollowup({
+          thread_id: thread.conversation_id,
+          conversation_id: thread.conversation_id
+        });
+        toast.success('Added to favorites');
+      }
+
+      // Refetch to update the list
+      await followupsQuery.refetch();
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      toast.error('Failed to update favorite');
+    }
+  };
+
   const handleViewThread = async (thread: ProposalFollowupThread) => {
     setSelectedThread(thread);
     setIsLoadingThread(true);
@@ -650,6 +674,23 @@ const ProposalFollowupsPage: React.FC = () => {
 
         {/* Action Buttons */}
         <div className="mt-4 pt-4 border-t border-gray-200 flex gap-3">
+          <button
+            onClick={() => handleToggleFavorite(thread)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              thread.is_favorited
+                ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+            title={thread.is_favorited ? 'Remove from favorites' : 'Add to favorites'}
+          >
+            {thread.is_favorited ? (
+              <StarIconSolid className="w-4 h-4 text-yellow-500" />
+            ) : (
+              <StarIcon className="w-4 h-4" />
+            )}
+            {thread.is_favorited ? 'Favorited' : 'Favorite'}
+          </button>
+
           <button
             onClick={() => handleGenerateDraft(thread)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"

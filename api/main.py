@@ -1715,6 +1715,7 @@ class ProposalFollowupThread(BaseModel):
     odoo_lead: Optional[Dict[str, Any]] = None
     analysis: Optional[Dict[str, Any]] = None
     classification: Optional[Dict[str, Any]] = None  # AI classification: is_lead, confidence, category
+    is_favorited: Optional[bool] = None
 
 
 class ProposalFollowupResponse(BaseModel):
@@ -1776,6 +1777,13 @@ def get_proposal_followups(
     except Exception as e:
         logger.warning(f"Failed to get completed followups: {e}")
 
+    # Get favorited thread IDs
+    favorited_thread_ids = set()
+    try:
+        favorited_thread_ids = set(db.get_favorited_followups())
+    except Exception as e:
+        logger.warning(f"Failed to get favorited followups: {e}")
+
     # Try to get from Supabase cache first (if available)
     if not force_refresh and supabase.is_connected():
         try:
@@ -1787,11 +1795,22 @@ def get_proposal_followups(
 
             if cached_data:
                 logger.info(f"✅ Returning cached proposal follow-ups from Supabase for user {user_id}")
-                # Filter out completed threads
-                unanswered = [thread for thread in cached_data.get("unanswered", [])
-                             if thread.get("conversation_id") not in completed_thread_ids]
-                pending_proposals = [thread for thread in cached_data.get("pending_proposals", [])
-                                    if thread.get("conversation_id") not in completed_thread_ids]
+                # Filter out completed threads and add favorited flag
+                unanswered = []
+                for thread in cached_data.get("unanswered", []):
+                    if thread.get("conversation_id") not in completed_thread_ids:
+                        thread["is_favorited"] = thread.get("conversation_id") in favorited_thread_ids
+                        unanswered.append(thread)
+
+                pending_proposals = []
+                for thread in cached_data.get("pending_proposals", []):
+                    if thread.get("conversation_id") not in completed_thread_ids:
+                        thread["is_favorited"] = thread.get("conversation_id") in favorited_thread_ids
+                        pending_proposals.append(thread)
+
+                # Sort: favorited threads first, then by days_waiting descending
+                unanswered.sort(key=lambda x: (not x.get("is_favorited", False), -x.get("days_waiting", 0)))
+                pending_proposals.sort(key=lambda x: (not x.get("is_favorited", False), -x.get("days_waiting", 0)))
 
                 # Update summary counts
                 summary = cached_data["summary"].copy()
@@ -1814,11 +1833,21 @@ def get_proposal_followups(
     if not force_refresh and proposal_followups_cache["data"] and proposal_followups_cache["params"] == cache_params:
         logger.info("Returning cached proposal follow-ups analysis from memory")
         cached_response = proposal_followups_cache["data"]
-        # Filter out completed threads
+        # Filter out completed threads and add favorited flag
         cached_response.unanswered = [thread for thread in cached_response.unanswered
                                      if thread.conversation_id not in completed_thread_ids]
+        for thread in cached_response.unanswered:
+            thread.is_favorited = thread.conversation_id in favorited_thread_ids
+
         cached_response.pending_proposals = [thread for thread in cached_response.pending_proposals
                                             if thread.conversation_id not in completed_thread_ids]
+        for thread in cached_response.pending_proposals:
+            thread.is_favorited = thread.conversation_id in favorited_thread_ids
+
+        # Sort: favorited first, then by days_waiting
+        cached_response.unanswered.sort(key=lambda x: (not x.is_favorited, -x.days_waiting))
+        cached_response.pending_proposals.sort(key=lambda x: (not x.is_favorited, -x.days_waiting))
+
         # Update counts
         cached_response.summary.unanswered_count = len(cached_response.unanswered)
         cached_response.summary.pending_proposals_count = len(cached_response.pending_proposals)
@@ -1835,11 +1864,22 @@ def get_proposal_followups(
             no_response_days=no_response_days
         )
 
-        # Filter out completed threads from fresh results
-        unanswered = [thread for thread in result["unanswered"]
-                     if thread.get("conversation_id") not in completed_thread_ids]
-        pending_proposals = [thread for thread in result["pending_proposals"]
-                            if thread.get("conversation_id") not in completed_thread_ids]
+        # Filter out completed threads from fresh results and add favorited flag
+        unanswered = []
+        for thread in result["unanswered"]:
+            if thread.get("conversation_id") not in completed_thread_ids:
+                thread["is_favorited"] = thread.get("conversation_id") in favorited_thread_ids
+                unanswered.append(thread)
+
+        pending_proposals = []
+        for thread in result["pending_proposals"]:
+            if thread.get("conversation_id") not in completed_thread_ids:
+                thread["is_favorited"] = thread.get("conversation_id") in favorited_thread_ids
+                pending_proposals.append(thread)
+
+        # Sort: favorited first, then by days_waiting
+        unanswered.sort(key=lambda x: (not x.get("is_favorited", False), -x.get("days_waiting", 0)))
+        pending_proposals.sort(key=lambda x: (not x.get("is_favorited", False), -x.get("days_waiting", 0)))
 
         # Update summary counts
         result["summary"]["unanswered_count"] = len(unanswered)
@@ -2411,6 +2451,59 @@ def mark_followup_complete(
                 "message": "This follow-up was already marked as complete"
             }
 
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposal-followups/{thread_id}/favorite")
+def favorite_followup(
+    thread_id: str,
+    request: MarkCompleteRequest,  # Reuse same request model (has thread_id and conversation_id)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Mark a follow-up thread as favorited."""
+    try:
+        success = db.favorite_followup(
+            thread_id=request.thread_id,
+            conversation_id=request.conversation_id
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to favorite thread")
+
+        return {"success": True, "message": "Thread favorited successfully"}
+
+    except Exception as e:
+        logger.error(f"Error favoriting follow-up: {e}")
+
+        # Check if it's a duplicate key error (already favorited)
+        error_str = str(e)
+        if "duplicate key" in error_str or "23505" in error_str or "already exists" in error_str:
+            return {
+                "success": True,
+                "message": "This thread is already favorited"
+            }
+
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/proposal-followups/{thread_id}/favorite")
+def unfavorite_followup(
+    thread_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Remove favorite from a follow-up thread."""
+    try:
+        success = db.unfavorite_followup(thread_id=thread_id)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to unfavorite thread")
+
+        return {"success": True, "message": "Thread unfavorited successfully"}
+
+    except Exception as e:
+        logger.error(f"Error unfavoriting follow-up: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
