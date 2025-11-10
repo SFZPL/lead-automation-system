@@ -427,11 +427,11 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
 
         # Build email thread context
         thread_text = []
-        for email in thread[-5:]:  # Last 5 emails
+        for email in thread[-10:]:  # Last 10 emails (increased from 5)
             sender = email.get("from", {}).get("emailAddress", {}).get("name", "Unknown")
             date = _format_datetime(email.get("receivedDateTime", ""))
             subject = email.get("subject", "")
-            body = _strip_html(email.get("body", {}).get("content", ""))[:500]  # First 500 chars
+            body = _strip_html(email.get("body", {}).get("content", ""))[:2000]  # First 2000 chars (increased from 500)
 
             thread_text.append(f"From: {sender}\nDate: {date}\nSubject: {subject}\n{body}\n")
 
@@ -484,7 +484,7 @@ Respond in JSON format with these keys:
 
             analysis = self.llm.chat_completion_json(
                 messages,
-                max_tokens=2000,
+                max_tokens=4000,
                 temperature=0.7
             )
 
@@ -553,15 +553,14 @@ Respond in JSON format with these keys:
         # Match to Odoo
         enriched = self.match_to_odoo(categorized)
 
-        # Analyze only threads classified as leads (limit to avoid excessive API calls)
+        # Analyze all threads classified as leads
         for category in ["unanswered", "pending_proposals", "filtered"]:
-            analyzed_count = 0
             for thread in enriched[category]:
                 # Only analyze if classified as a lead
                 classification = thread.get("classification", {})
-                if classification.get("is_lead", True) and analyzed_count < 10:
+                if classification.get("is_lead", True):
                     thread["analysis"] = self.analyze_thread_with_llm(thread)
-                    analyzed_count += 1
+
 
         # Add summary counts
         result = {

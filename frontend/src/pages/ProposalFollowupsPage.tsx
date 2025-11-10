@@ -358,8 +358,9 @@ const ProposalFollowupsPage: React.FC = () => {
         notes: 'Manually marked as complete'
       });
       toast.success('Follow-up marked as complete!');
-      // Refresh to remove from list
-      followupsQuery.refetch();
+      // Force refresh to immediately remove from list
+      setForceRefresh(true);
+      setTimeout(() => setForceRefresh(false), 100);
     } catch (error) {
       console.error('Error marking complete:', error);
       toast.error('Failed to mark as complete');
