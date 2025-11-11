@@ -303,6 +303,122 @@ class SupabaseDatabase:
             logger.error(f"Error getting favorited follow-ups: {e}")
             return []
 
+    # NDA Analysis Methods
+    def create_nda_document(
+        self,
+        user_id: str,
+        file_name: str,
+        file_size: int,
+        file_content: str,
+        language: Optional[str] = None
+    ) -> Optional[str]:
+        """Create a new NDA document record."""
+        try:
+            result = self.supabase.client.table("nda_documents").insert({
+                "user_id": user_id,
+                "file_name": file_name,
+                "file_size": file_size,
+                "file_content": file_content,
+                "language": language,
+                "status": "pending"
+            }).execute()
+
+            if result.data and len(result.data) > 0:
+                return result.data[0]["id"]
+            return None
+        except Exception as e:
+            logger.error(f"Error creating NDA document: {e}")
+            return None
+
+    def update_nda_analysis(
+        self,
+        nda_id: str,
+        risk_category: str,
+        risk_score: int,
+        summary: str,
+        questionable_clauses: List[Dict[str, Any]],
+        analysis_details: Dict[str, Any],
+        language: Optional[str] = None
+    ) -> bool:
+        """Update NDA document with analysis results."""
+        try:
+            update_data = {
+                "analyzed_at": datetime.now().isoformat(),
+                "risk_category": risk_category,
+                "risk_score": risk_score,
+                "summary": summary,
+                "questionable_clauses": questionable_clauses,
+                "analysis_details": analysis_details,
+                "status": "completed"
+            }
+
+            if language:
+                update_data["language"] = language
+
+            self.supabase.client.table("nda_documents")\
+                .update(update_data)\
+                .eq("id", nda_id)\
+                .execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating NDA analysis: {e}")
+            return False
+
+    def update_nda_status(self, nda_id: str, status: str, error_message: Optional[str] = None) -> bool:
+        """Update NDA document status."""
+        try:
+            update_data = {"status": status}
+            if error_message:
+                update_data["error_message"] = error_message
+
+            self.supabase.client.table("nda_documents")\
+                .update(update_data)\
+                .eq("id", nda_id)\
+                .execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating NDA status: {e}")
+            return False
+
+    def get_nda_documents(self, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get NDA documents for a user."""
+        try:
+            result = self.supabase.client.table("nda_documents")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .order("uploaded_at", desc=True)\
+                .limit(limit)\
+                .execute()
+            return result.data
+        except Exception as e:
+            logger.error(f"Error getting NDA documents: {e}")
+            return []
+
+    def get_nda_document(self, nda_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific NDA document by ID."""
+        try:
+            result = self.supabase.client.table("nda_documents")\
+                .select("*")\
+                .eq("id", nda_id)\
+                .single()\
+                .execute()
+            return result.data
+        except Exception as e:
+            logger.error(f"Error getting NDA document: {e}")
+            return None
+
+    def delete_nda_document(self, nda_id: str) -> bool:
+        """Delete an NDA document."""
+        try:
+            self.supabase.client.table("nda_documents")\
+                .delete()\
+                .eq("id", nda_id)\
+                .execute()
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting NDA document: {e}")
+            return False
+
     def save_report(
         self,
         user_id: int,

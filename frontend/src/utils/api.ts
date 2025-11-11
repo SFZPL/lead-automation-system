@@ -112,6 +112,18 @@ export const api = {
   sendFollowupEmail: (data: { conversation_id: string; draft_body: string; subject: string; reply_to_message_id?: string }) =>
     apiClient.post('/proposal-followups/send-email', data),
 
+  // NDA Analysis
+  uploadNDA: (formData: FormData) =>
+    apiClient.post('/nda/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+  getNDADocuments: (limit?: number) =>
+    apiClient.get('/nda/documents', { params: { limit } }),
+  getNDADocument: (ndaId: string) =>
+    apiClient.get(`/nda/documents/${ndaId}`),
+  deleteNDADocument: (ndaId: string) =>
+    apiClient.delete(`/nda/documents/${ndaId}`),
+
   // Lead assignments
   createLeadAssignment: (data: {
     conversation_id: string;

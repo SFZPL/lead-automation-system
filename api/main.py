@@ -2507,6 +2507,179 @@ def unfavorite_followup(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# NDA Analysis Endpoints
+# ============================================================================
+
+@app.post("/nda/upload")
+async def upload_nda(
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Upload an NDA document for analysis."""
+    try:
+        from modules.nda_analyzer import NDAAnalyzer
+
+        # Read file content
+        file_content = await file.read()
+        file_size = len(file_content)
+
+        # Validate file size (max 10MB)
+        if file_size > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File size exceeds 10MB limit")
+
+        # Extract text from file
+        analyzer = NDAAnalyzer()
+        nda_text = analyzer.extract_text_from_file(file_content, file.filename)
+
+        if not nda_text or len(nda_text.strip()) < 100:
+            raise HTTPException(status_code=400, detail="Could not extract sufficient text from file. Please ensure the file contains readable text.")
+
+        # Detect language
+        language = analyzer.detect_language(nda_text)
+
+        # Create NDA document record
+        user_id = str(current_user.get("id", "unknown"))
+        nda_id = db.create_nda_document(
+            user_id=user_id,
+            file_name=file.filename,
+            file_size=file_size,
+            file_content=nda_text,  # Store extracted text
+            language=language
+        )
+
+        if not nda_id:
+            raise HTTPException(status_code=500, detail="Failed to create NDA document record")
+
+        # Update status to analyzing
+        db.update_nda_status(nda_id, "analyzing")
+
+        # Perform analysis
+        try:
+            analysis = analyzer.analyze_nda(nda_text, language)
+
+            # Save analysis results
+            success = db.update_nda_analysis(
+                nda_id=nda_id,
+                risk_category=analysis["risk_category"],
+                risk_score=analysis["risk_score"],
+                summary=analysis["summary"],
+                questionable_clauses=analysis["questionable_clauses"],
+                analysis_details=analysis.get("raw_analysis", {}),
+                language=language
+            )
+
+            if not success:
+                raise Exception("Failed to save analysis results")
+
+            # Get the complete document with analysis
+            nda_doc = db.get_nda_document(nda_id)
+
+            return {
+                "success": True,
+                "message": "NDA analyzed successfully",
+                "nda": nda_doc
+            }
+
+        except Exception as analysis_error:
+            logger.error(f"Error analyzing NDA: {analysis_error}")
+            db.update_nda_status(nda_id, "failed", str(analysis_error))
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {str(analysis_error)}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading NDA: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/nda/documents")
+def get_nda_documents(
+    limit: int = 50,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Get list of NDA documents for the current user."""
+    try:
+        user_id = str(current_user.get("id", "unknown"))
+        documents = db.get_nda_documents(user_id, limit)
+
+        return {
+            "success": True,
+            "documents": documents,
+            "count": len(documents)
+        }
+    except Exception as e:
+        logger.error(f"Error getting NDA documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/nda/documents/{nda_id}")
+def get_nda_document(
+    nda_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Get a specific NDA document by ID."""
+    try:
+        document = db.get_nda_document(nda_id)
+
+        if not document:
+            raise HTTPException(status_code=404, detail="NDA document not found")
+
+        # Verify user owns this document
+        user_id = str(current_user.get("id", "unknown"))
+        if document.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        return {
+            "success": True,
+            "document": document
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting NDA document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/nda/documents/{nda_id}")
+def delete_nda_document(
+    nda_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Delete an NDA document."""
+    try:
+        # Get document first to verify ownership
+        document = db.get_nda_document(nda_id)
+
+        if not document:
+            raise HTTPException(status_code=404, detail="NDA document not found")
+
+        # Verify user owns this document
+        user_id = str(current_user.get("id", "unknown"))
+        if document.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Delete document
+        success = db.delete_nda_document(nda_id)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete document")
+
+        return {
+            "success": True,
+            "message": "NDA document deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting NDA document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/proposal-followups/generate-draft")
 def generate_email_draft(request: GenerateDraftRequest):
     """Generate an email draft for a specific thread."""

@@ -28,6 +28,7 @@ const navigation = [
   { name: 'Follow-ups Hub', href: '/followups', icon: EnvelopeIcon },
   { name: 'Pre-discovery Call Flow', href: '/call-flow', icon: ClipboardDocumentListIcon },
   { name: 'Knowledge Base', href: '/knowledge-base', icon: DocumentTextIcon },
+  { name: 'NDA Analysis', href: '/nda-analysis', icon: DocumentTextIcon },
   { name: 'Settings', href: '/settings', icon: CogIcon },
 ];
 
