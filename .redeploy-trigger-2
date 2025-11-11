@@ -1,0 +1,3 @@
+Force redeploy after RLS policy setup
+Timestamp: 2025-11-11 12:30:00
+Reason: Added RLS policies for nda_documents and followup_favorites tables
