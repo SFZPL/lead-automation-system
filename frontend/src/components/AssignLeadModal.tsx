@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { XMarkIcon, UserPlusIcon } from '@heroicons/react/24/outline';
-import { useMutation, useQueryClient } from 'react-query';
+import { useMutation, useQuery, useQueryClient } from 'react-query';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -17,26 +17,70 @@ interface AssignLeadModalProps {
 }
 
 const AssignLeadModal: React.FC<AssignLeadModalProps> = ({ isOpen, onClose, lead, users }) => {
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const [sendTeamsNotification, setSendTeamsNotification] = useState<boolean>(true);
   const queryClient = useQueryClient();
+
+  // Fetch Teams members if available
+  const teamsQuery = useQuery(
+    'teams-members',
+    () => api.getTeamsMembers(),
+    {
+      enabled: isOpen,
+      retry: false,
+      onError: (error: any) => {
+        // Silently fail if Teams not configured or unauthorized
+        console.log('Teams members not available:', error);
+      }
+    }
+  );
+
+  const teamsMembers = teamsQuery.data?.data?.members || [];
+  const effectiveUsers = teamsMembers.length > 0 ? teamsMembers : users;
 
   const assignMutation = useMutation(
     async () => {
       if (!selectedUserId) throw new Error('Please select a user');
 
-      return api.createLeadAssignment({
+      // Create lead assignment
+      const assignmentResponse = await api.createLeadAssignment({
         conversation_id: lead.conversation_id,
         external_email: lead.external_email,
         subject: lead.subject,
-        assigned_to_user_id: selectedUserId,
+        assigned_to_user_id: typeof selectedUserId === 'string' ? parseInt(selectedUserId) : selectedUserId,
         lead_data: lead.lead_data,
         notes: notes.trim() || undefined,
       });
+
+      // Send Teams notification if enabled and Teams members are available
+      if (sendTeamsNotification && teamsMembers.length > 0) {
+        const selectedMember = teamsMembers.find((m: any) => m.id === selectedUserId);
+        if (selectedMember) {
+          try {
+            await api.sendTeamsAssignmentNotification({
+              assignee_user_id: selectedMember.id,
+              assignee_name: selectedMember.name,
+              lead_subject: lead.subject,
+              lead_email: lead.external_email,
+              lead_company: lead.lead_data?.partner_name || lead.lead_data?.company_name,
+              notes: notes.trim() || undefined
+            });
+          } catch (error) {
+            console.error('Failed to send Teams notification:', error);
+            // Don't fail the whole operation if notification fails
+          }
+        }
+      }
+
+      return assignmentResponse;
     },
     {
       onSuccess: () => {
-        toast.success('Lead assigned successfully!');
+        const notificationMsg = sendTeamsNotification && teamsMembers.length > 0
+          ? 'Lead assigned and Teams notification sent!'
+          : 'Lead assigned successfully!';
+        toast.success(notificationMsg);
         queryClient.invalidateQueries('sent-assignments');
         handleClose();
       },
@@ -92,23 +136,44 @@ const AssignLeadModal: React.FC<AssignLeadModalProps> = ({ isOpen, onClose, lead
             {/* User Selection */}
             <div className="mb-4">
               <label htmlFor="assignee" className="block text-sm font-medium text-gray-700 mb-2">
-                Assign to
+                Assign to {teamsQuery.isLoading && <span className="text-xs text-gray-500">(Loading Teams members...)</span>}
               </label>
               <select
                 id="assignee"
                 value={selectedUserId || ''}
-                onChange={(e) => setSelectedUserId(Number(e.target.value))}
+                onChange={(e) => setSelectedUserId(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 required
+                disabled={teamsQuery.isLoading}
               >
-                <option value="">Select a user...</option>
-                {users.map((user) => (
+                <option value="">
+                  {teamsQuery.isLoading ? 'Loading...' : 'Select a user...'}
+                </option>
+                {effectiveUsers.map((user: any) => (
                   <option key={user.id} value={user.id}>
-                    {user.name} ({user.email})
+                    {user.name} {user.email && `(${user.email})`}
                   </option>
                 ))}
               </select>
+              {teamsMembers.length > 0 && (
+                <p className="mt-1 text-xs text-green-600">✓ Using Teams member list</p>
+              )}
             </div>
+
+            {/* Teams Notification Checkbox */}
+            {teamsMembers.length > 0 && (
+              <div className="mb-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={sendTeamsNotification}
+                    onChange={(e) => setSendTeamsNotification(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">Send Teams notification</span>
+                </label>
+              </div>
+            )}
 
             {/* Notes */}
             <div className="mb-6">

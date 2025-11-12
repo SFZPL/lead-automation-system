@@ -123,6 +123,9 @@ class Config:
     EMAIL_SEARCH_DAYS_BACK = _env_int("EMAIL_SEARCH_DAYS_BACK", 180)
     EMAIL_SEARCH_LIMIT_PER_LEAD = _env_int("EMAIL_SEARCH_LIMIT_PER_LEAD", 10)
 
+    # Microsoft Teams Integration
+    TEAMS_TEAM_ID = os.getenv("TEAMS_TEAM_ID")  # Optional: specific team ID for member list
+
     @classmethod
     def validate(cls) -> Dict[str, Any]:
         """Validate required configuration values."""

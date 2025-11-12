@@ -4235,3 +4235,131 @@ def delete_knowledge_base_document(
     except Exception as e:
         logger.error(f"Error deleting document {document_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# MICROSOFT TEAMS INTEGRATION ENDPOINTS
+# ============================================================================
+
+@app.get("/teams/members")
+async def get_teams_members(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Get list of members from the configured Microsoft Teams team.
+    Requires user to have authorized with Teams permissions.
+    """
+    try:
+        user_identifier = current_user.get("email")
+
+        # Get user's Outlook token (includes Teams permissions)
+        outlook = get_outlook_client()
+        tokens = outlook.get_user_auth_tokens(user_identifier)
+
+        if not tokens:
+            raise HTTPException(
+                status_code=401,
+                detail="Email not authorized. Please connect your email first."
+            )
+
+        access_token = tokens.get("access_token")
+        cfg = Config()
+        team_id = cfg.TEAMS_TEAM_ID
+
+        if not team_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Teams integration not configured. Please set TEAMS_TEAM_ID environment variable."
+            )
+
+        # Fetch team members
+        members = outlook.get_team_members(access_token, team_id)
+
+        return {
+            "success": True,
+            "members": members,
+            "count": len(members)
+        }
+
+    except RuntimeError as e:
+        error_msg = str(e)
+        if "insufficient permissions" in error_msg.lower():
+            raise HTTPException(
+                status_code=403,
+                detail="Please re-authorize your email connection to grant Teams permissions"
+            )
+        raise HTTPException(status_code=500, detail=error_msg)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching Teams members: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/teams/send-assignment-notification")
+async def send_teams_assignment_notification(
+    assignee_user_id: str = Body(...),
+    assignee_name: str = Body(...),
+    lead_subject: str = Body(...),
+    lead_email: str = Body(...),
+    lead_company: Optional[str] = Body(None),
+    notes: Optional[str] = Body(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Send a Teams notification to a user about a lead assignment.
+    Requires user to have authorized with Teams permissions.
+    """
+    try:
+        user_identifier = current_user.get("email")
+
+        # Get user's Outlook token (includes Teams permissions)
+        outlook = get_outlook_client()
+        tokens = outlook.get_user_auth_tokens(user_identifier)
+
+        if not tokens:
+            raise HTTPException(
+                status_code=401,
+                detail="Email not authorized. Please connect your email first."
+            )
+
+        access_token = tokens.get("access_token")
+        cfg = Config()
+        app_url = cfg.FRONTEND_URL
+
+        # Send Teams notification
+        success = outlook.send_lead_assignment_notification(
+            access_token=access_token,
+            assignee_user_id=assignee_user_id,
+            assignee_name=assignee_name,
+            lead_subject=lead_subject,
+            lead_email=lead_email,
+            lead_company=lead_company,
+            notes=notes,
+            app_url=app_url
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to send Teams notification"
+            )
+
+        return {
+            "success": True,
+            "message": f"Teams notification sent to {assignee_name}"
+        }
+
+    except RuntimeError as e:
+        error_msg = str(e)
+        if "insufficient permissions" in error_msg.lower():
+            raise HTTPException(
+                status_code=403,
+                detail="Please re-authorize your email connection to grant Teams permissions"
+            )
+        raise HTTPException(status_code=500, detail=error_msg)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending Teams notification: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

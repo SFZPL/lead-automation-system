@@ -156,6 +156,17 @@ export const api = {
   getSystemEmailAuthStatus: () => apiClient.get('/auth/outlook/system/status'),
   revokeSystemEmailAuth: () => apiClient.delete('/auth/outlook/system'),
 
+  // Microsoft Teams Integration
+  getTeamsMembers: () => apiClient.get('/teams/members'),
+  sendTeamsAssignmentNotification: (data: {
+    assignee_user_id: string;
+    assignee_name: string;
+    lead_subject: string;
+    lead_email: string;
+    lead_company?: string;
+    notes?: string;
+  }) => apiClient.post('/teams/send-assignment-notification', data),
+
   // Export
   exportCSV: () => apiClient.get('/api/export/csv', { responseType: 'blob' }),
 

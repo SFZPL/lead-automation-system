@@ -23,8 +23,16 @@ class OutlookClient:
         self.redirect_uri = self.config.MICROSOFT_REDIRECT_URI
 
     def get_authorization_url(self, state: str, force_account_selection: bool = False) -> str:
-        """Generate OAuth2 authorization URL for user to grant access."""
-        scopes = ["Mail.Read", "User.Read", "Group.Read.All", "offline_access"]
+        """Generate OAuth2 authorization URL for user to grant access (includes Teams permissions)."""
+        scopes = [
+            "Mail.Read",           # Read emails
+            "User.Read",           # Read user profile
+            "User.Read.All",       # Read all users (for Teams member list)
+            "Group.Read.All",      # Read groups/teams
+            "TeamMember.Read.All", # Read team members
+            "Chat.ReadWrite",      # Send Teams chat messages
+            "offline_access"       # Refresh tokens
+        ]
         scope_str = " ".join(scopes)
 
         params = {
@@ -1017,3 +1025,196 @@ class OutlookClient:
         except Exception as exc:
             logger.error(f"Unexpected error fetching conversation messages: {exc}")
             return []
+
+    # ============================================================================
+    # TEAMS INTEGRATION METHODS
+    # ============================================================================
+
+    def get_team_members(self, access_token: str, team_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all members of a Microsoft Teams team.
+
+        Args:
+            access_token: OAuth2 access token with TeamMember.Read.All permission
+            team_id: ID of the team (can be found in Teams settings or Graph Explorer)
+
+        Returns:
+            List of team member dictionaries with id, displayName, email
+        """
+        try:
+            headers = {"Authorization": f"Bearer {access_token}"}
+            url = f"{self.GRAPH_API_BASE}/teams/{team_id}/members"
+
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            members = data.get("value", [])
+
+            # Format members for easier consumption
+            formatted_members = []
+            for member in members:
+                # Extract user ID from member ID (format: #microsoft.graph.aadUserConversationMember)
+                user_id = member.get("userId")
+                display_name = member.get("displayName", "Unknown")
+                email = member.get("email")
+
+                if user_id and display_name:
+                    formatted_members.append({
+                        "id": user_id,
+                        "name": display_name,
+                        "email": email or ""
+                    })
+
+            logger.info(f"Found {len(formatted_members)} members in team {team_id}")
+            return formatted_members
+
+        except requests.exceptions.HTTPError as exc:
+            logger.error(f"Error fetching team members: {exc}")
+            if exc.response.status_code == 401:
+                raise RuntimeError("Access token expired or insufficient permissions")
+            elif exc.response.status_code == 403:
+                raise RuntimeError("Insufficient permissions to read team members. Please re-authorize with TeamMember.Read.All permission")
+            raise
+        except Exception as exc:
+            logger.error(f"Unexpected error fetching team members: {exc}")
+            return []
+
+    def send_teams_chat_message(
+        self,
+        access_token: str,
+        user_id: str,
+        message_text: str,
+        message_html: Optional[str] = None
+    ) -> bool:
+        """
+        Send a 1:1 chat message to a user in Microsoft Teams.
+
+        Args:
+            access_token: OAuth2 access token with Chat.ReadWrite permission
+            user_id: Microsoft user ID (Azure AD user ID)
+            message_text: Plain text message content
+            message_html: Optional HTML formatted message
+
+        Returns:
+            True if message sent successfully, False otherwise
+        """
+        try:
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+
+            # Step 1: Create or get existing 1:1 chat with the user
+            chat_payload = {
+                "chatType": "oneOnOne",
+                "members": [
+                    {
+                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                        "roles": ["owner"],
+                        "user@odata.bind": f"{self.GRAPH_API_BASE}/users/{user_id}"
+                    }
+                ]
+            }
+
+            create_chat_url = f"{self.GRAPH_API_BASE}/chats"
+            chat_response = requests.post(create_chat_url, headers=headers, json=chat_payload, timeout=30)
+            chat_response.raise_for_status()
+            chat_data = chat_response.json()
+            chat_id = chat_data.get("id")
+
+            if not chat_id:
+                logger.error("Failed to create/get chat")
+                return False
+
+            logger.info(f"Created/got chat with ID: {chat_id}")
+
+            # Step 2: Send message to the chat
+            message_body = {
+                "contentType": "html" if message_html else "text",
+                "content": message_html or message_text
+            }
+
+            message_payload = {
+                "body": message_body
+            }
+
+            send_message_url = f"{self.GRAPH_API_BASE}/chats/{chat_id}/messages"
+            message_response = requests.post(send_message_url, headers=headers, json=message_payload, timeout=30)
+            message_response.raise_for_status()
+
+            logger.info(f"Teams message sent successfully to user {user_id}")
+            return True
+
+        except requests.exceptions.HTTPError as exc:
+            logger.error(f"Error sending Teams message: {exc}")
+            if exc.response.status_code == 401:
+                raise RuntimeError("Access token expired or insufficient permissions")
+            elif exc.response.status_code == 403:
+                raise RuntimeError("Insufficient permissions to send chat messages. Please re-authorize with Chat.ReadWrite permission")
+            try:
+                error_detail = exc.response.json()
+                logger.error(f"Teams API error detail: {error_detail}")
+            except:
+                pass
+            return False
+        except Exception as exc:
+            logger.error(f"Unexpected error sending Teams message: {exc}")
+            return False
+
+    def send_lead_assignment_notification(
+        self,
+        access_token: str,
+        assignee_user_id: str,
+        assignee_name: str,
+        lead_subject: str,
+        lead_email: str,
+        lead_company: Optional[str] = None,
+        notes: Optional[str] = None,
+        app_url: Optional[str] = None
+    ) -> bool:
+        """
+        Send a formatted lead assignment notification via Teams chat.
+
+        Args:
+            access_token: OAuth2 access token
+            assignee_user_id: Microsoft user ID of person being assigned
+            assignee_name: Display name of assignee
+            lead_subject: Subject/title of the lead
+            lead_email: Contact email for the lead
+            lead_company: Company name (optional)
+            notes: Additional notes (optional)
+            app_url: URL to view lead in app (optional)
+
+        Returns:
+            True if notification sent successfully
+        """
+        # Build HTML message
+        message_html = f"""
+<h2>🔔 New Lead Assigned to You</h2>
+<p>Hi {assignee_name},</p>
+<p>You've been assigned a new lead:</p>
+<ul>
+<li><strong>Subject:</strong> {lead_subject}</li>
+<li><strong>Contact:</strong> {lead_email}</li>
+"""
+
+        if lead_company:
+            message_html += f"<li><strong>Company:</strong> {lead_company}</li>\n"
+
+        if notes:
+            message_html += f"<li><strong>Notes:</strong> {notes}</li>\n"
+
+        message_html += "</ul>\n"
+
+        if app_url:
+            message_html += f'<p><a href="{app_url}">View in Lead Hub</a></p>\n'
+
+        message_html += "<p>Please follow up at your earliest convenience.</p>"
+
+        # Send the message
+        return self.send_teams_chat_message(
+            access_token=access_token,
+            user_id=assignee_user_id,
+            message_text=f"New lead assigned: {lead_subject}",
+            message_html=message_html
+        )
