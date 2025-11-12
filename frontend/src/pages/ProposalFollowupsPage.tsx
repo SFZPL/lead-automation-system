@@ -710,16 +710,6 @@ const ProposalFollowupsPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => handleViewThread(thread)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            View Thread
-          </button>
-
-          <button
             onClick={() => handleOpenInOutlook(thread)}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
             title="Open in Outlook with search"
@@ -781,36 +771,6 @@ const ProposalFollowupsPage: React.FC = () => {
       {/* Settings */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div className="flex items-center gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Look back (days)
-            </label>
-            <input
-              type="number"
-              value={daysBack}
-              onChange={(e) => setDaysBack(Number(e.target.value))}
-              disabled={hasStarted}
-              className="w-24 px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
-              min="1"
-              max="30"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              No response threshold (days)
-            </label>
-            <input
-              type="number"
-              value={noResponseDays}
-              onChange={(e) => setNoResponseDays(Number(e.target.value))}
-              disabled={hasStarted}
-              className="w-24 px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
-              min="1"
-              max="14"
-            />
-          </div>
-
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -1243,20 +1203,6 @@ const ProposalFollowupsPage: React.FC = () => {
                   <option value="monthly">Monthly Report (30 days)</option>
                   <option value="90day">90-Day Report</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  No Response Threshold (days)
-                </label>
-                <input
-                  type="number"
-                  value={noResponseDays}
-                  onChange={(e) => setNoResponseDays(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  min="1"
-                  max="14"
-                />
               </div>
             </div>
 

@@ -125,8 +125,27 @@ const LostLeadsPage: React.FC = () => {
   const [loadingStep, setLoadingStep] = useState<number>(0);
   const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
   const [saveTitle, setSaveTitle] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'analyze' | 'saved' | 'reports'>('analyze');
-  const [expandedSavedId, setExpandedSavedId] = useState<string | null>(null);
+
+  // Persist activeTab to localStorage
+  const [activeTab, setActiveTab] = useState<'analyze' | 'saved' | 'reports'>(() => {
+    try {
+      const saved = localStorage.getItem('lostLeads_activeTab');
+      return (saved as 'analyze' | 'saved' | 'reports') || 'analyze';
+    } catch {
+      return 'analyze';
+    }
+  });
+
+  // Persist expandedSavedId and editingAnalysisId to localStorage
+  const [expandedSavedId, setExpandedSavedId] = useState<string | null>(() => {
+    try {
+      const saved = localStorage.getItem('lostLeads_expandedSavedId');
+      return saved ? saved : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [editingAnalysisId, setEditingAnalysisId] = useState<string | null>(null);
   const [showDraftModal, setShowDraftModal] = useState<boolean>(false);
   const [selectedSavedItem, setSelectedSavedItem] = useState<SharedAnalysis | null>(null);
@@ -140,7 +159,16 @@ const LostLeadsPage: React.FC = () => {
   const [reportLimit, setReportLimit] = useState<number>(50);
   const [reportTypeFilter, setReportTypeFilter] = useState<string>('');
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
-  const [reportData, setReportData] = useState<any>(null);
+
+  // Persist report data to sessionStorage
+  const [reportData, setReportData] = useState<any>(() => {
+    try {
+      const saved = sessionStorage.getItem('lostLeads_reportData');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   const queryClient = useQueryClient();
 
@@ -155,6 +183,29 @@ const LostLeadsPage: React.FC = () => {
       sessionStorage.setItem('lost_lead_selected_id', selectedLeadId.toString());
     }
   }, [selectedLeadId]);
+
+  // Persist activeTab to localStorage
+  React.useEffect(() => {
+    localStorage.setItem('lostLeads_activeTab', activeTab);
+  }, [activeTab]);
+
+  // Persist expandedSavedId to localStorage
+  React.useEffect(() => {
+    if (expandedSavedId) {
+      localStorage.setItem('lostLeads_expandedSavedId', expandedSavedId);
+    } else {
+      localStorage.removeItem('lostLeads_expandedSavedId');
+    }
+  }, [expandedSavedId]);
+
+  // Persist report data to sessionStorage
+  React.useEffect(() => {
+    if (reportData) {
+      sessionStorage.setItem('lostLeads_reportData', JSON.stringify(reportData));
+    } else {
+      sessionStorage.removeItem('lostLeads_reportData');
+    }
+  }, [reportData]);
 
   // Loading steps for multi-step indicator
   const loadingSteps = [
