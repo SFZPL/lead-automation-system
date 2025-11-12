@@ -93,7 +93,14 @@ class NDAAnalyzer:
             if not language:
                 language = self.detect_language(nda_text)
 
-            logger.info(f"Analyzing NDA (language: {language})")
+            logger.info(f"Analyzing NDA (language: {language}, length: {len(nda_text)} chars)")
+
+            # Truncate text if too long (roughly 30,000 tokens = ~120,000 chars)
+            # This leaves room for system prompt and response
+            max_chars = 120000
+            if len(nda_text) > max_chars:
+                logger.warning(f"NDA text is {len(nda_text)} chars, truncating to {max_chars}")
+                nda_text = nda_text[:max_chars] + "\n\n[Document truncated due to length...]"
 
             # Build prompt based on language
             if language == "ar":
