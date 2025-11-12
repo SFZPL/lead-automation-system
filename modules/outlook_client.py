@@ -1106,10 +1106,22 @@ class OutlookClient:
                 "Content-Type": "application/json"
             }
 
-            # Step 1: Create or get existing 1:1 chat with the user
+            # Step 1: Get current user ID (sender)
+            me_response = requests.get(f"{self.GRAPH_API_BASE}/me", headers=headers, timeout=30)
+            me_response.raise_for_status()
+            me_data = me_response.json()
+            my_user_id = me_data.get("id")
+
+            # Step 2: Create or get existing 1:1 chat with the user
+            # Must include both sender and recipient in members array
             chat_payload = {
                 "chatType": "oneOnOne",
                 "members": [
+                    {
+                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                        "roles": ["owner"],
+                        "user@odata.bind": f"{self.GRAPH_API_BASE}/users/{my_user_id}"
+                    },
                     {
                         "@odata.type": "#microsoft.graph.aadUserConversationMember",
                         "roles": ["owner"],
@@ -1130,7 +1142,7 @@ class OutlookClient:
 
             logger.info(f"Created/got chat with ID: {chat_id}")
 
-            # Step 2: Send message to the chat
+            # Step 3: Send message to the chat
             message_body = {
                 "contentType": "html" if message_html else "text",
                 "content": message_html or message_text
