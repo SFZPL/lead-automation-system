@@ -26,7 +26,7 @@ class NDAAnalyzer:
             raise ValueError("OPENAI_API_KEY environment variable not set")
 
         self.client = OpenAI(api_key=api_key)
-        self.model = "gpt-4o"  # Using GPT-4o for best multilingual support
+        self.model = "gpt-4o-mini"  # Using GPT-4o-mini for cost-effective analysis
 
     def detect_language(self, text: str) -> str:
         """Detect if the document is in English or Arabic."""
