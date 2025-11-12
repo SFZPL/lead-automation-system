@@ -147,14 +147,13 @@ class NDAAnalyzer:
             system_prompt = self._get_english_system_prompt()
             user_prompt = self._get_english_user_prompt(nda_text)
 
-        # Call OpenAI API
+        # Call OpenAI API (gpt-5-mini only supports default temperature of 1)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.3,
             response_format={"type": "json_object"}
         )
 
