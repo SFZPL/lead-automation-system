@@ -74,9 +74,35 @@ class NDAAnalyzer:
                     logger.error(f"Error extracting text from file: {e}")
                     return ""
 
+    def _chunk_text(self, text: str, max_chunk_chars: int = 80000) -> List[str]:
+        """Split text into chunks that fit within token limits."""
+        # Split by paragraphs first to keep context
+        paragraphs = text.split('\n\n')
+        chunks = []
+        current_chunk = []
+        current_length = 0
+
+        for para in paragraphs:
+            para_length = len(para)
+            if current_length + para_length > max_chunk_chars and current_chunk:
+                # Save current chunk and start new one
+                chunks.append('\n\n'.join(current_chunk))
+                current_chunk = [para]
+                current_length = para_length
+            else:
+                current_chunk.append(para)
+                current_length += para_length + 2  # +2 for \n\n
+
+        # Add final chunk
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+
+        return chunks
+
     def analyze_nda(self, nda_text: str, language: Optional[str] = None) -> Dict[str, Any]:
         """
         Analyze NDA document and return risk assessment.
+        Uses chunked analysis for large documents to ensure nothing is skipped.
 
         Args:
             nda_text: The full text of the NDA document
@@ -97,60 +123,132 @@ class NDAAnalyzer:
 
             logger.info(f"Analyzing NDA (language: {language}, length: {len(nda_text)} chars)")
 
-            # Truncate text if too long (roughly 30,000 tokens = ~120,000 chars)
-            # This leaves room for system prompt and response
-            max_chars = 120000
-            if len(nda_text) > max_chars:
-                logger.warning(f"NDA text is {len(nda_text)} chars, truncating to {max_chars}")
-                nda_text = nda_text[:max_chars] + "\n\n[Document truncated due to length...]"
+            # Check if we need to use chunked analysis
+            max_single_chars = 80000  # Conservative limit for single-pass analysis
 
-            # Build prompt based on language
-            if language == "ar":
-                system_prompt = self._get_arabic_system_prompt()
-                user_prompt = self._get_arabic_user_prompt(nda_text)
+            if len(nda_text) > max_single_chars:
+                logger.info(f"Document is large ({len(nda_text)} chars), using chunked analysis")
+                return self._analyze_nda_chunked(nda_text, language)
             else:
-                system_prompt = self._get_english_system_prompt()
-                user_prompt = self._get_english_user_prompt(nda_text)
-
-            # Call OpenAI API
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.3,
-                response_format={"type": "json_object"}
-            )
-
-            # Parse response
-            analysis = json.loads(response.choices[0].message.content)
-
-            # Ensure required fields
-            result = {
-                "risk_category": analysis.get("risk_category", "Needs Attention"),
-                "risk_score": analysis.get("risk_score", 50),
-                "summary": analysis.get("summary", "Analysis completed"),
-                "questionable_clauses": analysis.get("questionable_clauses", []),
-                "language": language,
-                "raw_analysis": analysis
-            }
-
-            # Validate risk score
-            if not isinstance(result["risk_score"], int) or not (0 <= result["risk_score"] <= 100):
-                result["risk_score"] = 50
-
-            # Validate risk category
-            valid_categories = ["Safe", "Needs Attention", "Risky"]
-            if result["risk_category"] not in valid_categories:
-                result["risk_category"] = "Needs Attention"
-
-            logger.info(f"Analysis complete: {result['risk_category']} (score: {result['risk_score']})")
-            return result
+                logger.info("Document size is manageable, using single-pass analysis")
+                return self._analyze_nda_single(nda_text, language)
 
         except Exception as e:
             logger.error(f"Error analyzing NDA: {e}", exc_info=True)
             raise
+
+    def _analyze_nda_single(self, nda_text: str, language: str) -> Dict[str, Any]:
+        """Analyze entire NDA in a single pass."""
+        # Build prompt based on language
+        if language == "ar":
+            system_prompt = self._get_arabic_system_prompt()
+            user_prompt = self._get_arabic_user_prompt(nda_text)
+        else:
+            system_prompt = self._get_english_system_prompt()
+            user_prompt = self._get_english_user_prompt(nda_text)
+
+        # Call OpenAI API
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+
+        # Parse response
+        analysis = json.loads(response.choices[0].message.content)
+
+        # Ensure required fields
+        result = {
+            "risk_category": analysis.get("risk_category", "Needs Attention"),
+            "risk_score": analysis.get("risk_score", 50),
+            "summary": analysis.get("summary", "Analysis completed"),
+            "questionable_clauses": analysis.get("questionable_clauses", []),
+            "language": language,
+            "raw_analysis": analysis
+        }
+
+        # Validate risk score
+        if not isinstance(result["risk_score"], int) or not (0 <= result["risk_score"] <= 100):
+            result["risk_score"] = 50
+
+        # Validate risk category
+        valid_categories = ["Safe", "Needs Attention", "Risky"]
+        if result["risk_category"] not in valid_categories:
+            result["risk_category"] = "Needs Attention"
+
+        logger.info(f"Analysis complete: {result['risk_category']} (score: {result['risk_score']})")
+        return result
+
+    def _analyze_nda_chunked(self, nda_text: str, language: str) -> Dict[str, Any]:
+        """Analyze large NDA in chunks to ensure complete coverage."""
+        chunks = self._chunk_text(nda_text)
+        logger.info(f"Split document into {len(chunks)} chunks for analysis")
+
+        all_clauses = []
+        chunk_summaries = []
+        chunk_scores = []
+
+        # Analyze each chunk
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Analyzing chunk {i+1}/{len(chunks)} ({len(chunk)} chars)")
+
+            try:
+                chunk_analysis = self._analyze_nda_single(chunk, language)
+
+                # Collect questionable clauses from this chunk
+                chunk_clauses = chunk_analysis.get("questionable_clauses", [])
+                for clause in chunk_clauses:
+                    clause["chunk"] = i + 1  # Tag with chunk number
+                all_clauses.extend(chunk_clauses)
+
+                # Collect chunk summary and score
+                chunk_summaries.append(chunk_analysis.get("summary", ""))
+                chunk_scores.append(chunk_analysis.get("risk_score", 50))
+
+            except Exception as e:
+                logger.error(f"Error analyzing chunk {i+1}: {e}")
+                chunk_summaries.append(f"Error analyzing section {i+1}")
+                chunk_scores.append(50)
+
+        # Combine results
+        avg_score = int(sum(chunk_scores) / len(chunk_scores)) if chunk_scores else 50
+        max_score = max(chunk_scores) if chunk_scores else 50
+
+        # Use max score (worst case) for overall risk
+        overall_score = max_score
+
+        # Determine risk category based on worst chunk
+        if overall_score >= 70:
+            risk_category = "Risky"
+        elif overall_score >= 40:
+            risk_category = "Needs Attention"
+        else:
+            risk_category = "Safe"
+
+        # Combine summaries
+        combined_summary = f"Analyzed {len(chunks)} sections of the document. " + " ".join(chunk_summaries[:3])
+        if len(combined_summary) > 500:
+            combined_summary = combined_summary[:497] + "..."
+
+        logger.info(f"Chunked analysis complete: {risk_category} (score: {overall_score}, {len(all_clauses)} issues found)")
+
+        return {
+            "risk_category": risk_category,
+            "risk_score": overall_score,
+            "summary": combined_summary,
+            "questionable_clauses": all_clauses,
+            "language": language,
+            "raw_analysis": {
+                "chunks_analyzed": len(chunks),
+                "chunk_scores": chunk_scores,
+                "average_score": avg_score,
+                "max_score": max_score
+            }
+        }
 
     def _get_english_system_prompt(self) -> str:
         """Get system prompt for English NDA analysis."""
