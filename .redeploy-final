@@ -1,0 +1,3 @@
+Final redeploy after creating tables in correct Supabase project
+Timestamp: 2025-11-12 08:05:00
+Reason: Tables were created in wrong Supabase project - now fixed
