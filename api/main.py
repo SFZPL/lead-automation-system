@@ -4250,7 +4250,8 @@ async def get_teams_members(
     Requires user to have authorized with User.Read.All permission.
     """
     try:
-        user_identifier = current_user.get("email")
+        # Use user ID as identifier (same as how tokens are stored)
+        user_identifier = str(current_user.get("id"))
 
         # Get user's Outlook token (includes Teams permissions)
         outlook = get_outlook_client()
@@ -4303,7 +4304,8 @@ async def send_teams_assignment_notification(
     Requires user to have authorized with Teams permissions.
     """
     try:
-        user_identifier = current_user.get("email")
+        # Use user ID as identifier (same as how tokens are stored)
+        user_identifier = str(current_user.get("id"))
 
         # Get user's Outlook token (includes Teams permissions)
         outlook = get_outlook_client()
