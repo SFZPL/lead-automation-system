@@ -368,7 +368,8 @@ const ProposalFollowupsPage: React.FC = () => {
         toast.success('Follow-up marked as complete!');
       }
 
-      // Refetch to update the list (uses cached data, doesn't regenerate report)
+      // Invalidate and refetch to get updated list from backend
+      await queryClient.invalidateQueries(['proposal-followups', daysBack, noResponseDays, false]);
       await followupsQuery.refetch();
     } catch (error) {
       console.error('Error marking complete:', error);
@@ -389,7 +390,8 @@ const ProposalFollowupsPage: React.FC = () => {
         toast.success('Added to favorites');
       }
 
-      // Refetch to update the list
+      // Invalidate and refetch to get updated list
+      await queryClient.invalidateQueries(['proposal-followups', daysBack, noResponseDays, false]);
       await followupsQuery.refetch();
     } catch (error) {
       console.error('Error toggling favorite:', error);

@@ -585,3 +585,115 @@ class SupabaseDatabase:
         except Exception as e:
             logger.error(f"Error revoking user refresh tokens: {e}")
             raise
+
+    # ============================================================================
+    # EMAIL TOKEN MANAGEMENT (Outlook OAuth)
+    # ============================================================================
+
+    def save_email_tokens(
+        self,
+        user_identifier: str,
+        access_token: str,
+        refresh_token: str,
+        expires_at: datetime,
+        user_email: Optional[str] = None,
+        user_name: Optional[str] = None
+    ) -> bool:
+        """Save or update Outlook OAuth tokens for a user."""
+        try:
+            data = {
+                "user_identifier": user_identifier,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": expires_at.isoformat(),
+                "user_email": user_email,
+                "user_name": user_name,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+
+            # Upsert (insert or update if exists)
+            result = self.supabase.client.table("email_tokens")\
+                .upsert(data, on_conflict="user_identifier")\
+                .execute()
+
+            return bool(result.data)
+        except Exception as e:
+            logger.error(f"Error saving email tokens for {user_identifier}: {e}")
+            return False
+
+    def get_email_tokens(self, user_identifier: str) -> Optional[Dict[str, Any]]:
+        """Get Outlook OAuth tokens for a user."""
+        try:
+            result = self.supabase.client.table("email_tokens")\
+                .select("*")\
+                .eq("user_identifier", user_identifier)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error getting email tokens for {user_identifier}: {e}")
+            return None
+
+    def update_email_access_token(
+        self,
+        user_identifier: str,
+        access_token: str,
+        expires_at: datetime
+    ) -> bool:
+        """Update just the access token after refresh."""
+        try:
+            result = self.supabase.client.table("email_tokens")\
+                .update({
+                    "access_token": access_token,
+                    "expires_at": expires_at.isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                })\
+                .eq("user_identifier", user_identifier)\
+                .execute()
+
+            return bool(result.data)
+        except Exception as e:
+            logger.error(f"Error updating email access token for {user_identifier}: {e}")
+            return False
+
+    def delete_email_tokens(self, user_identifier: str) -> bool:
+        """Delete Outlook OAuth tokens for a user."""
+        try:
+            self.supabase.client.table("email_tokens")\
+                .delete()\
+                .eq("user_identifier", user_identifier)\
+                .execute()
+
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting email tokens for {user_identifier}: {e}")
+            return False
+
+    def list_authorized_email_users(self) -> List[Dict[str, Any]]:
+        """List all users who have authorized email access."""
+        try:
+            result = self.supabase.client.table("email_tokens")\
+                .select("user_identifier, user_email, user_name, created_at, expires_at")\
+                .execute()
+
+            if result.data:
+                # Add is_expired flag
+                now = datetime.utcnow()
+                for user in result.data:
+                    expires_at_str = user.get("expires_at")
+                    if expires_at_str:
+                        try:
+                            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                            user["is_expired"] = now >= expires_at
+                        except:
+                            user["is_expired"] = True
+                    else:
+                        user["is_expired"] = True
+
+                return result.data
+            return []
+        except Exception as e:
+            logger.error(f"Error listing authorized email users: {e}")
+            return []

@@ -1,52 +1,25 @@
-"""Simple file-based storage for OAuth2 email tokens (multi-user support)."""
+"""Supabase-based storage for OAuth2 email tokens (multi-user support)."""
 
-import json
 import logging
-import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Dict, Optional
+
+from api.supabase_database import SupabaseDatabase
 
 logger = logging.getLogger(__name__)
 
 
 class EmailTokenStore:
-    """Store and retrieve OAuth2 tokens for multiple users."""
+    """Store and retrieve OAuth2 tokens for multiple users in Supabase."""
 
-    def __init__(self, storage_dir: Optional[str] = None):
+    def __init__(self, db: Optional[SupabaseDatabase] = None):
         """
-        Initialize token store.
+        Initialize token store with Supabase backend.
 
         Args:
-            storage_dir: Directory to store token files (default: .email_tokens/)
+            db: SupabaseDatabase instance (creates new if not provided)
         """
-        if storage_dir is None:
-            # Store in project root by default
-            project_root = Path(__file__).parent.parent
-            storage_dir = project_root / ".email_tokens"
-
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(exist_ok=True, parents=True)
-
-        # Add to .gitignore to prevent committing tokens
-        gitignore_path = project_root / ".gitignore"
-        gitignore_entry = ".email_tokens/\n"
-        try:
-            if gitignore_path.exists():
-                content = gitignore_path.read_text()
-                if ".email_tokens" not in content:
-                    with open(gitignore_path, "a") as f:
-                        f.write(gitignore_entry)
-            else:
-                gitignore_path.write_text(gitignore_entry)
-        except Exception as e:
-            logger.warning(f"Could not update .gitignore: {e}")
-
-    def _get_user_file(self, user_identifier: str) -> Path:
-        """Get the file path for a user's tokens."""
-        # Sanitize identifier for filesystem
-        safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in user_identifier)
-        return self.storage_dir / f"{safe_id}.json"
+        self.db = db if db else SupabaseDatabase()
 
     def save_tokens(
         self,
@@ -58,7 +31,7 @@ class EmailTokenStore:
         user_name: Optional[str] = None,
     ) -> bool:
         """
-        Save OAuth2 tokens for a user.
+        Save OAuth2 tokens for a user in Supabase.
 
         Args:
             user_identifier: Unique identifier for user (e.g., email, Odoo user ID)
@@ -72,25 +45,20 @@ class EmailTokenStore:
             True if saved successfully
         """
         try:
-            expires_at = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
+            expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
 
-            data = {
-                "user_identifier": user_identifier,
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "expires_at": expires_at,
-                "user_email": user_email,
-                "user_name": user_name,
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
-            }
+            success = self.db.save_email_tokens(
+                user_identifier=user_identifier,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=expires_at,
+                user_email=user_email,
+                user_name=user_name
+            )
 
-            user_file = self._get_user_file(user_identifier)
-            with open(user_file, "w") as f:
-                json.dump(data, f, indent=2)
-
-            logger.info(f"Saved tokens for user: {user_identifier}")
-            return True
+            if success:
+                logger.info(f"Saved tokens for user: {user_identifier}")
+            return success
 
         except Exception as e:
             logger.error(f"Error saving tokens for {user_identifier}: {e}")
@@ -98,7 +66,7 @@ class EmailTokenStore:
 
     def get_tokens(self, user_identifier: str) -> Optional[Dict[str, Any]]:
         """
-        Retrieve tokens for a user.
+        Retrieve tokens for a user from Supabase.
 
         Args:
             user_identifier: Unique identifier for user
@@ -107,14 +75,11 @@ class EmailTokenStore:
             Dictionary with token data, or None if not found
         """
         try:
-            user_file = self._get_user_file(user_identifier)
+            data = self.db.get_email_tokens(user_identifier)
 
-            if not user_file.exists():
+            if not data:
                 logger.debug(f"No tokens found for user: {user_identifier}")
                 return None
-
-            with open(user_file, "r") as f:
-                data = json.load(f)
 
             return data
 
@@ -145,56 +110,39 @@ class EmailTokenStore:
         access_token: str,
         expires_in: int,
     ) -> bool:
-        """Update just the access token (after refresh)."""
-        data = self.get_tokens(user_identifier)
-        if not data:
-            logger.error(f"Cannot update token - no data found for {user_identifier}")
-            return False
-
-        data["access_token"] = access_token
-        data["expires_at"] = (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat()
-        data["updated_at"] = datetime.utcnow().isoformat()
-
+        """Update just the access token (after refresh) in Supabase."""
         try:
-            user_file = self._get_user_file(user_identifier)
-            with open(user_file, "w") as f:
-                json.dump(data, f, indent=2)
-            return True
+            expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+
+            success = self.db.update_email_access_token(
+                user_identifier=user_identifier,
+                access_token=access_token,
+                expires_at=expires_at
+            )
+
+            if not success:
+                logger.error(f"Cannot update token - no data found for {user_identifier}")
+
+            return success
         except Exception as e:
             logger.error(f"Error updating token for {user_identifier}: {e}")
             return False
 
     def delete_tokens(self, user_identifier: str) -> bool:
-        """Delete tokens for a user (e.g., on logout/revocation)."""
+        """Delete tokens for a user (e.g., on logout/revocation) from Supabase."""
         try:
-            user_file = self._get_user_file(user_identifier)
-            if user_file.exists():
-                user_file.unlink()
+            success = self.db.delete_email_tokens(user_identifier)
+            if success:
                 logger.info(f"Deleted tokens for user: {user_identifier}")
-            return True
+            return success
         except Exception as e:
             logger.error(f"Error deleting tokens for {user_identifier}: {e}")
             return False
 
     def list_authorized_users(self) -> list[Dict[str, Any]]:
-        """List all users who have authorized email access."""
-        users = []
+        """List all users who have authorized email access from Supabase."""
         try:
-            for token_file in self.storage_dir.glob("*.json"):
-                try:
-                    with open(token_file, "r") as f:
-                        data = json.load(f)
-                        users.append({
-                            "user_identifier": data.get("user_identifier"),
-                            "user_email": data.get("user_email"),
-                            "user_name": data.get("user_name"),
-                            "created_at": data.get("created_at"),
-                            "is_expired": self.is_token_expired(data.get("user_identifier", "")),
-                        })
-                except Exception as e:
-                    logger.warning(f"Error reading token file {token_file}: {e}")
-                    continue
+            return self.db.list_authorized_email_users()
         except Exception as e:
             logger.error(f"Error listing authorized users: {e}")
-
-        return users
+            return []
