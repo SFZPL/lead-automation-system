@@ -52,15 +52,21 @@ class NDAAnalyzer:
         try:
             # Try to decode as UTF-8 text
             text = file_content.decode('utf-8')
+            # Remove null bytes and other problematic characters
+            text = text.replace('\x00', '').replace('\u0000', '')
             return text
         except UnicodeDecodeError:
             # Try other encodings for Arabic text
             try:
                 text = file_content.decode('utf-16')
+                # Remove null bytes and other problematic characters
+                text = text.replace('\x00', '').replace('\u0000', '')
                 return text
             except:
                 try:
                     text = file_content.decode('iso-8859-1')
+                    # Remove null bytes and other problematic characters
+                    text = text.replace('\x00', '').replace('\u0000', '')
                     return text
                 except Exception as e:
                     logger.error(f"Error extracting text from file: {e}")
