@@ -39,6 +39,7 @@ interface NDADocument {
 const NDAAnalysisPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [saveToDatabase, setSaveToDatabase] = useState(true);
   const [selectedDocument, setSelectedDocument] = useState<NDADocument | null>(null);
   const queryClient = useQueryClient();
 
@@ -87,12 +88,18 @@ const NDAAnalysisPage: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+      formData.append('save_to_database', saveToDatabase.toString());
 
       const response = await api.uploadNDA(formData);
 
-      toast.success('NDA uploaded and analyzed successfully!');
+      if (saveToDatabase) {
+        toast.success('NDA analyzed and saved successfully!');
+        queryClient.invalidateQueries('nda-documents');
+      } else {
+        toast.success('NDA analyzed successfully (not saved)');
+      }
+
       setSelectedFile(null);
-      queryClient.invalidateQueries('nda-documents');
 
       // Automatically select the newly analyzed document
       if (response.data?.nda) {
@@ -193,6 +200,18 @@ const NDAAnalysisPage: React.FC = () => {
               </>
             )}
           </button>
+        </div>
+        <div className="mt-4 flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="saveToDatabase"
+            checked={saveToDatabase}
+            onChange={(e) => setSaveToDatabase(e.target.checked)}
+            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+          />
+          <label htmlFor="saveToDatabase" className="text-sm text-gray-700 cursor-pointer">
+            Save analysis to database (uncheck for quick one-time analysis)
+          </label>
         </div>
         {selectedFile && (
           <p className="mt-2 text-sm text-gray-600">

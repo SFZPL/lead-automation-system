@@ -2514,10 +2514,11 @@ def unfavorite_followup(
 @app.post("/nda/upload")
 async def upload_nda(
     file: UploadFile = File(...),
+    save_to_database: bool = Form(True),
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Upload an NDA document for analysis."""
+    """Upload an NDA document for analysis. Optionally save to database."""
     try:
         from modules.nda_analyzer import NDAAnalyzer
 
@@ -2539,52 +2540,70 @@ async def upload_nda(
         # Detect language
         language = analyzer.detect_language(nda_text)
 
-        # Create NDA document record
-        user_id = str(current_user.get("id", "unknown"))
-        nda_id = db.create_nda_document(
-            user_id=user_id,
-            file_name=file.filename,
-            file_size=file_size,
-            file_content=nda_text,  # Store extracted text
-            language=language
-        )
-
-        if not nda_id:
-            raise HTTPException(status_code=500, detail="Failed to create NDA document record")
-
-        # Update status to analyzing
-        db.update_nda_status(nda_id, "analyzing")
-
         # Perform analysis
         try:
             analysis = analyzer.analyze_nda(nda_text, language)
 
-            # Save analysis results
-            success = db.update_nda_analysis(
-                nda_id=nda_id,
-                risk_category=analysis["risk_category"],
-                risk_score=analysis["risk_score"],
-                summary=analysis["summary"],
-                questionable_clauses=analysis["questionable_clauses"],
-                analysis_details=analysis.get("raw_analysis", {}),
-                language=language
-            )
+            # If save_to_database is True, save the NDA and analysis
+            if save_to_database:
+                # Create NDA document record
+                user_id = str(current_user.get("id", "unknown"))
+                nda_id = db.create_nda_document(
+                    user_id=user_id,
+                    file_name=file.filename,
+                    file_size=file_size,
+                    file_content=nda_text,
+                    language=language
+                )
 
-            if not success:
-                raise Exception("Failed to save analysis results")
+                if not nda_id:
+                    raise HTTPException(status_code=500, detail="Failed to create NDA document record")
 
-            # Get the complete document with analysis
-            nda_doc = db.get_nda_document(nda_id)
+                # Save analysis results
+                success = db.update_nda_analysis(
+                    nda_id=nda_id,
+                    risk_category=analysis["risk_category"],
+                    risk_score=analysis["risk_score"],
+                    summary=analysis["summary"],
+                    questionable_clauses=analysis["questionable_clauses"],
+                    analysis_details=analysis.get("raw_analysis", {}),
+                    language=language
+                )
 
-            return {
-                "success": True,
-                "message": "NDA analyzed successfully",
-                "nda": nda_doc
-            }
+                if not success:
+                    raise Exception("Failed to save analysis results")
+
+                # Get the complete document with analysis
+                nda_doc = db.get_nda_document(nda_id)
+
+                return {
+                    "success": True,
+                    "message": "NDA analyzed and saved successfully",
+                    "nda": nda_doc,
+                    "saved": True
+                }
+            else:
+                # Return analysis without saving
+                return {
+                    "success": True,
+                    "message": "NDA analyzed successfully (not saved)",
+                    "nda": {
+                        "file_name": file.filename,
+                        "file_size": file_size,
+                        "language": language,
+                        "risk_category": analysis["risk_category"],
+                        "risk_score": analysis["risk_score"],
+                        "summary": analysis["summary"],
+                        "questionable_clauses": analysis["questionable_clauses"],
+                        "status": "completed"
+                    },
+                    "saved": False
+                }
 
         except Exception as analysis_error:
             logger.error(f"Error analyzing NDA: {analysis_error}")
-            db.update_nda_status(nda_id, "failed", str(analysis_error))
+            if save_to_database and 'nda_id' in locals():
+                db.update_nda_status(nda_id, "failed", str(analysis_error))
             raise HTTPException(status_code=500, detail=f"Analysis failed: {str(analysis_error)}")
 
     except HTTPException:
