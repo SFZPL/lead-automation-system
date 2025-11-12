@@ -4,14 +4,13 @@ Analyzes NDA documents for risk assessment and identifies questionable clauses.
 Supports both English and Arabic NDAs.
 """
 
-import os
 import json
-import base64
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
-import openai
 from openai import OpenAI
 import logging
+
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +18,17 @@ logger = logging.getLogger(__name__)
 class NDAAnalyzer:
     """Analyzes NDA documents for risks and questionable clauses."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[Config] = None):
         """Initialize the NDA analyzer with OpenAI client."""
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
+        self.config = config or Config()
+        if not self.config.OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is required for NDA analysis")
 
-        self.client = OpenAI(api_key=api_key)
-        self.model = "gpt-4o-mini"  # Using GPT-4o-mini for cost-effective analysis
+        self.client = OpenAI(
+            api_key=self.config.OPENAI_API_KEY,
+            base_url=self.config.OPENAI_API_BASE,
+        )
+        self.model = self.config.OPENAI_MODEL
 
     def detect_language(self, text: str) -> str:
         """Detect if the document is in English or Arabic."""

@@ -100,7 +100,7 @@ class Config:
 
     # OpenAI / LLM
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
     LLM_SCRAPE_MAX_TOKENS = _env_int("LLM_SCRAPE_MAX_TOKENS", 32000)
     LLM_SCRAPE_TEMPERATURE = _env_float("LLM_SCRAPE_TEMPERATURE", 1.0)
