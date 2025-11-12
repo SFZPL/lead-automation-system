@@ -4246,8 +4246,8 @@ async def get_teams_members(
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
-    Get list of members from the configured Microsoft Teams team.
-    Requires user to have authorized with Teams permissions.
+    Get list of all users in the organization (Azure AD directory).
+    Requires user to have authorized with User.Read.All permission.
     """
     try:
         user_identifier = current_user.get("email")
@@ -4263,17 +4263,9 @@ async def get_teams_members(
             )
 
         access_token = tokens.get("access_token")
-        cfg = Config()
-        team_id = cfg.TEAMS_TEAM_ID
 
-        if not team_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Teams integration not configured. Please set TEAMS_TEAM_ID environment variable."
-            )
-
-        # Fetch team members
-        members = outlook.get_team_members(access_token, team_id)
+        # Fetch all organization users
+        members = outlook.get_organization_users(access_token)
 
         return {
             "success": True,
@@ -4292,7 +4284,7 @@ async def get_teams_members(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching Teams members: {e}")
+        logger.error(f"Error fetching organization users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

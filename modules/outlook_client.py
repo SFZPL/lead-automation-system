@@ -1030,53 +1030,55 @@ class OutlookClient:
     # TEAMS INTEGRATION METHODS
     # ============================================================================
 
-    def get_team_members(self, access_token: str, team_id: str) -> List[Dict[str, Any]]:
+    def get_organization_users(self, access_token: str) -> List[Dict[str, Any]]:
         """
-        Get all members of a Microsoft Teams team.
+        Get all users in the organization (Azure AD directory).
 
         Args:
-            access_token: OAuth2 access token with TeamMember.Read.All permission
-            team_id: ID of the team (can be found in Teams settings or Graph Explorer)
+            access_token: OAuth2 access token with User.Read.All permission
 
         Returns:
-            List of team member dictionaries with id, displayName, email
+            List of user dictionaries with id, displayName, email
         """
         try:
             headers = {"Authorization": f"Bearer {access_token}"}
-            url = f"{self.GRAPH_API_BASE}/teams/{team_id}/members"
+            url = f"{self.GRAPH_API_BASE}/users"
+            params = {
+                "$select": "id,displayName,mail,userPrincipalName",
+                "$top": 999  # Get up to 999 users (max per page)
+            }
 
-            response = requests.get(url, headers=headers, timeout=30)
+            response = requests.get(url, headers=headers, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
-            members = data.get("value", [])
+            users = data.get("value", [])
 
-            # Format members for easier consumption
-            formatted_members = []
-            for member in members:
-                # Extract user ID from member ID (format: #microsoft.graph.aadUserConversationMember)
-                user_id = member.get("userId")
-                display_name = member.get("displayName", "Unknown")
-                email = member.get("email")
+            # Format users for easier consumption
+            formatted_users = []
+            for user in users:
+                user_id = user.get("id")
+                display_name = user.get("displayName", "Unknown")
+                email = user.get("mail") or user.get("userPrincipalName", "")
 
                 if user_id and display_name:
-                    formatted_members.append({
+                    formatted_users.append({
                         "id": user_id,
                         "name": display_name,
-                        "email": email or ""
+                        "email": email
                     })
 
-            logger.info(f"Found {len(formatted_members)} members in team {team_id}")
-            return formatted_members
+            logger.info(f"Found {len(formatted_users)} users in organization")
+            return formatted_users
 
         except requests.exceptions.HTTPError as exc:
-            logger.error(f"Error fetching team members: {exc}")
+            logger.error(f"Error fetching organization users: {exc}")
             if exc.response.status_code == 401:
                 raise RuntimeError("Access token expired or insufficient permissions")
             elif exc.response.status_code == 403:
-                raise RuntimeError("Insufficient permissions to read team members. Please re-authorize with TeamMember.Read.All permission")
+                raise RuntimeError("Insufficient permissions to read users. Please re-authorize with User.Read.All permission")
             raise
         except Exception as exc:
-            logger.error(f"Unexpected error fetching team members: {exc}")
+            logger.error(f"Unexpected error fetching organization users: {exc}")
             return []
 
     def send_teams_chat_message(
