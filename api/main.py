@@ -2428,7 +2428,7 @@ def mark_followup_complete(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Mark a follow-up as completed."""
+    """Mark a follow-up as completed and remove from saved reports."""
     try:
         user_id = current_user.get("id")
 
@@ -2439,6 +2439,58 @@ def mark_followup_complete(
             completion_method="manual_marked",
             notes=request.notes
         )
+
+        # Update all saved reports to remove this thread
+        try:
+            # Get all saved proposal followup reports
+            reports = supabase.table("analysis_cache")\
+                .select("*")\
+                .eq("analysis_type", "proposal_followups")\
+                .eq("is_shared", True)\
+                .execute()
+
+            if reports.data:
+                for report in reports.data:
+                    results = report.get("results", {})
+                    updated = False
+
+                    # Remove from unanswered emails
+                    if "unanswered" in results and isinstance(results["unanswered"], list):
+                        original_count = len(results["unanswered"])
+                        results["unanswered"] = [
+                            t for t in results["unanswered"]
+                            if t.get("conversation_id") != request.conversation_id
+                        ]
+                        if len(results["unanswered"]) < original_count:
+                            updated = True
+
+                    # Remove from pending proposals
+                    if "pending_proposals" in results and isinstance(results["pending_proposals"], list):
+                        original_count = len(results["pending_proposals"])
+                        results["pending_proposals"] = [
+                            t for t in results["pending_proposals"]
+                            if t.get("conversation_id") != request.conversation_id
+                        ]
+                        if len(results["pending_proposals"]) < original_count:
+                            updated = True
+
+                    # Update summary counts
+                    if "summary" in results:
+                        results["summary"]["unanswered_count"] = len(results.get("unanswered", []))
+                        results["summary"]["pending_count"] = len(results.get("pending_proposals", []))
+                        results["summary"]["total_count"] = results["summary"]["unanswered_count"] + results["summary"]["pending_count"]
+
+                    # Save updated report if changed
+                    if updated:
+                        supabase.table("analysis_cache")\
+                            .update({"results": results})\
+                            .eq("id", report["id"])\
+                            .execute()
+                        logger.info(f"Updated report {report['id']} to remove completed thread {request.conversation_id}")
+
+        except Exception as update_error:
+            logger.error(f"Error updating saved reports: {update_error}")
+            # Don't fail the completion if report update fails
 
         return {"success": True, "completion": result}
 
@@ -3267,19 +3319,25 @@ def system_outlook_auth_callback_post(
         system_identifier = "SYSTEM_automated.response@prezlab.com"
 
         # Store tokens in Supabase (persists across deployments)
-        success = outlook.store_user_auth_tokens(
-            user_identifier=system_identifier,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            expires_in=expires_in,
-            user_email=user_email,
-            user_name=user_name
-        )
+        from datetime import datetime, timedelta, timezone
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to store tokens")
+        try:
+            # Upsert into email_tokens table
+            result = supabase.table("email_tokens").upsert({
+                "user_identifier": system_identifier,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": expires_at.isoformat(),
+                "user_email": user_email,
+                "user_name": user_name,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }, on_conflict="user_identifier").execute()
 
-        logger.info(f"System email tokens stored successfully for {user_email}")
+            logger.info(f"System email tokens stored successfully for {user_email}")
+        except Exception as e:
+            logger.error(f"Failed to store system email tokens: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to store tokens: {str(e)}")
 
         return {
             "success": True,
