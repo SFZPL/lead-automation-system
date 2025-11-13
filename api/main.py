@@ -2535,7 +2535,59 @@ def mark_followup_complete(
         # Check if it's a duplicate key error (already marked complete)
         error_str = str(e)
         if "duplicate key" in error_str or "23505" in error_str or "already exists" in error_str:
-            # Thread already marked complete - return success to avoid confusing the user
+            # Thread already marked complete - still update reports to remove it
+            logger.info(f"Thread already marked complete, updating reports to remove it")
+
+            # Update all saved reports to remove this thread
+            try:
+                reports = supabase.client.table("analysis_cache")\
+                    .select("*")\
+                    .eq("analysis_type", "proposal_followups")\
+                    .eq("is_shared", True)\
+                    .execute()
+
+                if reports.data:
+                    for report in reports.data:
+                        results = report.get("results", {})
+                        updated = False
+
+                        # Remove from unanswered emails
+                        if "unanswered" in results and isinstance(results["unanswered"], list):
+                            original_count = len(results["unanswered"])
+                            results["unanswered"] = [
+                                t for t in results["unanswered"]
+                                if t.get("conversation_id") != request.conversation_id
+                            ]
+                            if len(results["unanswered"]) < original_count:
+                                updated = True
+
+                        # Remove from pending proposals
+                        if "pending_proposals" in results and isinstance(results["pending_proposals"], list):
+                            original_count = len(results["pending_proposals"])
+                            results["pending_proposals"] = [
+                                t for t in results["pending_proposals"]
+                                if t.get("conversation_id") != request.conversation_id
+                            ]
+                            if len(results["pending_proposals"]) < original_count:
+                                updated = True
+
+                        # Update summary counts
+                        if "summary" in results:
+                            results["summary"]["unanswered_count"] = len(results.get("unanswered", []))
+                            results["summary"]["pending_count"] = len(results.get("pending_proposals", []))
+                            results["summary"]["total_count"] = results["summary"]["unanswered_count"] + results["summary"]["pending_count"]
+
+                        # Save updated report if changed
+                        if updated:
+                            supabase.client.table("analysis_cache")\
+                                .update({"results": results})\
+                                .eq("id", report["id"])\
+                                .execute()
+                            logger.info(f"Updated report {report['id']} to remove already-completed thread {request.conversation_id}")
+
+            except Exception as update_error:
+                logger.error(f"Error updating saved reports for duplicate completion: {update_error}")
+
             return {
                 "success": True,
                 "completion": {"already_completed": True},
