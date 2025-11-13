@@ -1858,8 +1858,10 @@ def get_proposal_followups(
     try:
         logger.info(f"Running new proposal follow-ups analysis (days_back={days_back}, no_response_days={no_response_days})")
         analyzer = ProposalFollowupAnalyzer()
+        # Use SYSTEM_ prefix for system email tokens
+        system_identifier = f"SYSTEM_{engage_email}"
         result = analyzer.get_proposal_followups(
-            user_identifier=engage_email,
+            user_identifier=system_identifier,
             days_back=days_back,
             no_response_days=no_response_days
         )
@@ -2381,8 +2383,10 @@ def generate_saved_report(
         # Generate the analysis
         logger.info(f"Starting report generation for {request.report_type} (days_back={days_back})")
         analyzer = ProposalFollowupAnalyzer()
+        # Use SYSTEM_ prefix for system email tokens
+        system_identifier = f"SYSTEM_{request.engage_email}"
         result = analyzer.get_proposal_followups(
-            user_identifier=request.engage_email,
+            user_identifier=system_identifier,
             days_back=days_back,
             no_response_days=request.no_response_days
         )
@@ -3230,10 +3234,9 @@ def system_outlook_auth_callback_post(
 ):
     """
     Complete OAuth2 callback for system email (POST from frontend).
-    Exchange authorization code for tokens and store them for system account.
+    Exchange authorization code for tokens and store them in Supabase for all users.
     """
     outlook = get_outlook_client()
-    token_store = get_token_store()
 
     try:
         # Verify state is for system auth
@@ -3256,20 +3259,22 @@ def system_outlook_auth_callback_post(
         user_name = user_info.get("displayName")
 
         # Use fixed identifier for system account
-        system_identifier = "automated.response@prezlab.com"
+        system_identifier = "SYSTEM_automated.response@prezlab.com"
 
-        # Store tokens in file system
-        success = token_store.save_tokens(
+        # Store tokens in Supabase (persists across deployments)
+        success = outlook.store_user_auth_tokens(
             user_identifier=system_identifier,
             access_token=access_token,
             refresh_token=refresh_token,
             expires_in=expires_in,
             user_email=user_email,
-            user_name=user_name,
+            user_name=user_name
         )
 
         if not success:
             raise HTTPException(status_code=500, detail="Failed to store tokens")
+
+        logger.info(f"System email tokens stored successfully for {user_email}")
 
         return {
             "success": True,
@@ -3286,35 +3291,38 @@ def system_outlook_auth_callback_post(
 @app.get("/auth/outlook/system/status", response_model=EmailAuthStatusResponse)
 def get_system_email_auth_status():
     """Check if system email (automated.response@prezlab.com) has authorized access."""
-    token_store = get_token_store()
-    system_identifier = "automated.response@prezlab.com"
+    outlook = get_outlook_client()
+    system_identifier = "SYSTEM_automated.response@prezlab.com"
 
-    tokens = token_store.get_tokens(system_identifier)
+    tokens = outlook.get_user_auth_tokens(system_identifier)
 
     if not tokens:
         return EmailAuthStatusResponse(authorized=False)
 
-    is_expired = token_store.is_token_expired(system_identifier)
+    # Check if token is expired (will be refreshed automatically on next use)
+    expires_at = tokens.get("expires_at")
+    expires_soon = False
+    if expires_at:
+        from datetime import datetime, timezone, timedelta
+        expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        expires_soon = (expires_dt - now) < timedelta(minutes=10)
 
     return EmailAuthStatusResponse(
         authorized=True,
         user_email=tokens.get("user_email"),
         user_name=tokens.get("user_name"),
-        expires_soon=is_expired
+        expires_soon=expires_soon
     )
 
 
 @app.delete("/auth/outlook/system")
 def revoke_system_email_auth(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Revoke system email authorization. Admin only."""
-    # Could add admin check here if needed
-    # if current_user["role"] != "admin":
-    #     raise HTTPException(status_code=403, detail="Admin access required")
+    outlook = get_outlook_client()
+    system_identifier = "SYSTEM_automated.response@prezlab.com"
 
-    token_store = get_token_store()
-    system_identifier = "automated.response@prezlab.com"
-
-    success = token_store.delete_tokens(system_identifier)
+    success = outlook.delete_user_auth_tokens(system_identifier)
 
     if not success:
         raise HTTPException(status_code=500, detail="Failed to revoke system authorization")

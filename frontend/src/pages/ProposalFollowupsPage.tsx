@@ -161,18 +161,16 @@ const ProposalFollowupsPage: React.FC = () => {
       return response.data as ProposalFollowupData;
     },
     {
-      enabled: true, // Always enabled to load cached data
+      enabled: false, // Disabled - only use Saved Reports
       refetchOnWindowFocus: false,
       refetchOnMount: false,
       refetchOnReconnect: false,
       retry: 1,
-      staleTime: Infinity, // Never consider data stale
+      staleTime: Infinity,
       onSuccess: () => {
-        // Mark as started once data is loaded
         if (!hasStarted) {
           setHasStarted(true);
         }
-        // Reset force refresh after successful fetch
         if (forceRefresh) {
           setForceRefresh(false);
         }
@@ -372,9 +370,9 @@ const ProposalFollowupsPage: React.FC = () => {
         toast.success('Follow-up marked as complete!');
       }
 
-      // Invalidate and refetch to get updated list from backend
-      await queryClient.invalidateQueries(['proposal-followups', daysBack, noResponseDays, false]);
-      await followupsQuery.refetch();
+      // Invalidate saved reports query to refetch with completed items filtered out
+      await queryClient.invalidateQueries(['saved-reports']);
+      await reportsQuery.refetch();
     } catch (error) {
       console.error('Error marking complete:', error);
       toast.error('Failed to mark as complete');

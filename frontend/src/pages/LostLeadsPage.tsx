@@ -1279,9 +1279,9 @@ const LostLeadsPage: React.FC = () => {
                   id="reportLimit"
                   type="number"
                   min={1}
-                  max={200}
+                  max={1000}
                   value={reportLimit}
-                  onChange={(e) => setReportLimit(Math.min(Math.max(1, Number(e.target.value) || 1), 200))}
+                  onChange={(e) => setReportLimit(Math.min(Math.max(1, Number(e.target.value) || 1), 1000))}
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
                 />
               </div>

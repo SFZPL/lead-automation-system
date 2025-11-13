@@ -44,25 +44,31 @@ const RoutePersistence = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const inTeams = isTeamsEnvironment();
+  const [hasRestored, setHasRestored] = React.useState(false);
 
-  // Save current route when it changes
+  // Restore route on mount (with slight delay to ensure DOM is ready)
   React.useEffect(() => {
-    if (inTeams && location.pathname !== '/auth/outlook/callback') {
-      localStorage.setItem('teams_lastRoute', location.pathname);
-      console.log('Saved route:', location.pathname);
-    }
-  }, [location.pathname, inTeams]);
-
-  // Restore route on mount (only once)
-  React.useEffect(() => {
-    if (inTeams) {
+    if (inTeams && !hasRestored) {
       const savedRoute = localStorage.getItem('teams_lastRoute');
-      if (savedRoute && savedRoute !== location.pathname && savedRoute !== '/auth/outlook/callback') {
-        console.log('Restoring route:', savedRoute);
-        navigate(savedRoute, { replace: true });
+      console.log('Teams environment detected. Current:', location.pathname, 'Saved:', savedRoute);
+
+      if (savedRoute && savedRoute !== '/' && savedRoute !== location.pathname && savedRoute !== '/auth/outlook/callback') {
+        console.log('Restoring route to:', savedRoute);
+        setTimeout(() => {
+          navigate(savedRoute, { replace: true });
+        }, 100);
       }
+      setHasRestored(true);
     }
-  }, []); // Empty deps - only run on mount
+  }, [inTeams, hasRestored, location.pathname, navigate]);
+
+  // Save current route when it changes (but not on first mount)
+  React.useEffect(() => {
+    if (inTeams && hasRestored && location.pathname !== '/auth/outlook/callback') {
+      console.log('Saving route:', location.pathname);
+      localStorage.setItem('teams_lastRoute', location.pathname);
+    }
+  }, [location.pathname, inTeams, hasRestored]);
 
   return <>{children}</>;
 };
