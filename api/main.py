@@ -1770,12 +1770,15 @@ def get_proposal_followups(
         "engage_email": engage_email
     }
 
-    # Get completed thread IDs to filter them out
-    completed_thread_ids = set()
+    # Get completed thread IDs with timestamps to check for new activity
+    completed_threads_map = {}
     try:
-        completed_thread_ids = set(db.get_completed_followups())
+        completed_threads_map = db.get_completed_followups_with_timestamps()
     except Exception as e:
         logger.warning(f"Failed to get completed followups: {e}")
+
+    # Will be populated with threads that should stay completed
+    completed_thread_ids = set()
 
     # Get favorited thread IDs
     favorited_thread_ids = set()
@@ -1865,6 +1868,38 @@ def get_proposal_followups(
             days_back=days_back,
             no_response_days=no_response_days
         )
+
+        # Check for new activity in completed threads and reopen if needed
+        from datetime import datetime, timezone
+        for thread in result["unanswered"] + result["pending_proposals"]:
+            conv_id = thread.get("conversation_id")
+
+            # If thread was completed, check if there's new activity
+            if conv_id in completed_threads_map:
+                completed_at_str = completed_threads_map[conv_id]
+                thread_last_email_str = thread.get("last_email_date")
+
+                if thread_last_email_str and completed_at_str:
+                    try:
+                        # Parse timestamps
+                        completed_at = datetime.fromisoformat(completed_at_str.replace('Z', '+00:00'))
+                        last_email = datetime.fromisoformat(thread_last_email_str.replace('Z', '+00:00'))
+
+                        # If last email is AFTER completion, reopen the thread
+                        if last_email > completed_at:
+                            logger.info(f"Reopening thread {conv_id}: new email at {last_email} after completion at {completed_at}")
+                            db.reopen_completed_followup(conv_id)
+                            # Don't add to completed_thread_ids, so it appears in results
+                        else:
+                            # No new activity, keep it completed
+                            completed_thread_ids.add(conv_id)
+                    except Exception as parse_error:
+                        logger.warning(f"Error parsing dates for thread {conv_id}: {parse_error}")
+                        # If we can't parse, keep it completed to be safe
+                        completed_thread_ids.add(conv_id)
+                else:
+                    # Missing date info, keep it completed
+                    completed_thread_ids.add(conv_id)
 
         # Filter out completed threads from fresh results and add favorited flag
         unanswered = []

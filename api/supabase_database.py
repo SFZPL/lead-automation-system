@@ -252,6 +252,35 @@ class SupabaseDatabase:
             logger.error(f"Error getting completed follow-ups: {e}")
             return []
 
+    def get_completed_followups_with_timestamps(self) -> Dict[str, str]:
+        """Get map of completed thread IDs to their completion timestamps."""
+        try:
+            result = self.supabase.client.table("followup_completions")\
+                .select("thread_id, conversation_id, completed_at")\
+                .execute()
+
+            # Return dict mapping conversation_id to completed_at timestamp
+            return {
+                item["conversation_id"]: item["completed_at"]
+                for item in result.data
+            }
+        except Exception as e:
+            logger.error(f"Error getting completed follow-ups with timestamps: {e}")
+            return {}
+
+    def reopen_completed_followup(self, conversation_id: str) -> bool:
+        """Delete completion record to reopen a thread."""
+        try:
+            self.supabase.client.table("followup_completions")\
+                .delete()\
+                .eq("conversation_id", conversation_id)\
+                .execute()
+            logger.info(f"Reopened completed thread: {conversation_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error reopening follow-up: {e}")
+            return False
+
     def is_followup_completed(self, thread_id: str) -> bool:
         """Check if a specific follow-up is completed."""
         try:
