@@ -19,6 +19,7 @@ import {
   XCircleIcon,
   ChartBarIcon,
 } from '@heroicons/react/24/outline';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import api from '../utils/api';
 
 interface LostLeadSummary {
@@ -1387,6 +1388,51 @@ const LostLeadsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Monthly Trends Chart */}
+              {reportData.monthly_trends && reportData.monthly_trends.length > 0 && (
+                <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Month-by-Month Trends</h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={reportData.monthly_trends}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="month_display"
+                          tick={{ fontSize: 12 }}
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                        />
+                        <YAxis
+                          yAxisId="left"
+                          tick={{ fontSize: 12 }}
+                          label={{ value: 'Count', angle: -90, position: 'insideLeft' }}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          tick={{ fontSize: 12 }}
+                          label={{ value: 'Value (AED)', angle: 90, position: 'insideRight' }}
+                        />
+                        <Tooltip
+                          formatter={(value: any, name: string) => {
+                            if (name === 'Total Value') {
+                              return [`AED ${Number(value).toLocaleString()}`, name];
+                            }
+                            return [value, name];
+                          }}
+                        />
+                        <Legend />
+                        <Bar yAxisId="left" dataKey="count" fill="#8b5cf6" name="Total Lost" />
+                        <Bar yAxisId="left" dataKey="leads" fill="#3b82f6" name="Leads" />
+                        <Bar yAxisId="left" dataKey="opportunities" fill="#10b981" name="Opportunities" />
+                        <Bar yAxisId="right" dataKey="total_value" fill="#ef4444" name="Total Value" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
 
               {/* Lost Reasons Analysis */}
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">

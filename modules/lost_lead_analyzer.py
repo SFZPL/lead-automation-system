@@ -516,6 +516,9 @@ class LostLeadAnalyzer:
         # Identify top opportunities to re-contact (highest value + recent + specific reasons)
         top_opportunities = self._identify_reconnect_opportunities(lost_leads)
 
+        # Analyze month-by-month trends
+        monthly_trends = self._analyze_monthly_trends(lost_leads)
+
         return {
             "summary": {
                 "total_count": len(lost_leads),
@@ -527,6 +530,7 @@ class LostLeadAnalyzer:
             },
             "reasons_analysis": reasons_analysis,
             "stage_analysis": stage_analysis,
+            "monthly_trends": monthly_trends,
             "top_opportunities": top_opportunities[:10],  # Top 10
             "all_lost_leads": lost_leads  # Full list for reference
         }
@@ -622,6 +626,58 @@ class LostLeadAnalyzer:
                 "total_value": round(stage_value.get(stage, 0), 2)
             }
             for stage, count in sorted_stages
+        ]
+
+    def _analyze_monthly_trends(self, lost_leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Analyze lost leads by month to show trends over time.
+        Groups by the month they were marked as lost (write_date).
+        """
+        from collections import defaultdict
+
+        monthly_data = defaultdict(lambda: {
+            "count": 0,
+            "total_value": 0,
+            "leads": 0,
+            "opportunities": 0
+        })
+
+        for lead in lost_leads:
+            write_date = lead.get("write_date")
+            if not write_date:
+                continue
+
+            try:
+                # Parse date and get month key (YYYY-MM)
+                date_obj = datetime.fromisoformat(write_date.replace("Z", "+00:00"))
+                month_key = date_obj.strftime("%Y-%m")
+
+                # Aggregate data
+                monthly_data[month_key]["count"] += 1
+                monthly_data[month_key]["total_value"] += lead.get("expected_revenue", 0) or 0
+
+                if lead.get("type") == "lead":
+                    monthly_data[month_key]["leads"] += 1
+                elif lead.get("type") == "opportunity":
+                    monthly_data[month_key]["opportunities"] += 1
+
+            except Exception as e:
+                logger.warning(f"Error parsing date {write_date}: {e}")
+                continue
+
+        # Convert to sorted list
+        sorted_months = sorted(monthly_data.items())
+
+        return [
+            {
+                "month": month,
+                "count": data["count"],
+                "total_value": round(data["total_value"], 2),
+                "leads": data["leads"],
+                "opportunities": data["opportunities"],
+                "month_display": datetime.strptime(month, "%Y-%m").strftime("%b %Y")
+            }
+            for month, data in sorted_months
         ]
 
     def _identify_reconnect_opportunities(self, lost_leads: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
