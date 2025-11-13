@@ -206,8 +206,11 @@ class SupabaseClient:
         external_email: str,
         subject: str,
         assigned_from_user_id: int,
-        assigned_to_user_id: int,
         lead_data: Dict[str, Any],
+        assigned_to_user_id: Optional[int] = None,
+        assigned_to_teams_id: Optional[str] = None,
+        assigned_to_name: Optional[str] = None,
+        assigned_to_email: Optional[str] = None,
         notes: Optional[str] = None,
         analysis_cache_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
@@ -219,8 +222,11 @@ class SupabaseClient:
             external_email: External contact email
             subject: Email subject
             assigned_from_user_id: User assigning the lead
-            assigned_to_user_id: User receiving the assignment
             lead_data: Full lead/thread data
+            assigned_to_user_id: User receiving the assignment (database user ID)
+            assigned_to_teams_id: Azure AD user ID for Teams users
+            assigned_to_name: Display name for Teams users
+            assigned_to_email: Email address for Teams users
             notes: Optional notes from assignor
             analysis_cache_id: Optional reference to analysis cache
 
@@ -236,17 +242,27 @@ class SupabaseClient:
                 "external_email": external_email,
                 "subject": subject,
                 "assigned_from_user_id": assigned_from_user_id,
-                "assigned_to_user_id": assigned_to_user_id,
                 "lead_data": lead_data,
                 "notes": notes,
                 "analysis_cache_id": analysis_cache_id,
                 "status": "pending"
             }
 
+            # Add user ID or Teams info
+            if assigned_to_user_id:
+                data["assigned_to_user_id"] = assigned_to_user_id
+            if assigned_to_teams_id:
+                data["assigned_to_teams_id"] = assigned_to_teams_id
+            if assigned_to_name:
+                data["assigned_to_name"] = assigned_to_name
+            if assigned_to_email:
+                data["assigned_to_email"] = assigned_to_email
+
             result = self.client.table("lead_assignments").insert(data).execute()
 
             if result.data:
-                logger.info(f"✅ Lead assigned from user {assigned_from_user_id} to {assigned_to_user_id}")
+                assignee_info = assigned_to_name or str(assigned_to_user_id)
+                logger.info(f"✅ Lead assigned from user {assigned_from_user_id} to {assignee_info}")
                 return result.data[0]
             return None
 

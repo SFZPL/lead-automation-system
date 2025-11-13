@@ -43,15 +43,31 @@ const AssignLeadModal: React.FC<AssignLeadModalProps> = ({ isOpen, onClose, lead
     async () => {
       if (!selectedUserId) throw new Error('Please select a user');
 
+      // Determine if using Teams member or database user
+      const isTeamsMember = teamsMembers.length > 0;
+      const selectedMember = isTeamsMember
+        ? teamsMembers.find((m: any) => m.id === selectedUserId)
+        : null;
+
       // Create lead assignment
-      const assignmentResponse = await api.createLeadAssignment({
+      const assignmentData: any = {
         conversation_id: lead.conversation_id,
         external_email: lead.external_email,
         subject: lead.subject,
-        assigned_to_user_id: typeof selectedUserId === 'string' ? parseInt(selectedUserId) : selectedUserId,
         lead_data: lead.lead_data,
         notes: notes.trim() || undefined,
-      });
+      };
+
+      // Add appropriate user ID based on source
+      if (isTeamsMember && selectedMember) {
+        assignmentData.assigned_to_teams_id = selectedMember.id;
+        assignmentData.assigned_to_name = selectedMember.name;
+        assignmentData.assigned_to_email = selectedMember.email;
+      } else {
+        assignmentData.assigned_to_user_id = parseInt(selectedUserId as string);
+      }
+
+      const assignmentResponse = await api.createLeadAssignment(assignmentData);
 
       // Send Teams notification if enabled and Teams members are available
       if (sendTeamsNotification && teamsMembers.length > 0) {

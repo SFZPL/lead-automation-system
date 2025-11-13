@@ -2819,7 +2819,10 @@ class LeadAssignmentCreate(BaseModel):
     conversation_id: str
     external_email: str
     subject: str
-    assigned_to_user_id: int
+    assigned_to_user_id: Optional[int] = None  # Optional for Teams users
+    assigned_to_teams_id: Optional[str] = None  # Azure AD user ID for Teams
+    assigned_to_name: Optional[str] = None  # Display name
+    assigned_to_email: Optional[str] = None  # Email address
     lead_data: Dict[str, Any]
     notes: Optional[str] = None
     analysis_cache_id: Optional[str] = None
@@ -2854,16 +2857,28 @@ def create_lead_assignment(
     try:
         user_id = current_user.get("id")
 
-        result = supabase.create_lead_assignment(
-            conversation_id=assignment.conversation_id,
-            external_email=assignment.external_email,
-            subject=assignment.subject,
-            assigned_from_user_id=user_id,
-            assigned_to_user_id=assignment.assigned_to_user_id,
-            lead_data=assignment.lead_data,
-            notes=assignment.notes,
-            analysis_cache_id=assignment.analysis_cache_id
-        )
+        # Build assignment data with Teams support
+        assignment_kwargs = {
+            "conversation_id": assignment.conversation_id,
+            "external_email": assignment.external_email,
+            "subject": assignment.subject,
+            "assigned_from_user_id": user_id,
+            "lead_data": assignment.lead_data,
+            "notes": assignment.notes,
+            "analysis_cache_id": assignment.analysis_cache_id
+        }
+
+        # Add user ID or Teams info
+        if assignment.assigned_to_user_id:
+            assignment_kwargs["assigned_to_user_id"] = assignment.assigned_to_user_id
+        elif assignment.assigned_to_teams_id:
+            assignment_kwargs["assigned_to_teams_id"] = assignment.assigned_to_teams_id
+            assignment_kwargs["assigned_to_name"] = assignment.assigned_to_name
+            assignment_kwargs["assigned_to_email"] = assignment.assigned_to_email
+        else:
+            raise HTTPException(status_code=400, detail="Must provide either assigned_to_user_id or assigned_to_teams_id")
+
+        result = supabase.create_lead_assignment(**assignment_kwargs)
 
         if not result:
             raise HTTPException(status_code=500, detail="Failed to create assignment")
