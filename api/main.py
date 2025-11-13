@@ -3218,8 +3218,13 @@ def start_system_outlook_auth(current_user: Dict[str, Any] = Depends(get_current
     # Use special state prefix to identify system auth
     state = f"SYSTEM:{secrets.token_urlsafe(32)}"
 
-    # Force account selection so user can choose automated.response account
-    auth_url = outlook.get_authorization_url(state=state, force_account_selection=True)
+    # Force account selection and exclude Teams permissions for system email
+    # System email only needs Mail.Read for engage group inbox access
+    auth_url = outlook.get_authorization_url(
+        state=state,
+        force_account_selection=True,
+        include_teams=False  # No Teams permissions needed for system email
+    )
 
     return EmailAuthResponse(
         authorization_url=auth_url,

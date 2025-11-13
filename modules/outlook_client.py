@@ -22,17 +22,31 @@ class OutlookClient:
         self.client_secret = self.config.MICROSOFT_CLIENT_SECRET
         self.redirect_uri = self.config.MICROSOFT_REDIRECT_URI
 
-    def get_authorization_url(self, state: str, force_account_selection: bool = False) -> str:
-        """Generate OAuth2 authorization URL for user to grant access (includes Teams permissions)."""
+    def get_authorization_url(self, state: str, force_account_selection: bool = False, include_teams: bool = True) -> str:
+        """
+        Generate OAuth2 authorization URL for user to grant access.
+
+        Args:
+            state: OAuth state parameter
+            force_account_selection: Force account selection dialog
+            include_teams: Include Teams permissions (requires for personal email, not for system email)
+        """
+        # Base scopes for email access
         scopes = [
             "Mail.Read",           # Read emails
             "User.Read",           # Read user profile
-            "User.Read.All",       # Read all users (for Teams member list)
-            "Group.Read.All",      # Read groups/teams
-            "TeamMember.Read.All", # Read team members
-            "Chat.ReadWrite",      # Send Teams chat messages
             "offline_access"       # Refresh tokens
         ]
+
+        # Add Teams permissions only if requested (for personal email auth)
+        if include_teams:
+            scopes.extend([
+                "User.Read.All",       # Read all users (for Teams member list)
+                "Group.Read.All",      # Read groups/teams
+                "TeamMember.Read.All", # Read team members
+                "Chat.ReadWrite",      # Send Teams chat messages
+            ])
+
         scope_str = " ".join(scopes)
 
         params = {
