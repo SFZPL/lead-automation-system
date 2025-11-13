@@ -1550,23 +1550,36 @@ const LostLeadsPage: React.FC = () => {
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                   <h3 className="text-lg font-semibold text-gray-900 mb-6">LLM Pattern Analysis</h3>
 
-                  <div className="space-y-6">
-                    {/* Lost Reason Clustering */}
-                    {reportData.pattern_analysis.lost_reason_clustering && (
-                      <div>
-                        <h4 className="text-md font-semibold text-gray-800 mb-2">1. Lost Reason Clustering</h4>
-                        <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.lost_reason_clustering.key_insight}</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {reportData.pattern_analysis.lost_reason_clustering.clusters?.map((cluster: any, idx: number) => (
-                            <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                              <div className="font-medium text-gray-900">{cluster.cluster_name}</div>
-                              <div className="text-xs text-gray-600 mt-1">Count: {cluster.count} ({cluster.percentage}%)</div>
-                              <div className="text-sm text-gray-700 mt-2">{cluster.insight}</div>
+                  {reportData.pattern_analysis.error ? (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <p className="text-sm text-red-800">
+                        <strong>Analysis Error:</strong> {reportData.pattern_analysis.error}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {/* Lost Reason Clustering */}
+                      {reportData.pattern_analysis.lost_reason_clustering && !reportData.pattern_analysis.lost_reason_clustering.error && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-2">1. Lost Reason Clustering</h4>
+                          {reportData.pattern_analysis.lost_reason_clustering.key_insight && (
+                            <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.lost_reason_clustering.key_insight}</p>
+                          )}
+                          {reportData.pattern_analysis.lost_reason_clustering.clusters && reportData.pattern_analysis.lost_reason_clustering.clusters.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {reportData.pattern_analysis.lost_reason_clustering.clusters.map((cluster: any, idx: number) => (
+                                <div key={idx} className="bg-gray-50 rounded-lg p-3">
+                                  <div className="font-medium text-gray-900">{cluster.cluster_name}</div>
+                                  <div className="text-xs text-gray-600 mt-1">Count: {cluster.count} ({cluster.percentage}%)</div>
+                                  <div className="text-sm text-gray-700 mt-2">{cluster.insight}</div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">No clustering data available</p>
+                          )}
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Customer Profile Patterns */}
                     {reportData.pattern_analysis.customer_profile_patterns && (

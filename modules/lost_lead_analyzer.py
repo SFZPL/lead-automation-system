@@ -855,6 +855,34 @@ Keep insights to 1-2 sentences. Be data-driven and actionable."""
                 messages,
                 max_tokens=40000
             )
+
+            # Log the analysis structure for debugging
+            logger.info(f"Pattern analysis returned with keys: {list(analysis.keys()) if isinstance(analysis, dict) else 'not a dict'}")
+
+            # Validate that we have all 6 required sections
+            if isinstance(analysis, dict):
+                required_sections = [
+                    'lost_reason_clustering',
+                    'customer_profile_patterns',
+                    'stage_analysis',
+                    'deal_size_correlation',
+                    'response_time_impact',
+                    're_engagement_recommendations'
+                ]
+
+                missing_sections = [s for s in required_sections if s not in analysis]
+                if missing_sections:
+                    logger.warning(f"LLM analysis missing sections: {missing_sections}")
+
+                # Check if sections have actual data
+                for section in required_sections:
+                    if section in analysis:
+                        section_data = analysis[section]
+                        if isinstance(section_data, dict):
+                            has_key_insight = 'key_insight' in section_data
+                            data_keys = [k for k in section_data.keys() if k != 'key_insight']
+                            logger.info(f"Section {section}: has_key_insight={has_key_insight}, data_keys={data_keys}")
+
             return analysis
         except Exception as e:
             logger.error(f"Error generating pattern analysis: {e}")
