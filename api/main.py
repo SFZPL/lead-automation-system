@@ -1653,25 +1653,49 @@ def generate_lost_leads_report(
     limit: int = 50,
     salesperson: Optional[str] = None,
     type_filter: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    include_pattern_analysis: bool = False,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
     Generate comprehensive lost leads report with statistics and analysis.
 
+    Args:
+        limit: Max number of lost leads to analyze
+        salesperson: Filter by salesperson name
+        type_filter: Filter by 'lead' or 'opportunity'
+        date_from: Start date in YYYY-MM-DD format (when marked as lost)
+        date_to: End date in YYYY-MM-DD format (when marked as lost)
+        include_pattern_analysis: Generate LLM-powered pattern analysis (6 dimensions)
+
     Returns:
         - Summary statistics (total missed value, average deal size, counts)
         - Reasons analysis (by frequency and by value)
+        - Monthly trends (month-by-month breakdown)
         - Top 10 opportunities to re-contact (scored by value, recency, reason)
+        - Optional: Pattern analysis (6 LLM-powered insights)
     """
     analyzer = get_lost_lead_analyzer()
 
     try:
-        logger.info(f"Generating lost leads report: limit={limit}, salesperson={salesperson}, type={type_filter}")
+        logger.info(f"Generating lost leads report: limit={limit}, salesperson={salesperson}, type={type_filter}, date_from={date_from}, date_to={date_to}, pattern_analysis={include_pattern_analysis}")
         report = analyzer.generate_lost_leads_report(
             limit=limit,
             salesperson_name=salesperson,
-            type_filter=type_filter
+            type_filter=type_filter,
+            date_from=date_from,
+            date_to=date_to
         )
+
+        # Optionally add LLM pattern analysis
+        if include_pattern_analysis and report.get("all_lost_leads"):
+            logger.info("Generating LLM pattern analysis...")
+            pattern_analysis = analyzer.generate_pattern_analysis(
+                lost_leads=report["all_lost_leads"],
+                limit=100
+            )
+            report["pattern_analysis"] = pattern_analysis
 
         return {
             "success": True,

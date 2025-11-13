@@ -762,3 +762,198 @@ class LostLeadAnalyzer:
 
         return scored_leads
 
+    def generate_pattern_analysis(
+        self,
+        lost_leads: List[Dict[str, Any]],
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Generate comprehensive LLM-powered pattern analysis across 6 dimensions:
+        1. Lost reason clustering (group similar loss reasons)
+        2. Customer profile patterns (types of customers being lost)
+        3. Stage analysis (which stage most opportunities die)
+        4. Deal size correlation (are larger deals more likely lost?)
+        5. Response time impact (does slower response correlate with losses?)
+        6. Re-engagement recommendations (which lost opps are most likely to convert)
+
+        Args:
+            lost_leads: List of lost lead/opportunity data
+            limit: Maximum leads to analyze
+
+        Returns:
+            Dict with 6 analysis sections
+        """
+        self._ensure_llm()
+
+        if not lost_leads:
+            return {
+                "lost_reason_clustering": {"error": "No data available"},
+                "customer_profile_patterns": {"error": "No data available"},
+                "stage_analysis": {"error": "No data available"},
+                "deal_size_correlation": {"error": "No data available"},
+                "response_time_impact": {"error": "No data available"},
+                "re_engagement_recommendations": {"error": "No data available"}
+            }
+
+        # Limit the analysis to prevent overwhelming the LLM
+        leads_to_analyze = lost_leads[:limit]
+
+        # Prepare summarized data for LLM
+        leads_summary = []
+        for lead in leads_to_analyze:
+            reason = lead.get("lost_reason_id")
+            reason_name = reason[1] if isinstance(reason, list) and len(reason) > 1 else (str(reason) if reason else "Unknown")
+
+            stage = lead.get("stage_id")
+            stage_name = stage[1] if isinstance(stage, list) and len(stage) > 1 else (str(stage) if stage else "Unknown")
+
+            leads_summary.append({
+                "id": lead.get("id"),
+                "name": lead.get("name"),
+                "type": lead.get("type"),
+                "partner_name": lead.get("partner_name"),
+                "expected_revenue": lead.get("expected_revenue", 0) or 0,
+                "lost_reason": reason_name,
+                "stage": stage_name,
+                "lost_date": lead.get("write_date"),
+                "country": lead.get("country_id", [None, "Unknown"])[1] if isinstance(lead.get("country_id"), list) else "Unknown",
+                "service": lead.get("x_studio_service") or "Not specified",
+                "quality_score": lead.get("x_studio_quality") or "Not rated"
+            })
+
+        # Build comprehensive prompt for pattern analysis
+        prompt = f"""Analyze these {len(leads_summary)} lost opportunities and provide insights across 6 dimensions:
+
+LOST OPPORTUNITIES DATA:
+{self._format_leads_for_llm(leads_summary)}
+
+Provide analysis in this exact JSON structure:
+{{
+    "lost_reason_clustering": {{
+        "clusters": [
+            {{
+                "cluster_name": "Price-Related Losses",
+                "reasons": ["price too high", "budget", "expensive"],
+                "count": <number>,
+                "percentage": <percentage>,
+                "insight": "<1-2 sentence insight about this cluster>"
+            }}
+        ],
+        "key_insight": "<1-2 sentence overall insight about loss reason patterns>"
+    }},
+    "customer_profile_patterns": {{
+        "profiles": [
+            {{
+                "profile_name": "Enterprise Customers",
+                "characteristics": ["large revenue deals", "specific countries", "specific services"],
+                "loss_rate": "<high/medium/low>",
+                "common_reasons": ["reason1", "reason2"],
+                "insight": "<1-2 sentence insight>"
+            }}
+        ],
+        "key_insight": "<1-2 sentence overall insight about customer patterns>"
+    }},
+    "stage_analysis": {{
+        "critical_stages": [
+            {{
+                "stage": "Proposal Sent",
+                "loss_count": <number>,
+                "percentage": <percentage>,
+                "total_value": <number>,
+                "insight": "<1-2 sentence insight>"
+            }}
+        ],
+        "key_insight": "<1-2 sentence overall insight about stage patterns>"
+    }},
+    "deal_size_correlation": {{
+        "segments": [
+            {{
+                "segment": "Large Deals (>$50k)",
+                "count": <number>,
+                "loss_rate": "<percentage>",
+                "common_reasons": ["reason1", "reason2"],
+                "insight": "<1-2 sentence insight>"
+            }}
+        ],
+        "key_insight": "<1-2 sentence overall insight about deal size vs loss rate>"
+    }},
+    "response_time_impact": {{
+        "findings": [
+            {{
+                "observation": "<specific observation about response times if data available>",
+                "impact": "<high/medium/low>",
+                "insight": "<1-2 sentence insight>"
+            }}
+        ],
+        "key_insight": "<1-2 sentence overall insight - NOTE: if response time data is not available in the dataset, state 'Response time data not available in current dataset for analysis'>"
+    }},
+    "re_engagement_recommendations": {{
+        "priorities": [
+            {{
+                "priority": "High",
+                "criteria": ["recent losses", "budget/timing reasons", "high value"],
+                "count": <number>,
+                "approach": "<1-2 sentence recommended approach>",
+                "insight": "<1-2 sentence insight>"
+            }}
+        ],
+        "key_insight": "<1-2 sentence overall insight about re-engagement strategy>"
+    }}
+}}
+
+Important:
+- Be specific and data-driven
+- Identify actual patterns in the data
+- Keep insights concise (1-2 sentences each)
+- If certain data (like response times) is not available, state that clearly
+- Focus on actionable insights"""
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert sales analyst specializing in lost opportunity analysis. "
+                    "Identify patterns, correlations, and actionable insights from sales data. "
+                    "Always return valid JSON in the exact structure requested."
+                )
+            },
+            {"role": "user", "content": prompt}
+        ]
+
+        try:
+            analysis = self.llm.chat_completion_json(
+                messages,
+                max_tokens=3000,
+                temperature=0.3
+            )
+            return analysis
+        except Exception as e:
+            logger.error(f"Error generating pattern analysis: {e}")
+            return {
+                "error": str(e),
+                "lost_reason_clustering": {"error": "Analysis failed"},
+                "customer_profile_patterns": {"error": "Analysis failed"},
+                "stage_analysis": {"error": "Analysis failed"},
+                "deal_size_correlation": {"error": "Analysis failed"},
+                "response_time_impact": {"error": "Analysis failed"},
+                "re_engagement_recommendations": {"error": "Analysis failed"}
+            }
+
+    def _format_leads_for_llm(self, leads: List[Dict[str, Any]]) -> str:
+        """Format leads data in a concise way for LLM analysis."""
+        lines = []
+        for lead in leads:
+            line_parts = [
+                f"ID:{lead['id']}",
+                f"Name:{lead['name'][:50]}",
+                f"Type:{lead['type']}",
+                f"Value:AED{lead['expected_revenue']}",
+                f"Reason:{lead['lost_reason']}",
+                f"Stage:{lead['stage']}",
+                f"Country:{lead['country']}",
+                f"Service:{lead['service']}",
+                f"Quality:{lead['quality_score']}"
+            ]
+            lines.append(" | ".join(line_parts))
+        return "\n".join(lines)
+
