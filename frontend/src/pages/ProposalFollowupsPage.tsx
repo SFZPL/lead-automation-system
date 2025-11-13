@@ -106,7 +106,11 @@ const ProposalFollowupsPage: React.FC = () => {
 
   const [daysBack, setDaysBack] = useState<number>(() => getStoredState('daysBack', 3));
   const [noResponseDays, setNoResponseDays] = useState<number>(() => getStoredState('noResponseDays', 3));
-  const [selectedTab, setSelectedTab] = useState<'unanswered' | 'pending' | 'reports'>(() => getStoredState('selectedTab', 'unanswered'));
+  const [selectedTab, setSelectedTab] = useState<'unanswered' | 'pending' | 'reports'>(() => {
+    // Always restore from localStorage, even after Teams tab switch
+    const stored = getStoredState('selectedTab', 'reports');
+    return stored;
+  });
   const [expandedThread, setExpandedThread] = useState<string | null>(() => getStoredState('expandedThread', null));
   const [hasStarted, setHasStarted] = useState<boolean>(false);
   const [startTime, setStartTime] = useState<number | null>(null);
@@ -910,15 +914,7 @@ const ProposalFollowupsPage: React.FC = () => {
 
       {/* Content */}
       <div>
-        {!hasStarted && (
-          <div className="text-center py-20">
-            <PlayIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Ready to Analyze</h3>
-            <p className="text-gray-600">
-              Click "Start Analysis" to begin scanning proposal follow-ups from engage@prezlab.com
-            </p>
-          </div>
-        )}
+        {/* Removed "Ready to Analyze" section - now defaults to Saved Reports tab */}
 
         {hasStarted && followupsQuery.isLoading && (
           <div className="text-center py-12">
