@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -39,6 +39,34 @@ const queryClient = new QueryClient({
   },
 });
 
+// Route persistence component for Teams environment
+const RoutePersistence = ({ children }: { children: React.ReactNode }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const inTeams = isTeamsEnvironment();
+
+  // Save current route when it changes
+  React.useEffect(() => {
+    if (inTeams && location.pathname !== '/auth/outlook/callback') {
+      localStorage.setItem('teams_lastRoute', location.pathname);
+      console.log('Saved route:', location.pathname);
+    }
+  }, [location.pathname, inTeams]);
+
+  // Restore route on mount (only once)
+  React.useEffect(() => {
+    if (inTeams) {
+      const savedRoute = localStorage.getItem('teams_lastRoute');
+      if (savedRoute && savedRoute !== location.pathname && savedRoute !== '/auth/outlook/callback') {
+        console.log('Restoring route:', savedRoute);
+        navigate(savedRoute, { replace: true });
+      }
+    }
+  }, []); // Empty deps - only run on mount
+
+  return <>{children}</>;
+};
+
 const AppContent = () => {
   const { isAuthenticated } = useAuth();
 
@@ -48,41 +76,44 @@ const AppContent = () => {
 
   return (
     <Router>
-      <div className="App">
-        <Layout>
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/enrichment" element={<PerplexityPage />} />
-            <Route path="/lost-leads" element={<LostLeadsPage />} />
-            <Route path="/re-engage" element={<ReEngagePage />} />
-            <Route path="/followups" element={<FollowupsHubPage />} />
-            <Route path="/call-flow" element={<CallFlowPage />} />
-            <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
-            <Route path="/nda-analysis" element={<NDAAnalysisPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/auth/outlook/callback" element={<EmailCallbackPage />} />
-          </Routes>        </Layout>
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#363636',
-              color: '#fff',
-            },
-            success: {
+      <RoutePersistence>
+        <div className="App">
+          <Layout>
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/enrichment" element={<PerplexityPage />} />
+              <Route path="/lost-leads" element={<LostLeadsPage />} />
+              <Route path="/re-engage" element={<ReEngagePage />} />
+              <Route path="/followups" element={<FollowupsHubPage />} />
+              <Route path="/call-flow" element={<CallFlowPage />} />
+              <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
+              <Route path="/nda-analysis" element={<NDAAnalysisPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/auth/outlook/callback" element={<EmailCallbackPage />} />
+            </Routes>
+          </Layout>
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
               style: {
-                background: '#10b981',
+                background: '#363636',
+                color: '#fff',
               },
-            },
-            error: {
-              style: {
-                background: '#ef4444',
+              success: {
+                style: {
+                  background: '#10b981',
+                },
               },
-            },
-          }}
-        />
-      </div>
+              error: {
+                style: {
+                  background: '#ef4444',
+                },
+              },
+            }}
+          />
+        </div>
+      </RoutePersistence>
     </Router>
   );
 };

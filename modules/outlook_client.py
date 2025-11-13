@@ -1202,21 +1202,33 @@ class OutlookClient:
         Returns:
             True if notification sent successfully
         """
-        # Build simple text message
-        message_text = f"Hi! There's an email follow-up\n\n"
-        message_text += f"Subject: {lead_subject}\n"
-        message_text += f"Contact: {lead_email}\n"
+        # Build HTML message with structured format
+        message_html = f"""
+<h2>🔔 New Lead Assigned to You</h2>
+<p>Hi {assignee_name},</p>
+<p>You've been assigned a new lead:</p>
+<ul>
+<li><strong>Subject:</strong> {lead_subject}</li>
+<li><strong>Contact:</strong> {lead_email}</li>
+"""
 
         if lead_company:
-            message_text += f"Company: {lead_company}\n"
+            message_html += f"<li><strong>Company:</strong> {lead_company}</li>\n"
 
         if notes:
-            message_text += f"\nSummary: {notes}"
+            message_html += f"<li><strong>Summary:</strong> {notes}</li>\n"
+
+        message_html += "</ul>\n"
+
+        if app_url:
+            message_html += f'<p><a href="{app_url}">View in Lead Hub</a></p>\n'
+
+        message_html += "<p>Please follow up at your earliest convenience.</p>"
 
         # Send the message
         return self.send_teams_chat_message(
             access_token=access_token,
             user_id=assignee_user_id,
-            message_text=message_text,
-            message_html=None
+            message_text=f"New lead assigned: {lead_subject}",
+            message_html=message_html
         )

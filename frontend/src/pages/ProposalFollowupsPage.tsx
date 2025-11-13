@@ -112,7 +112,7 @@ const ProposalFollowupsPage: React.FC = () => {
     return stored;
   });
   const [expandedThread, setExpandedThread] = useState<string | null>(() => getStoredState('expandedThread', null));
-  const [hasStarted, setHasStarted] = useState<boolean>(false);
+  const [hasStarted, setHasStarted] = useState<boolean>(true);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState<number>(0);
   const [forceRefresh, setForceRefresh] = useState<boolean>(false);
