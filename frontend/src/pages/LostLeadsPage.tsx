@@ -1356,18 +1356,26 @@ const LostLeadsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Pattern Analysis Option */}
-            <div className="mt-4 flex items-center">
-              <input
-                id="includePatternAnalysis"
-                type="checkbox"
-                checked={includePatternAnalysis}
-                onChange={(e) => setIncludePatternAnalysis(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-              />
-              <label htmlFor="includePatternAnalysis" className="ml-2 text-sm text-gray-700">
-                Include LLM Pattern Analysis (Lost reason clustering, Customer profiles, Stage analysis, Deal size correlation, Response time impact, Re-engagement recommendations)
-              </label>
+            {/* AI Analysis Option */}
+            <div className="mt-4 rounded-lg border-2 border-primary-200 bg-gradient-to-r from-primary-50 to-purple-50 p-4">
+              <div className="flex items-start gap-3">
+                <input
+                  id="includePatternAnalysis"
+                  type="checkbox"
+                  checked={includePatternAnalysis}
+                  onChange={(e) => setIncludePatternAnalysis(e.target.checked)}
+                  className="mt-1 h-5 w-5 rounded border-primary-300 text-primary-600 focus:ring-2 focus:ring-primary-500"
+                />
+                <div className="flex-1">
+                  <label htmlFor="includePatternAnalysis" className="flex items-center gap-2 text-base font-semibold text-gray-900 cursor-pointer">
+                    <SparklesIcon className="h-5 w-5 text-primary-600" />
+                    Integrate Full AI Analysis
+                  </label>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Powered by GPT-5: Lost reason clustering, customer profiles, stage analysis, deal size correlation, response time impact & re-engagement recommendations
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1411,7 +1419,7 @@ const LostLeadsPage: React.FC = () => {
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Month-by-Month Trends</h3>
                   <div className="h-96">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={reportData.monthly_trends} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
+                      <LineChart data={reportData.monthly_trends} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis
                           dataKey="month_display"
@@ -1440,11 +1448,11 @@ const LostLeadsPage: React.FC = () => {
                           }}
                         />
                         <Legend />
-                        <Bar yAxisId="left" dataKey="count" fill="#8b5cf6" name="Total Lost" />
-                        <Bar yAxisId="left" dataKey="leads" fill="#3b82f6" name="Leads" />
-                        <Bar yAxisId="left" dataKey="opportunities" fill="#10b981" name="Opportunities" />
-                        <Bar yAxisId="right" dataKey="total_value" fill="#ef4444" name="Total Value" />
-                      </BarChart>
+                        <Line yAxisId="left" type="monotone" dataKey="count" stroke="#8b5cf6" strokeWidth={3} name="Total Lost" dot={{ r: 5 }} />
+                        <Line yAxisId="left" type="monotone" dataKey="leads" stroke="#3b82f6" strokeWidth={2} name="Leads" dot={{ r: 4 }} />
+                        <Line yAxisId="left" type="monotone" dataKey="opportunities" stroke="#10b981" strokeWidth={2} name="Opportunities" dot={{ r: 4 }} />
+                        <Line yAxisId="right" type="monotone" dataKey="total_value" stroke="#ef4444" strokeWidth={3} name="Total Value" dot={{ r: 5 }} />
+                      </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
