@@ -822,21 +822,52 @@ class LostLeadAnalyzer:
             })
 
         # Build comprehensive prompt for pattern analysis
-        prompt = f"""Analyze {len(leads_summary)} lost opportunities across 6 dimensions. Return valid JSON with this structure:
+        prompt = f"""Analyze {len(leads_summary)} lost opportunities. Return EXACT JSON structure below:
 
 DATA:
 {self._format_leads_for_llm(leads_summary)}
 
-Return JSON with these 6 keys, each containing clusters/profiles/segments with key_insight summary:
+RETURN THIS EXACT JSON STRUCTURE:
+{{
+  "lost_reason_clustering": {{
+    "key_insight": "1-2 sentence summary",
+    "clusters": [
+      {{"cluster_name": "...", "reasons": ["..."], "count": 0, "percentage": 0, "insight": "..."}}
+    ]
+  }},
+  "customer_profile_patterns": {{
+    "key_insight": "1-2 sentence summary",
+    "profiles": [
+      {{"profile_name": "...", "characteristics": ["..."], "loss_rate": "high/medium/low", "common_reasons": ["..."], "insight": "..."}}
+    ]
+  }},
+  "stage_analysis": {{
+    "key_insight": "1-2 sentence summary",
+    "critical_stages": [
+      {{"stage": "...", "loss_count": 0, "percentage": 0, "total_value": 0, "insight": "..."}}
+    ]
+  }},
+  "deal_size_correlation": {{
+    "key_insight": "1-2 sentence summary",
+    "segments": [
+      {{"segment": "Small/Medium/Large Deals", "count": 0, "loss_rate": "0%", "common_reasons": ["..."], "insight": "..."}}
+    ]
+  }},
+  "response_time_impact": {{
+    "key_insight": "1-2 sentence summary (or 'Response time data not available')",
+    "findings": [
+      {{"observation": "...", "impact": "high/medium/low", "insight": "..."}}
+    ]
+  }},
+  "re_engagement_recommendations": {{
+    "key_insight": "1-2 sentence summary",
+    "priorities": [
+      {{"priority": "High/Medium/Low", "criteria": ["..."], "count": 0, "approach": "...", "insight": "..."}}
+    ]
+  }}
+}}
 
-1. lost_reason_clustering: Group similar reasons into 3-4 clusters. Each cluster has: cluster_name, reasons[], count, percentage, insight
-2. customer_profile_patterns: Identify 2-3 customer profiles. Each has: profile_name, characteristics[], loss_rate, common_reasons[], insight
-3. stage_analysis: List critical stages where losses occur. Each has: stage, loss_count, percentage, total_value, insight
-4. deal_size_correlation: Segment by deal size (small/medium/large). Each has: segment, count, loss_rate, common_reasons[], insight
-5. response_time_impact: If data unavailable, say so. Otherwise: observation, impact (high/medium/low), insight
-6. re_engagement_recommendations: Prioritize by High/Medium/Low. Each has: priority, criteria[], count, approach, insight
-
-Keep insights to 1-2 sentences. Be data-driven and actionable."""
+CRITICAL: Match this structure EXACTLY. All sections must have key_insight + their data array."""
 
         messages = [
             {
