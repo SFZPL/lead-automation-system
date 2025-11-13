@@ -2478,7 +2478,7 @@ def mark_followup_complete(
         # Update all saved reports to remove this thread
         try:
             # Get all saved proposal followup reports
-            reports = supabase.table("analysis_cache")\
+            reports = supabase.client.table("analysis_cache")\
                 .select("*")\
                 .eq("analysis_type", "proposal_followups")\
                 .eq("is_shared", True)\
@@ -2517,7 +2517,7 @@ def mark_followup_complete(
 
                     # Save updated report if changed
                     if updated:
-                        supabase.table("analysis_cache")\
+                        supabase.client.table("analysis_cache")\
                             .update({"results": results})\
                             .eq("id", report["id"])\
                             .execute()
@@ -3359,7 +3359,7 @@ def system_outlook_auth_callback_post(
 
         try:
             # Upsert into email_tokens table
-            result = supabase.table("email_tokens").upsert({
+            result = supabase.client.table("email_tokens").upsert({
                 "user_identifier": system_identifier,
                 "access_token": access_token,
                 "refresh_token": refresh_token,
