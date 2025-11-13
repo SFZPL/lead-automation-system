@@ -853,8 +853,7 @@ Keep insights to 1-2 sentences. Be data-driven and actionable."""
         try:
             analysis = self.llm.chat_completion_json(
                 messages,
-                max_tokens=4000,
-                temperature=0.3
+                max_tokens=40000
             )
             return analysis
         except Exception as e:

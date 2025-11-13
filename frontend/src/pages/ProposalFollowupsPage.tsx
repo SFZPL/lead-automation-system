@@ -188,8 +188,8 @@ const ProposalFollowupsPage: React.FC = () => {
     },
     {
       enabled: selectedTab === 'reports',
-      refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      refetchOnWindowFocus: true,
+      staleTime: 10 * 1000, // 10 seconds - shorter to pick up completion changes quickly
       onError: (error) => {
         console.error('Error fetching saved reports:', error);
         toast.error('Failed to load saved reports');
