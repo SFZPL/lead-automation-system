@@ -43,15 +43,25 @@ class EmailTemplateGenerator:
         Returns:
             Email body text
         """
-        full_name = lead_data.get('Full Name', 'there').strip()
+        full_name = lead_data.get('Full Name', '').strip()
         company = lead_data.get('Company', '').strip()
+
+        # Extract first name from full name
+        if full_name:
+            # Split by space and take the first part
+            first_name = full_name.split()[0] if full_name.split() else full_name
+        else:
+            first_name = ''
+
+        # Format greeting: "Dear [First Name]" or just "Dear" if no name
+        greeting = f"Dear {first_name}" if first_name else "Dear"
 
         # Check if we have a valid company name
         has_company = company and company.lower() not in ['not found', 'n/a', 'none', '']
 
         if has_company:
             # Personalized template with company name
-            body = f"""Hello {full_name},
+            body = f"""{greeting},
 
 Thank you for reaching out to PrezLab. We are excited to connect with you and learn more about your project needs at {company}.
 
@@ -64,7 +74,7 @@ Looking forward to hearing from you.
 Best regards,"""
         else:
             # Basic template without company
-            body = f"""Hello {full_name},
+            body = f"""{greeting},
 
 Thank you for reaching out to PrezLab. We are excited to connect with you and learn more about your project needs.
 

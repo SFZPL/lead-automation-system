@@ -10,6 +10,13 @@ from config import Config
 from modules.odoo_client import OdooClient
 from modules.email_template_generator import EmailTemplateGenerator
 
+try:
+    import phonenumbers
+    from phonenumbers import geocoder
+    PHONENUMBERS_AVAILABLE = True
+except ImportError:
+    PHONENUMBERS_AVAILABLE = False
+
 
 class PerplexityWorkflow:
     def __init__(self, config: Config):
@@ -548,8 +555,8 @@ class PerplexityWorkflow:
             'Company Size': r'Company Size:\s*(.+?)(?:\n|$)',
             'Company Revenue Estimated': r'Revenue Estimate:\s*(.+?)(?:\n|$)',
             'Company year EST': r'Founded:\s*(.+?)(?:\n|$)',
-            'Phone': r'Phone:\s*(.+?)(?:\n|$)',
-            'Mobile': r'Mobile:\s*(.+?)(?:\n|$)',
+            '_new_phone': r'Phone:\s*(.+?)(?:\n|$)',
+            '_new_mobile': r'Mobile:\s*(.+?)(?:\n|$)',
             'email': r'Professional Email:\s*(.+?)(?:\n|$)',
             'Language': r'Language:\s*(.+?)(?:\n|$)',
             'Company Description': r'Company Description:\s*(.+?)(?:\n|$)',
@@ -571,13 +578,44 @@ class PerplexityWorkflow:
                     # NEVER overwrite Full Name - we set it from original above
                     if field_name == 'Full Name':
                         continue
-                    # Special handling for email - extract just the email address
+                    # Special handling for email - NEVER overwrite lead-provided email
                     elif field_name == 'email':
                         # Look for email pattern in the value
                         email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', value)
                         if email_match:
-                            enriched_lead[field_name] = email_match.group(0)
+                            new_email = email_match.group(0)
+                            original_email = original_lead.get('email')
+
+                            # If lead already has an email, add new email to notes instead
+                            if original_email and original_email.strip():
+                                if new_email.lower() != original_email.lower():
+                                    notes = enriched_lead.get('Notes', '')
+                                    if notes:
+                                        enriched_lead['Notes'] = f"{notes} | Additional email found: {new_email}"
+                                    else:
+                                        enriched_lead['Notes'] = f"Additional email found: {new_email}"
+                                    print(f"   [INFO] Preserved original email, added new email to notes: {new_email}")
+                            else:
+                                # No original email, safe to add
+                                enriched_lead[field_name] = new_email
                         # Skip if no valid email found
+                    # Special handling for phone numbers - NEVER overwrite lead-provided phones
+                    elif field_name in ['_new_phone', '_new_mobile']:
+                        phone_type = 'Phone' if field_name == '_new_phone' else 'Mobile'
+                        original_phone = original_lead.get(phone_type)
+
+                        # If lead already has this phone type, add new one to notes instead
+                        if original_phone and original_phone.strip():
+                            if value != original_phone:
+                                notes = enriched_lead.get('Notes', '')
+                                if notes:
+                                    enriched_lead['Notes'] = f"{notes} | Additional {phone_type.lower()} found: {value}"
+                                else:
+                                    enriched_lead['Notes'] = f"Additional {phone_type.lower()} found: {value}"
+                                print(f"   [INFO] Preserved original {phone_type.lower()}, added new to notes: {value}")
+                        else:
+                            # No original phone, safe to add
+                            enriched_lead[phone_type] = value
                     # Validate URLs for website and LinkedIn fields
                     elif field_name in ['website', 'LinkedIn Link']:
                         # Only accept if it looks like a valid URL
@@ -633,14 +671,35 @@ class PerplexityWorkflow:
             if email and '@' in email:
                 enriched_lead['email'] = email
 
-        # Clean and validate website URLs
-        if 'website' in enriched_lead and enriched_lead['website']:
-            website = enriched_lead['website']
+        # Prioritize Company LinkedIn over company website in the website field
+        company_linkedin = enriched_lead.get('Company LinkedIn')
+        company_website = enriched_lead.get('website')
+
+        if company_linkedin:
+            # Clean markdown format
+            markdown_match = re.search(r'\[([^\]]+)\]\(([^\)]+)\)', company_linkedin)
+            if markdown_match:
+                company_linkedin = markdown_match.group(2)
+
+            # Put company LinkedIn in website field for quick access
+            enriched_lead['website'] = company_linkedin
+
+            # If we had a company website, add it to notes for reference
+            if company_website and company_website != company_linkedin:
+                notes = enriched_lead.get('Notes', '')
+                if notes:
+                    enriched_lead['Notes'] = f"{notes} | Company website: {company_website}"
+                else:
+                    enriched_lead['Notes'] = f"Company website: {company_website}"
+                print(f"   [INFO] Prioritized LinkedIn over website URL in website field")
+
+        elif company_website:
+            # No LinkedIn, just clean website URL
+            website = company_website
 
             # Remove markdown link format: [url](url) or [text](url)
             markdown_match = re.search(r'\[([^\]]+)\]\(([^\)]+)\)', website)
             if markdown_match:
-                # Use the URL from the parentheses
                 website = markdown_match.group(2)
 
             if not website.startswith(('http://', 'https://')):
@@ -661,6 +720,36 @@ class PerplexityWorkflow:
                 linkedin = markdown_match.group(2)
 
             enriched_lead['LinkedIn Link'] = linkedin
+
+        # Country detection from phone number (if not already set)
+        if PHONENUMBERS_AVAILABLE and not enriched_lead.get('Country'):
+            phone_number = enriched_lead.get('Phone') or enriched_lead.get('Mobile') or original_lead.get('Phone') or original_lead.get('Mobile')
+            if phone_number:
+                try:
+                    parsed = phonenumbers.parse(phone_number, None)
+                    if phonenumbers.is_valid_number(parsed):
+                        country = geocoder.description_for_number(parsed, 'en')
+                        if country:
+                            enriched_lead['Country'] = country
+                            print(f"   [INFO] Detected country from phone: {country}")
+                except Exception as e:
+                    # Silently fail - not critical
+                    pass
+
+        # Student detection - set quality to 0
+        notes_text = enriched_lead.get('Notes', '').lower()
+        job_role = enriched_lead.get('Job Role', '').lower()
+        company_name = enriched_lead.get('Company Name', '').lower()
+
+        student_keywords = ['student', 'studying', 'undergraduate', 'graduate student', 'phd candidate', 'university student', 'college student']
+        is_student = any(keyword in notes_text or keyword in job_role or keyword in company_name for keyword in student_keywords)
+
+        if is_student:
+            enriched_lead['Quality (Out of 5)'] = '0'
+            if 'Notes' in enriched_lead:
+                enriched_lead['Notes'] = f"[STUDENT - Quality set to 0] {enriched_lead['Notes']}"
+            else:
+                enriched_lead['Notes'] = '[STUDENT - Quality set to 0]'
 
         # Mark as enriched
         enriched_lead['Enriched'] = 'Yes'
