@@ -822,91 +822,21 @@ class LostLeadAnalyzer:
             })
 
         # Build comprehensive prompt for pattern analysis
-        prompt = f"""Analyze these {len(leads_summary)} lost opportunities and provide insights across 6 dimensions:
+        prompt = f"""Analyze {len(leads_summary)} lost opportunities across 6 dimensions. Return valid JSON with this structure:
 
-LOST OPPORTUNITIES DATA:
+DATA:
 {self._format_leads_for_llm(leads_summary)}
 
-Provide analysis in this exact JSON structure:
-{{
-    "lost_reason_clustering": {{
-        "clusters": [
-            {{
-                "cluster_name": "Price-Related Losses",
-                "reasons": ["price too high", "budget", "expensive"],
-                "count": <number>,
-                "percentage": <percentage>,
-                "insight": "<1-2 sentence insight about this cluster>"
-            }}
-        ],
-        "key_insight": "<1-2 sentence overall insight about loss reason patterns>"
-    }},
-    "customer_profile_patterns": {{
-        "profiles": [
-            {{
-                "profile_name": "Enterprise Customers",
-                "characteristics": ["large revenue deals", "specific countries", "specific services"],
-                "loss_rate": "<high/medium/low>",
-                "common_reasons": ["reason1", "reason2"],
-                "insight": "<1-2 sentence insight>"
-            }}
-        ],
-        "key_insight": "<1-2 sentence overall insight about customer patterns>"
-    }},
-    "stage_analysis": {{
-        "critical_stages": [
-            {{
-                "stage": "Proposal Sent",
-                "loss_count": <number>,
-                "percentage": <percentage>,
-                "total_value": <number>,
-                "insight": "<1-2 sentence insight>"
-            }}
-        ],
-        "key_insight": "<1-2 sentence overall insight about stage patterns>"
-    }},
-    "deal_size_correlation": {{
-        "segments": [
-            {{
-                "segment": "Large Deals (>$50k)",
-                "count": <number>,
-                "loss_rate": "<percentage>",
-                "common_reasons": ["reason1", "reason2"],
-                "insight": "<1-2 sentence insight>"
-            }}
-        ],
-        "key_insight": "<1-2 sentence overall insight about deal size vs loss rate>"
-    }},
-    "response_time_impact": {{
-        "findings": [
-            {{
-                "observation": "<specific observation about response times if data available>",
-                "impact": "<high/medium/low>",
-                "insight": "<1-2 sentence insight>"
-            }}
-        ],
-        "key_insight": "<1-2 sentence overall insight - NOTE: if response time data is not available in the dataset, state 'Response time data not available in current dataset for analysis'>"
-    }},
-    "re_engagement_recommendations": {{
-        "priorities": [
-            {{
-                "priority": "High",
-                "criteria": ["recent losses", "budget/timing reasons", "high value"],
-                "count": <number>,
-                "approach": "<1-2 sentence recommended approach>",
-                "insight": "<1-2 sentence insight>"
-            }}
-        ],
-        "key_insight": "<1-2 sentence overall insight about re-engagement strategy>"
-    }}
-}}
+Return JSON with these 6 keys, each containing clusters/profiles/segments with key_insight summary:
 
-Important:
-- Be specific and data-driven
-- Identify actual patterns in the data
-- Keep insights concise (1-2 sentences each)
-- If certain data (like response times) is not available, state that clearly
-- Focus on actionable insights"""
+1. lost_reason_clustering: Group similar reasons into 3-4 clusters. Each cluster has: cluster_name, reasons[], count, percentage, insight
+2. customer_profile_patterns: Identify 2-3 customer profiles. Each has: profile_name, characteristics[], loss_rate, common_reasons[], insight
+3. stage_analysis: List critical stages where losses occur. Each has: stage, loss_count, percentage, total_value, insight
+4. deal_size_correlation: Segment by deal size (small/medium/large). Each has: segment, count, loss_rate, common_reasons[], insight
+5. response_time_impact: If data unavailable, say so. Otherwise: observation, impact (high/medium/low), insight
+6. re_engagement_recommendations: Prioritize by High/Medium/Low. Each has: priority, criteria[], count, approach, insight
+
+Keep insights to 1-2 sentences. Be data-driven and actionable."""
 
         messages = [
             {
@@ -923,7 +853,7 @@ Important:
         try:
             analysis = self.llm.chat_completion_json(
                 messages,
-                max_tokens=3000,
+                max_tokens=4000,
                 temperature=0.3
             )
             return analysis

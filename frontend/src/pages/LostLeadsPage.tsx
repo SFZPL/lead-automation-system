@@ -1409,16 +1409,16 @@ const LostLeadsPage: React.FC = () => {
               {reportData.monthly_trends && reportData.monthly_trends.length > 0 && (
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Month-by-Month Trends</h3>
-                  <div className="h-80">
+                  <div className="h-96">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={reportData.monthly_trends}>
+                      <BarChart data={reportData.monthly_trends} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis
                           dataKey="month_display"
                           tick={{ fontSize: 12 }}
                           angle={-45}
                           textAnchor="end"
-                          height={80}
+                          height={100}
                         />
                         <YAxis
                           yAxisId="left"
