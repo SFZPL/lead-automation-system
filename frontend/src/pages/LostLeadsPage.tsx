@@ -158,6 +158,8 @@ const LostLeadsPage: React.FC = () => {
   const [editedTitle, setEditedTitle] = useState<string>('');
   const [reportLimit, setReportLimit] = useState<number>(50);
   const [reportTypeFilter, setReportTypeFilter] = useState<string>('');
+  const [reportDateFrom, setReportDateFrom] = useState<string>('');
+  const [reportDateTo, setReportDateTo] = useState<string>('');
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
 
   // Persist report data to sessionStorage
@@ -571,7 +573,9 @@ const LostLeadsPage: React.FC = () => {
       const response = await api.generateLostLeadsReport({
         limit: reportLimit,
         salesperson,
-        type_filter: reportTypeFilter || undefined
+        type_filter: reportTypeFilter || undefined,
+        date_from: reportDateFrom || undefined,
+        date_to: reportDateTo || undefined
       });
       setReportData(response.data.report);
       toast.success('Report generated successfully!');
@@ -1270,7 +1274,7 @@ const LostLeadsPage: React.FC = () => {
           <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Generate Lost Leads Report</h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
               <div>
                 <label htmlFor="reportLimit" className="block text-sm font-medium text-gray-700 mb-1">
                   Number of Leads
@@ -1300,6 +1304,32 @@ const LostLeadsPage: React.FC = () => {
                   <option value="lead">Leads Only</option>
                   <option value="opportunity">Opportunities Only</option>
                 </select>
+              </div>
+
+              <div>
+                <label htmlFor="reportDateFrom" className="block text-sm font-medium text-gray-700 mb-1">
+                  From Date (Lost)
+                </label>
+                <input
+                  id="reportDateFrom"
+                  type="date"
+                  value={reportDateFrom}
+                  onChange={(e) => setReportDateFrom(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="reportDateTo" className="block text-sm font-medium text-gray-700 mb-1">
+                  To Date (Lost)
+                </label>
+                <input
+                  id="reportDateTo"
+                  type="date"
+                  value={reportDateTo}
+                  onChange={(e) => setReportDateTo(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
               </div>
 
               <div className="flex items-end">
