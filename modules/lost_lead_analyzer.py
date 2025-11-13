@@ -440,6 +440,8 @@ class LostLeadAnalyzer:
         limit: int = 50,
         salesperson_name: Optional[str] = None,
         type_filter: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Generate comprehensive lost leads report with statistics and analysis.
@@ -448,6 +450,8 @@ class LostLeadAnalyzer:
             limit: Number of lost leads to analyze
             salesperson_name: Filter by salesperson
             type_filter: Filter by 'lead' or 'opportunity' or None for both
+            date_from: Start date in YYYY-MM-DD format
+            date_to: End date in YYYY-MM-DD format
 
         Returns:
             Dict with statistics, reasons analysis, and top opportunities to re-contact
@@ -456,11 +460,17 @@ class LostLeadAnalyzer:
         self._ensure_llm()
 
         # Fetch lost leads
-        logger.info(f"Fetching {limit} lost leads for report generation")
+        date_filter_info = ""
+        if date_from or date_to:
+            date_filter_info = f" (from {date_from or 'beginning'} to {date_to or 'now'})"
+        logger.info(f"Fetching {limit} lost leads for report generation{date_filter_info}")
+
         lost_leads = self.odoo.get_lost_leads(
             limit=limit,
             salesperson_name=salesperson_name,
-            type_filter=type_filter
+            type_filter=type_filter,
+            date_from=date_from,
+            date_to=date_to
         )
 
         if not lost_leads:

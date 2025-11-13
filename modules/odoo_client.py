@@ -915,10 +915,21 @@ class OdooClient:
         salesperson_name: Optional[str] = None,
         fields: Optional[List[str]] = None,
         type_filter: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Return recently lost leads/opportunities.
         Fetches leads with probability = 0, regardless of active status.
         Optionally filter by type: 'lead' or 'opportunity'.
+        Optionally filter by date range (when they were marked as lost).
+
+        Args:
+            limit: Max number of results
+            salesperson_name: Filter by salesperson
+            fields: Specific fields to fetch
+            type_filter: 'lead' or 'opportunity' or None for both
+            date_from: Start date in YYYY-MM-DD format (inclusive)
+            date_to: End date in YYYY-MM-DD format (inclusive)
         """
         user_id: Optional[int] = None
         if salesperson_name:
@@ -942,6 +953,19 @@ class OdooClient:
 
         if user_id:
             domain.append(['user_id', '=', user_id])
+
+        # Add date range filter (filter by write_date which is when they were marked as lost)
+        if date_from:
+            domain.append(['write_date', '>=', date_from])
+            logger.info(f"Filtering lost leads from date: {date_from}")
+
+        if date_to:
+            # Add one day to make it inclusive of the end date
+            from datetime import datetime, timedelta
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+            date_to_inclusive = (date_to_obj + timedelta(days=1)).strftime('%Y-%m-%d')
+            domain.append(['write_date', '<', date_to_inclusive])
+            logger.info(f"Filtering lost leads to date: {date_to}")
 
         fields_to_fetch = fields or [
             'id', 'name', 'stage_id', 'lost_reason_id',
