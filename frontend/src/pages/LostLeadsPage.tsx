@@ -1558,6 +1558,53 @@ const LostLeadsPage: React.FC = () => {
                     </div>
                   ) : (
                     <div className="space-y-6">
+                      {/* Executive Summary */}
+                      <div className="bg-gradient-to-r from-primary-50 to-purple-50 rounded-xl p-5 border-2 border-primary-200">
+                        <div className="flex items-center gap-2 mb-4">
+                          <svg className="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <h4 className="text-lg font-bold text-gray-900">Key Findings</h4>
+                        </div>
+                        <div className="space-y-3">
+                          {/* Top Lost Reason */}
+                          {reportData.pattern_analysis.lost_reason_clustering?.clusters?.[0] && (
+                            <div className="flex items-start gap-3">
+                              <span className="flex-shrink-0 mt-1 text-xl">🔴</span>
+                              <div>
+                                <span className="font-semibold text-gray-900">
+                                  {reportData.pattern_analysis.lost_reason_clustering.clusters[0].percentage}% lost to {reportData.pattern_analysis.lost_reason_clustering.clusters[0].cluster_name}
+                                </span>
+                                <p className="text-sm text-gray-700 mt-1">{reportData.pattern_analysis.lost_reason_clustering.clusters[0].insight}</p>
+                              </div>
+                            </div>
+                          )}
+                          {/* Critical Stage */}
+                          {reportData.pattern_analysis.stage_analysis?.critical_stages?.[0] && (
+                            <div className="flex items-start gap-3">
+                              <span className="flex-shrink-0 mt-1 text-xl">🟡</span>
+                              <div>
+                                <span className="font-semibold text-gray-900">
+                                  {reportData.pattern_analysis.stage_analysis.critical_stages[0].percentage}% lost at {reportData.pattern_analysis.stage_analysis.critical_stages[0].stage} stage
+                                </span>
+                                <p className="text-sm text-gray-700 mt-1">{reportData.pattern_analysis.stage_analysis.critical_stages[0].insight}</p>
+                              </div>
+                            </div>
+                          )}
+                          {/* Deal Size Impact */}
+                          {reportData.pattern_analysis.deal_size_correlation?.segments?.[0] && (
+                            <div className="flex items-start gap-3">
+                              <span className="flex-shrink-0 mt-1 text-xl">🟢</span>
+                              <div>
+                                <span className="font-semibold text-gray-900">
+                                  {reportData.pattern_analysis.deal_size_correlation.segments[0].segment}: {reportData.pattern_analysis.deal_size_correlation.segments[0].count} deals ({reportData.pattern_analysis.deal_size_correlation.segments[0].loss_rate} loss rate)
+                                </span>
+                                <p className="text-sm text-gray-700 mt-1">{reportData.pattern_analysis.deal_size_correlation.segments[0].insight}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                       {/* Lost Reason Clustering */}
                       {reportData.pattern_analysis.lost_reason_clustering && !reportData.pattern_analysis.lost_reason_clustering.error && (
                         <div>

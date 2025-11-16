@@ -99,6 +99,8 @@ export const api = {
     apiClient.delete(`/proposal-followups/reports/${reportId}`),
   exportReport: (reportId: string) =>
     apiClient.get(`/proposal-followups/reports/${reportId}/export`, { responseType: 'blob' }),
+  sendReportToTeams: (data: { chat_id: string; report_data: any }) =>
+    apiClient.post('/proposal-followups/send-to-teams', data),
   markFollowupComplete: (data: { thread_id: string; conversation_id: string; notes?: string }) =>
     apiClient.post(`/proposal-followups/${data.thread_id}/mark-complete`, data),
   favoriteFollowup: (data: { thread_id: string; conversation_id: string }) =>

@@ -35,6 +35,7 @@ from modules.proposal_followup_analyzer import ProposalFollowupAnalyzer
 from modules.outlook_client import OutlookClient
 from modules.email_token_store import EmailTokenStore
 from modules.odoo_client import OdooClient
+from modules.teams_messenger import TeamsMessenger
 from api.auth import get_auth_service, get_current_user, get_database, AuthService
 from api.database import Database
 from api.supabase_client import get_supabase_client
@@ -2671,6 +2672,65 @@ def unfavorite_followup(
 
     except Exception as e:
         logger.error(f"Error unfavoriting follow-up: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/proposal-followups/send-to-teams")
+def send_report_to_teams(
+    request: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """
+    Send a follow-up report summary to a Teams group chat.
+
+    Request body:
+    {
+        "chat_id": "19:1d7fae90086342a49e12a433576697c7@thread.v2",
+        "report_data": {...}  // The report data from generate endpoint
+    }
+    """
+    try:
+        chat_id = request.get('chat_id')
+        report_data = request.get('report_data')
+
+        if not chat_id or not report_data:
+            raise HTTPException(status_code=400, detail="chat_id and report_data are required")
+
+        # Get user's Microsoft access token
+        token_store = EmailTokenStore()
+        user_id = current_user.get("id")
+        tokens = token_store.get_token(user_id)
+
+        if not tokens:
+            raise HTTPException(
+                status_code=401,
+                detail="No Microsoft authentication found. Please connect your Microsoft account in Settings."
+            )
+
+        access_token = tokens.get("access_token")
+
+        # Initialize Teams messenger
+        teams = TeamsMessenger(access_token)
+
+        # Format the report as HTML message
+        message_html = TeamsMessenger.format_followup_report_summary(report_data)
+
+        # Send to Teams
+        result = teams.send_message_to_chat(chat_id, message_html)
+
+        logger.info(f"Successfully sent report to Teams chat {chat_id} for user {current_user.get('email')}")
+
+        return {
+            "success": True,
+            "message": "Report sent to Teams successfully",
+            "teams_message_id": result.get("id")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending report to Teams: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

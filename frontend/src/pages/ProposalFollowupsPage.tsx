@@ -17,6 +17,7 @@ import {
   TrashIcon,
   ArrowDownTrayIcon,
   StarIcon,
+  ChatBubbleLeftRightIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import api from '../utils/api';
@@ -463,6 +464,33 @@ const ProposalFollowupsPage: React.FC = () => {
     } catch (error) {
       console.error('Error deleting report:', error);
       toast.error('Failed to delete report');
+    }
+  };
+
+  const handleSendToTeams = async (reportData: any, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent triggering the card click
+
+    // Teams chat ID from the provided URL
+    // https://teams.microsoft.com/l/chat/19:1d7fae90086342a49e12a433576697c7@thread.v2/conversations
+    const chatId = '19:1d7fae90086342a49e12a433576697c7@thread.v2';
+
+    try {
+      const loadingToast = toast.loading('Sending report to Teams...');
+
+      await api.sendReportToTeams({
+        chat_id: chatId,
+        report_data: reportData
+      });
+
+      toast.dismiss(loadingToast);
+      toast.success('Report sent to Teams successfully!');
+    } catch (error: any) {
+      console.error('Error sending to Teams:', error);
+      if (error.response?.status === 401) {
+        toast.error('Please connect your Microsoft account in Settings first');
+      } else {
+        toast.error('Failed to send report to Teams');
+      }
     }
   };
 
@@ -1130,6 +1158,13 @@ const ProposalFollowupsPage: React.FC = () => {
                         <span className="px-3 py-1 text-sm font-medium rounded-full bg-purple-100 text-purple-800">
                           {report.report_type}
                         </span>
+                        <button
+                          onClick={(e) => handleSendToTeams(report.result, e)}
+                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                          title="Send to Teams"
+                        >
+                          <ChatBubbleLeftRightIcon className="w-5 h-5" />
+                        </button>
                         <button
                           onClick={(e) => handleExportReport(report.id, e)}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
