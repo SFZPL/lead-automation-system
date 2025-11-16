@@ -2700,10 +2700,11 @@ def send_report_to_teams(
         # Get user's Microsoft access token (for Teams messaging)
         # Teams messages will be sent from the authenticated user
         token_store = EmailTokenStore()
+        user_id = str(current_user.get("id"))  # Use user ID, not email
         user_email = current_user.get("email")
 
-        logger.info(f"Attempting to get tokens for user: {user_email}")
-        tokens = token_store.get_tokens(user_email)
+        logger.info(f"Attempting to get tokens for user ID: {user_id} (email: {user_email})")
+        tokens = token_store.get_tokens(user_id)
 
         logger.info(f"Tokens retrieved: {tokens is not None}")
         if tokens:
