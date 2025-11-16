@@ -2699,8 +2699,8 @@ def send_report_to_teams(
 
         # Get user's Microsoft access token
         token_store = EmailTokenStore()
-        user_id = current_user.get("id")
-        tokens = token_store.get_token(user_id)
+        user_email = current_user.get("email")
+        tokens = token_store.get_tokens(user_email)
 
         if not tokens:
             raise HTTPException(
