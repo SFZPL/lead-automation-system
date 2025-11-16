@@ -11,7 +11,7 @@
   "crons": [
     {
       "name": "daily-90day-report",
-      "schedule": "0 0 * * *",
+      "schedule": "0 3 * * *",
       "command": "python scripts/daily_report_cron.py"
     }
   ]
