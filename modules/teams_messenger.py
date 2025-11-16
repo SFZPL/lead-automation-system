@@ -70,17 +70,21 @@ class TeamsMessenger:
         Returns:
             HTML-formatted message string
         """
-        total_threads = report_data.get('total_threads', 0)
-        needs_followup = report_data.get('needs_followup', 0)
-        engaged = report_data.get('engaged', 0)
+        # Handle both direct report data and nested summary structure
+        summary = report_data.get('summary', report_data)
 
-        # Get top opportunities by quotation
-        threads = report_data.get('threads', [])
-        threads_needing_followup = [t for t in threads if t.get('needs_followup')]
+        total_threads = summary.get('total_count', 0)
+        needs_followup = summary.get('unanswered_count', 0) + summary.get('pending_proposals_count', 0)
+        engaged = total_threads - needs_followup
+
+        # Get threads from unanswered and pending_proposals lists
+        unanswered = report_data.get('unanswered', [])
+        pending_proposals = report_data.get('pending_proposals', [])
+        all_threads = unanswered + pending_proposals
 
         # Sort by expected_revenue descending
         top_opportunities = sorted(
-            threads_needing_followup,
+            all_threads,
             key=lambda x: x.get('expected_revenue', 0),
             reverse=True
         )[:5]  # Top 5
