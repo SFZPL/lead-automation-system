@@ -2701,15 +2701,29 @@ def send_report_to_teams(
         # Teams messages will be sent from the authenticated user
         token_store = EmailTokenStore()
         user_email = current_user.get("email")
+
+        logger.info(f"Attempting to get tokens for user: {user_email}")
         tokens = token_store.get_tokens(user_email)
 
-        if not tokens:
+        logger.info(f"Tokens retrieved: {tokens is not None}")
+        if tokens:
+            logger.info(f"Token keys: {list(tokens.keys()) if isinstance(tokens, dict) else 'not a dict'}")
+
+        if not tokens or not isinstance(tokens, dict):
+            logger.error(f"No valid tokens found for {user_email}")
             raise HTTPException(
                 status_code=401,
                 detail="No Microsoft authentication found. Please connect your Microsoft account in Settings."
             )
 
         access_token = tokens.get("access_token")
+
+        if not access_token:
+            logger.error(f"Token data found but no access_token field for {user_email}")
+            raise HTTPException(
+                status_code=401,
+                detail="Microsoft token is invalid. Please reconnect your Microsoft account in Settings."
+            )
 
         # Initialize Teams messenger
         teams = TeamsMessenger(access_token)
