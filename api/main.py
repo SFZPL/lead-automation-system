@@ -2697,15 +2697,16 @@ def send_report_to_teams(
         if not chat_id or not report_data:
             raise HTTPException(status_code=400, detail="chat_id and report_data are required")
 
-        # Get user's Microsoft access token
+        # Get system Microsoft access token (for Teams messaging)
+        # Use the system account which has Chat.ReadWrite permission
         token_store = EmailTokenStore()
-        user_email = current_user.get("email")
-        tokens = token_store.get_tokens(user_email)
+        system_email = "SYSTEM_automated.response@prezlab.com"
+        tokens = token_store.get_tokens(system_email)
 
         if not tokens:
             raise HTTPException(
                 status_code=401,
-                detail="No Microsoft authentication found. Please connect your Microsoft account in Settings."
+                detail="System Microsoft account not configured. Contact administrator."
             )
 
         access_token = tokens.get("access_token")
