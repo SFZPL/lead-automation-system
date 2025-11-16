@@ -106,10 +106,37 @@ class TeamsMessenger:
         if top_opportunities:
             html += "<ol>"
             for opp in top_opportunities:
-                company = opp.get('partner_name', 'Unknown Company')
-                value = opp.get('expected_revenue', 0)
-                stage = opp.get('stage', 'Unknown')
-                days_since = opp.get('days_since_last_response', 0)
+                # Handle nested lead data structure
+                lead = opp.get('lead', {})
+
+                # Try different field names from the report structure
+                company = (
+                    opp.get('partner_name') or
+                    lead.get('partner_name') or
+                    opp.get('company_name') or
+                    lead.get('company_name') or
+                    opp.get('subject') or
+                    'Unknown Company'
+                )
+
+                # Try to get value from different possible fields
+                value = (
+                    opp.get('expected_revenue') or
+                    lead.get('expected_revenue') or
+                    0
+                )
+
+                stage = (
+                    opp.get('stage') or
+                    lead.get('stage') or
+                    'Unknown'
+                )
+
+                days_since = (
+                    opp.get('days_since_last_response') or
+                    opp.get('days_no_response') or
+                    0
+                )
 
                 html += f"""
     <li>
