@@ -73,8 +73,13 @@ class TeamsMessenger:
         # Handle both direct report data and nested summary structure
         summary = report_data.get('summary', report_data)
 
+        # Get individual counts
+        unanswered_count = summary.get('unanswered_count', 0)
+        pending_proposals_count = summary.get('pending_proposals_count', 0)
         total_threads = summary.get('total_count', 0)
-        needs_followup = summary.get('unanswered_count', 0) + summary.get('pending_proposals_count', 0)
+
+        # Calculate engaged (threads that don't need follow-up)
+        needs_followup = unanswered_count + pending_proposals_count
         engaged = total_threads - needs_followup
 
         # Get threads from unanswered and pending_proposals lists
@@ -95,8 +100,8 @@ class TeamsMessenger:
 
 <p><strong>Summary:</strong></p>
 <ul>
-    <li><strong>{needs_followup}</strong> proposals need follow-up (no response in 3+ days)</li>
-    <li><strong>{engaged}</strong> active conversations</li>
+    <li><strong>{unanswered_count}</strong> unanswered emails</li>
+    <li><strong>{pending_proposals_count}</strong> pending proposals (sent, no response in 3+ days)</li>
     <li><strong>{total_threads}</strong> total email threads tracked</li>
 </ul>
 
