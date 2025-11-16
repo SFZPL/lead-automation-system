@@ -471,8 +471,8 @@ const ProposalFollowupsPage: React.FC = () => {
     event.stopPropagation(); // Prevent triggering the card click
 
     // Teams chat ID from the provided URL
-    // https://teams.microsoft.com/l/chat/19:1d7fae90086342a49e12a433576697c7@thread.v2/conversations
-    const chatId = '19:1d7fae90086342a49e12a433576697c7@thread.v2';
+    // https://teams.microsoft.com/l/chat/19:e53c2cecd4aa4581b6f417a95c0116df@thread.v2/conversations
+    const chatId = '19:e53c2cecd4aa4581b6f417a95c0116df@thread.v2';
 
     try {
       const loadingToast = toast.loading('Sending report to Teams...');
