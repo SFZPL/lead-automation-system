@@ -457,6 +457,23 @@ const PerplexityPage: React.FC = () => {
       : suggestedValue;
   };
 
+  // Common countries list for dropdown
+  const COUNTRIES = [
+    '', 'United Arab Emirates', 'Saudi Arabia', 'Qatar', 'Kuwait', 'Bahrain', 'Oman',
+    'United States', 'United Kingdom', 'India', 'Pakistan', 'Egypt', 'Jordan', 'Lebanon',
+    'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Argentina', 'Armenia',
+    'Australia', 'Austria', 'Azerbaijan', 'Bangladesh', 'Belgium', 'Brazil', 'Bulgaria',
+    'Canada', 'Chile', 'China', 'Colombia', 'Croatia', 'Cyprus', 'Czech Republic',
+    'Denmark', 'Estonia', 'Ethiopia', 'Finland', 'France', 'Georgia', 'Germany', 'Ghana',
+    'Greece', 'Hong Kong', 'Hungary', 'Iceland', 'Indonesia', 'Iran', 'Iraq', 'Ireland',
+    'Israel', 'Italy', 'Japan', 'Kazakhstan', 'Kenya', 'South Korea', 'Latvia', 'Libya',
+    'Lithuania', 'Luxembourg', 'Malaysia', 'Malta', 'Mexico', 'Morocco', 'Netherlands',
+    'New Zealand', 'Nigeria', 'Norway', 'Palestine', 'Philippines', 'Poland', 'Portugal',
+    'Romania', 'Russia', 'Serbia', 'Singapore', 'Slovakia', 'Slovenia', 'South Africa',
+    'Spain', 'Sri Lanka', 'Sudan', 'Sweden', 'Switzerland', 'Syria', 'Taiwan', 'Thailand',
+    'Tunisia', 'Turkey', 'Ukraine', 'Venezuela', 'Vietnam', 'Yemen'
+  ];
+
   const renderFieldComparison = (
     leadId: number,
     fieldName: string,
@@ -467,6 +484,7 @@ const PerplexityPage: React.FC = () => {
     const isChanged = currentValue !== effectiveValue && effectiveValue !== '';
     const isEmpty = !currentValue || currentValue === '<br>' || currentValue === '';
     const isEdited = fieldEdits[leadId]?.[fieldName] !== undefined;
+    const isCountryField = fieldName === 'Country';
 
     return (
       <div
@@ -494,13 +512,28 @@ const PerplexityPage: React.FC = () => {
           </div>
           <div className="text-xs text-gray-600">
             <label className="block mb-1">Suggested (editable):</label>
-            <input
-              type="text"
-              value={effectiveValue || ''}
-              onChange={(e) => handleFieldEdit(leadId, fieldName, e.target.value)}
-              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-primary-500 focus:ring-1 focus:ring-primary-500 font-mono"
-              placeholder="Enter value..."
-            />
+            {isCountryField ? (
+              <select
+                value={effectiveValue || ''}
+                onChange={(e) => handleFieldEdit(leadId, fieldName, e.target.value)}
+                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+              >
+                <option value="">Select a country...</option>
+                {COUNTRIES.map((country) => (
+                  <option key={country} value={country}>
+                    {country}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={effectiveValue || ''}
+                onChange={(e) => handleFieldEdit(leadId, fieldName, e.target.value)}
+                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:border-primary-500 focus:ring-1 focus:ring-primary-500 font-mono"
+                placeholder="Enter value..."
+              />
+            )}
           </div>
         </div>
       </div>
