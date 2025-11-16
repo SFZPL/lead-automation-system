@@ -1,0 +1,18 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  },
+  "crons": [
+    {
+      "name": "daily-90day-report",
+      "schedule": "0 0 * * *",
+      "command": "python scripts/daily_report_cron.py"
+    }
+  ]
+}

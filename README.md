@@ -70,6 +70,58 @@ curl -X POST "http://localhost:8000/lost-leads/{lead_id}/analysis"   -H "Content
 
 Use `GET /lost-leads?limit=20` to discover recently closed/lost opportunities before analysing a specific record.
 
+## Automated Daily Reports (Railway Cron)
+
+The system supports automated daily report generation via Railway cron jobs. A 90-day proposal follow-up report is generated automatically every day at midnight UTC.
+
+### Configuration
+
+The cron job is defined in [railway.json](railway.json):
+```json
+{
+  "crons": [
+    {
+      "name": "daily-90day-report",
+      "schedule": "0 0 * * *",
+      "command": "python scripts/daily_report_cron.py"
+    }
+  ]
+}
+```
+
+### How It Works
+
+1. **Daily Execution**: Runs at 00:00 UTC every day
+2. **Report Generation**: Creates a 90-day proposal follow-up report
+3. **Database Storage**: Saves the report to Supabase with timestamp
+4. **User Access**: Report appears in the "Saved Reports" tab for all users
+
+### Configuration Variables
+
+Set `ADMIN_EMAIL` in your Railway environment variables to specify which user account should own the automated reports (defaults to `admin@prezlab.com`).
+
+### Manual Testing
+
+Test the cron script locally:
+```bash
+python scripts/daily_report_cron.py
+```
+
+The script will:
+- Connect to your Odoo instance
+- Fetch all proposal opportunities from the last 90 days
+- Analyze follow-up status for threads with no response in 3+ days
+- Save the complete report to Supabase
+- Log detailed execution status
+
+### Monitoring
+
+Check Railway logs to monitor cron execution:
+- Navigate to your Railway project
+- Select the service
+- View logs filtered by "daily-90day-report"
+- Look for success messages like: `✅ Successfully generated and saved report: Automated 90-Day Report - 2025-11-16`
+
 ## Web Interface
 - Start the FastAPI backend (`uvicorn api.main:app --reload --host 127.0.0.1 --port 8000`) and the React dev server (`npm start` inside `frontend/`).
 - Open `http://localhost:3000/post-contact` to review the **Post-Contact Automation** tab. Each card previews the email or internal note that will be sent and requires a manual confirmation.
@@ -135,6 +187,9 @@ Endpoints:
 - `MAQSAM_BASE_URL` (defaults to `https://api.maqsam.com`)
 - `MAQSAM_TIMEOUT`
 - `MAQSAM_CALL_ID_KEYS` (comma-delimited call id fields to probe within Apollo payloads)
+
+### Automated Reports
+- `ADMIN_EMAIL` (email of user to generate automated reports under, defaults to `admin@prezlab.com`)
 
 ### SMTP delivery (optional)
 - `EMAIL_SMTP_HOST`
