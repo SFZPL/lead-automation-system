@@ -138,7 +138,7 @@ const PipelineReportsPage: React.FC = () => {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <ChartBarIcon className="h-8 w-8 text-primary-600" />
-          Weekly Pipeline Performance Report
+          <span>Weekly Pipeline Performance Report</span>
         </h1>
         <p className="mt-2 text-sm text-gray-600">
           Comprehensive weekly pipeline metrics and insights
