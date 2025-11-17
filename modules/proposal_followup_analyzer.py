@@ -540,15 +540,45 @@ Respond in JSON format with these keys:
                     if thread_id:
                         all_thread_ids.append(thread_id)
 
-            # Get completed thread IDs
-            completed_ids = set(db.get_completed_followups(all_thread_ids))
+            # Get completed thread IDs with timestamps
+            completed_threads = db.get_completed_followups_with_timestamps()
 
-            # Filter out completed threads
+            # Filter out completed threads UNLESS there's a new email after completion
             for category in ["unanswered", "pending_proposals", "filtered"]:
-                categorized[category] = [
-                    thread for thread in categorized[category]
-                    if thread.get("conversation_id") not in completed_ids
-                ]
+                filtered_threads = []
+                for thread in categorized[category]:
+                    conv_id = thread.get("conversation_id")
+
+                    # If thread was never completed, keep it
+                    if conv_id not in completed_threads:
+                        filtered_threads.append(thread)
+                        continue
+
+                    # Thread was completed - check if there's a new email after completion
+                    completion_date_str = completed_threads[conv_id]
+                    last_email_date_str = thread.get("last_email_date")
+
+                    if last_email_date_str and completion_date_str:
+                        from datetime import datetime
+                        try:
+                            # Parse dates (handle both ISO format with/without timezone)
+                            completion_date = datetime.fromisoformat(completion_date_str.replace('Z', '+00:00'))
+                            last_email_date = datetime.fromisoformat(last_email_date_str.replace('Z', '+00:00'))
+
+                            # Only include if there's a NEW email after completion
+                            if last_email_date > completion_date:
+                                filtered_threads.append(thread)
+                                logger.info(f"Thread {conv_id} re-included: new email after completion ({last_email_date} > {completion_date})")
+                            else:
+                                logger.info(f"Thread {conv_id} filtered: no new email since completion ({last_email_date} <= {completion_date})")
+                        except Exception as e:
+                            logger.warning(f"Error parsing dates for thread {conv_id}: {e}")
+                            # On parse error, filter it out (safer to exclude than include)
+                    else:
+                        # If we can't determine dates, filter it out
+                        logger.warning(f"Thread {conv_id} has missing date info - filtering out")
+
+                categorized[category] = filtered_threads
 
         # Match to Odoo
         enriched = self.match_to_odoo(categorized)
