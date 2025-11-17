@@ -382,21 +382,29 @@ const ProposalFollowupsPage: React.FC = () => {
         toast.success('Follow-up marked as complete!');
       }
 
-      // Force a complete refresh by toggling forceRefresh
-      setForceRefresh(prev => !prev);
+      // Get current cached data
+      const currentData = queryClient.getQueryData<ProposalFollowupData>(['proposal-followups', daysBack, noResponseDays, forceRefresh]);
 
-      // Invalidate BOTH the current followups query AND saved reports
-      await queryClient.invalidateQueries(['proposal-followups']);
+      if (currentData) {
+        // Remove the thread from the cached data immediately
+        const updatedData = {
+          ...currentData,
+          unanswered: currentData.unanswered.filter(t => t.conversation_id !== thread.conversation_id),
+          pending_proposals: currentData.pending_proposals.filter(t => t.conversation_id !== thread.conversation_id),
+          summary: {
+            ...currentData.summary,
+            unanswered_count: currentData.unanswered.filter(t => t.conversation_id !== thread.conversation_id).length,
+            pending_proposals_count: currentData.pending_proposals.filter(t => t.conversation_id !== thread.conversation_id).length,
+          }
+        };
+        updatedData.summary.total_count = updatedData.summary.unanswered_count + updatedData.summary.pending_proposals_count;
+
+        // Update the cache with the filtered data
+        queryClient.setQueryData(['proposal-followups', daysBack, noResponseDays, forceRefresh], updatedData);
+      }
+
+      // Invalidate saved reports so they reload
       await queryClient.invalidateQueries(['saved-reports']);
-
-      // Remove from cache entirely to force fresh fetch
-      queryClient.removeQueries(['proposal-followups', daysBack, noResponseDays, !forceRefresh]);
-
-      // Small delay to ensure backend has processed
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Refetch both queries to immediately update the UI
-      await followupsQuery.refetch();
       await reportsQuery.refetch();
     } catch (error) {
       console.error('Error marking complete:', error);
