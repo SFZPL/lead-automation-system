@@ -212,8 +212,8 @@ const DashboardPage: React.FC = () => {
         <h2 className="text-lg font-medium text-gray-900 mb-4">📊 Quick Stats</h2>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {/* Unanswered Emails */}
-          <a
-            href="/proposal-followups"
+          <Link
+            to="/followups"
             className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow"
           >
             <div className="p-5">
@@ -240,11 +240,11 @@ const DashboardPage: React.FC = () => {
                 </span>
               </div>
             </div>
-          </a>
+          </Link>
 
           {/* Pending Proposals */}
-          <a
-            href="/proposal-followups"
+          <Link
+            to="/followups"
             className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow"
           >
             <div className="p-5">
@@ -271,11 +271,11 @@ const DashboardPage: React.FC = () => {
                 </span>
               </div>
             </div>
-          </a>
+          </Link>
 
           {/* Lost Leads */}
-          <a
-            href="/lost-leads"
+          <Link
+            to="/lost-leads"
             className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow"
           >
             <div className="p-5">
@@ -302,11 +302,11 @@ const DashboardPage: React.FC = () => {
                 </span>
               </div>
             </div>
-          </a>
+          </Link>
 
           {/* Unenriched Leads */}
-          <a
-            href="/perplexity"
+          <Link
+            to="/enrichment"
             className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-shadow"
           >
             <div className="p-5">
@@ -333,7 +333,7 @@ const DashboardPage: React.FC = () => {
                 </span>
               </div>
             </div>
-          </a>
+          </Link>
         </div>
         {data.stats.last_updated && (
           <p className="text-sm text-gray-500 mt-3 text-center">
