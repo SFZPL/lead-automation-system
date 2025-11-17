@@ -105,7 +105,7 @@ const PipelineReportsPage: React.FC = () => {
 
     setIsSendingToTeams(true);
     try {
-      const chatId = '19:e53c2cecd4aa4581b6f417a95c0116df@thread.v2';
+      const chatId = '19:1d7fae90086342a49e12a433576697c7@thread.v2';
 
       await api.post('/pipeline/send-to-teams', {
         chat_id: chatId,
