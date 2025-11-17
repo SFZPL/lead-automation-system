@@ -2512,6 +2512,12 @@ def mark_followup_complete(
             if reports.data:
                 for report in reports.data:
                     results = report.get("results", {})
+
+                    # Skip if results is not a dict (corrupted data)
+                    if not isinstance(results, dict):
+                        logger.warning(f"Skipping report {report.get('id')} - results is not a dict")
+                        continue
+
                     updated = False
 
                     # Remove from unanswered emails
@@ -2534,8 +2540,8 @@ def mark_followup_complete(
                         if len(results["pending_proposals"]) < original_count:
                             updated = True
 
-                    # Update summary counts
-                    if "summary" in results:
+                    # Update summary counts if summary exists and is a dict
+                    if "summary" in results and isinstance(results["summary"], dict):
                         results["summary"]["unanswered_count"] = len(results.get("unanswered", []))
                         results["summary"]["pending_count"] = len(results.get("pending_proposals", []))
                         results["summary"]["total_count"] = results["summary"]["unanswered_count"] + results["summary"]["pending_count"]
@@ -2574,6 +2580,12 @@ def mark_followup_complete(
                 if reports.data:
                     for report in reports.data:
                         results = report.get("results", {})
+
+                        # Skip if results is not a dict (corrupted data)
+                        if not isinstance(results, dict):
+                            logger.warning(f"Skipping report {report.get('id')} - results is not a dict")
+                            continue
+
                         updated = False
 
                         # Remove from unanswered emails
@@ -2596,8 +2608,8 @@ def mark_followup_complete(
                             if len(results["pending_proposals"]) < original_count:
                                 updated = True
 
-                        # Update summary counts
-                        if "summary" in results:
+                        # Update summary counts if summary exists and is a dict
+                        if "summary" in results and isinstance(results["summary"], dict):
                             results["summary"]["unanswered_count"] = len(results.get("unanswered", []))
                             results["summary"]["pending_count"] = len(results.get("pending_proposals", []))
                             results["summary"]["total_count"] = results["summary"]["unanswered_count"] + results["summary"]["pending_count"]

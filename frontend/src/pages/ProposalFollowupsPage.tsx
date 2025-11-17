@@ -371,8 +371,12 @@ const ProposalFollowupsPage: React.FC = () => {
         toast.success('Follow-up marked as complete!');
       }
 
-      // Invalidate saved reports query to refetch with completed items filtered out
+      // Invalidate BOTH the current followups query AND saved reports
+      await queryClient.invalidateQueries(['proposal-followups', daysBack, noResponseDays, forceRefresh]);
       await queryClient.invalidateQueries(['saved-reports']);
+
+      // Refetch both queries to immediately update the UI
+      await followupsQuery.refetch();
       await reportsQuery.refetch();
     } catch (error) {
       console.error('Error marking complete:', error);
