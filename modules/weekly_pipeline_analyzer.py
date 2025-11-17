@@ -109,9 +109,11 @@ class WeeklyPipelineAnalyzer:
                 'crm.lead', 'search_count', [qualified_domain]
             )
 
-            # Proposals sent (stage = "Proposal")
+            # Proposals sent (moved to "Proposal" stage during this week)
             proposals_domain = base_domain + [
-                ['stage_id.name', '=', 'Proposal']
+                ['stage_id.name', '=', 'Proposal'],
+                ['date_last_stage_update', '>=', f'{week_start} 00:00:00'],
+                ['date_last_stage_update', '<=', f'{week_end} 23:59:59']
             ]
             proposals_sent = self.odoo._call_kw(
                 'crm.lead', 'search_count', [proposals_domain]
