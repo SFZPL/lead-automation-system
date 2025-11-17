@@ -14,7 +14,7 @@ import EmailCallbackPage from './pages/EmailCallbackPage';
 import CallFlowPage from './pages/CallFlowPage';
 import KnowledgeBasePage from './pages/KnowledgeBasePage';
 import NDAAnalysisPage from './pages/NDAAnalysisPage';
-// import PipelineReportsPage from './pages/PipelineReportsPage';
+import PipelineReportsPage from './pages/PipelineReportsPage';
 import LoginPage from './pages/LoginPage';
 
 // Detect Teams environment
@@ -95,7 +95,7 @@ const AppContent = () => {
               <Route path="/call-flow" element={<CallFlowPage />} />
               <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
               <Route path="/nda-analysis" element={<NDAAnalysisPage />} />
-              {/* <Route path="/pipeline-reports" element={<PipelineReportsPage />} /> */}
+              <Route path="/pipeline-reports" element={<PipelineReportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/auth/outlook/callback" element={<EmailCallbackPage />} />
             </Routes>
