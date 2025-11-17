@@ -26,7 +26,7 @@ const navigation = [
   { name: 'Unenriched Leads', href: '/enrichment', icon: SparklesIcon },
   { name: 'Lost Lead Insights', href: '/lost-leads', icon: ClipboardDocumentListIcon },
   { name: 'Follow-ups Hub', href: '/followups', icon: EnvelopeIcon },
-  { name: 'Pipeline Reports', href: '/pipeline-reports', icon: ClipboardDocumentListIcon },
+  // { name: 'Pipeline Reports', href: '/pipeline-reports', icon: ClipboardDocumentListIcon },
   { name: 'Pre-discovery Call Flow', href: '/call-flow', icon: ClipboardDocumentListIcon },
   { name: 'Knowledge Base', href: '/knowledge-base', icon: DocumentTextIcon },
   { name: 'NDA Analysis', href: '/nda-analysis', icon: DocumentTextIcon },
