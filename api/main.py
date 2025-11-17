@@ -36,6 +36,7 @@ from modules.outlook_client import OutlookClient
 from modules.email_token_store import EmailTokenStore
 from modules.odoo_client import OdooClient
 from modules.teams_messenger import TeamsMessenger
+from modules.weekly_pipeline_analyzer import WeeklyPipelineAnalyzer
 from api.auth import get_auth_service, get_current_user, get_database, AuthService
 from api.database import Database
 from api.supabase_client import get_supabase_client
@@ -2759,6 +2760,107 @@ def send_report_to_teams(
         raise
     except Exception as e:
         logger.error(f"Error sending report to Teams: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Weekly Pipeline Performance Endpoints
+# ============================================================================
+
+@app.get("/pipeline/weekly-report")
+def get_weekly_pipeline_report(
+    week_start: Optional[str] = None,
+    week_end: Optional[str] = None,
+    salesperson_filter: Optional[str] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Generate weekly pipeline performance report.
+
+    Query params:
+    - week_start: Start date (YYYY-MM-DD). Defaults to last Monday.
+    - week_end: End date (YYYY-MM-DD). Defaults to last Sunday.
+    - salesperson_filter: Filter by salesperson name (optional)
+    """
+    try:
+        config = Config()
+        analyzer = WeeklyPipelineAnalyzer(config)
+
+        report = analyzer.generate_weekly_report(
+            week_start=week_start,
+            week_end=week_end,
+            salesperson_filter=salesperson_filter
+        )
+
+        return report
+
+    except Exception as e:
+        logger.error(f"Error generating weekly pipeline report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/pipeline/send-to-teams")
+def send_pipeline_to_teams(
+    request: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Send weekly pipeline report to Teams.
+
+    Request body:
+    {
+        "chat_id": "19:xxx@thread.v2",
+        "report_data": {...}
+    }
+    """
+    try:
+        chat_id = request.get('chat_id')
+        report_data = request.get('report_data')
+
+        if not chat_id or not report_data:
+            raise HTTPException(status_code=400, detail="chat_id and report_data are required")
+
+        # Get user's Microsoft access token
+        token_store = EmailTokenStore()
+        user_id = str(current_user.get("id"))
+
+        tokens = token_store.get_tokens(user_id)
+
+        if not tokens or not isinstance(tokens, dict):
+            raise HTTPException(
+                status_code=401,
+                detail="No Microsoft authentication found. Please connect your Microsoft account in Settings."
+            )
+
+        access_token = tokens.get("access_token")
+
+        if not access_token:
+            raise HTTPException(
+                status_code=401,
+                detail="Microsoft token is invalid. Please reconnect your Microsoft account in Settings."
+            )
+
+        # Initialize Teams messenger
+        teams = TeamsMessenger(access_token)
+
+        # Format the report as HTML message
+        message_html = TeamsMessenger.format_weekly_pipeline_report(report_data)
+
+        # Send to Teams
+        result = teams.send_message_to_chat(chat_id, message_html)
+
+        logger.info(f"Successfully sent weekly pipeline report to Teams chat {chat_id}")
+
+        return {
+            "success": True,
+            "message": "Pipeline report sent to Teams successfully",
+            "teams_message_id": result.get("id")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending pipeline report to Teams: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
