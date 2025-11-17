@@ -141,6 +141,8 @@ const ProposalFollowupsPage: React.FC = () => {
   const [isLoadingThread, setIsLoadingThread] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [reportToDelete, setReportToDelete] = useState<string | null>(null);
+  const [expandedReport, setExpandedReport] = useState<string | null>(null);
+  const [hasAutoExpanded, setHasAutoExpanded] = useState<boolean>(false);
 
   // Mock users list - TODO: Replace with actual API call to fetch users
   const mockUsers = [
@@ -234,6 +236,15 @@ const ProposalFollowupsPage: React.FC = () => {
   React.useEffect(() => {
     localStorage.setItem('proposalFollowups_showFilteredEmails', JSON.stringify(showFilteredEmails));
   }, [showFilteredEmails]);
+
+  // Auto-expand the latest saved report on load
+  React.useEffect(() => {
+    if (!hasAutoExpanded && reportsQuery.data && reportsQuery.data.length > 0 && selectedTab === 'reports') {
+      const latestReport = reportsQuery.data[0]; // Reports are sorted by created_at desc
+      setExpandedReport(latestReport.id);
+      setHasAutoExpanded(true);
+    }
+  }, [reportsQuery.data, selectedTab, hasAutoExpanded]);
 
   // Timer effect for elapsed time
   React.useEffect(() => {
@@ -664,7 +675,7 @@ const ProposalFollowupsPage: React.FC = () => {
               <div>Contact: {thread.odoo_lead.contact_name || 'N/A'}</div>
               <div>Stage: {thread.odoo_lead.stage || 'Unknown'}</div>
               {thread.odoo_lead.expected_revenue && (
-                <div>Value: ${thread.odoo_lead.expected_revenue.toLocaleString()}</div>
+                <div>Value: AED {thread.odoo_lead.expected_revenue.toLocaleString()}</div>
               )}
             </div>
           </div>
@@ -958,7 +969,7 @@ const ProposalFollowupsPage: React.FC = () => {
                 Fetching emails from engage@prezlab.com, analyzing threads, and matching to Odoo leads...
               </p>
               <p className="text-gray-500 text-sm italic">
-                Estimated time: 3-5 minutes
+                Estimated time: up to 20 minutes
               </p>
               <button
                 onClick={handleCancelAnalysis}
@@ -1112,9 +1123,9 @@ const ProposalFollowupsPage: React.FC = () => {
                       </p>
                       <p className="text-sm text-purple-700 mt-1">
                         Elapsed time: {formatTime(reportElapsedTime)} • Estimated: {
-                          selectedReportType === 'weekly' ? '~30 seconds' :
-                          selectedReportType === 'monthly' ? '~2 minutes' :
-                          '~5 minutes'
+                          selectedReportType === 'weekly' ? 'up to 5 minutes' :
+                          selectedReportType === 'monthly' ? 'up to 10 minutes' :
+                          'up to 20 minutes'
                         }
                       </p>
                     </div>
@@ -1132,21 +1143,29 @@ const ProposalFollowupsPage: React.FC = () => {
 
             {reportsQuery.data && reportsQuery.data.length > 0 && (
               <div className="grid grid-cols-1 gap-4">
-                {reportsQuery.data.map((report) => (
+                {reportsQuery.data.map((report) => {
+                  const isExpanded = expandedReport === report.id;
+                  return (
                   <div
                     key={report.id}
-                    onClick={() => {
-                      // Load this report's data into the query cache
-                      queryClient.setQueryData(
-                        ['proposal-followups', daysBack, noResponseDays, forceRefresh],
-                        report.result
-                      );
-                      // Switch to unanswered tab to show the analysis
-                      setSelectedTab('unanswered');
-                      setHasStarted(true);
-                    }}
-                    className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md hover:border-purple-300 transition-all"
+                    className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all"
                   >
+                    <div
+                      onClick={() => {
+                        if (isExpanded) {
+                          setExpandedReport(null);
+                        } else {
+                          // Load this report's data into the query cache
+                          queryClient.setQueryData(
+                            ['proposal-followups', daysBack, noResponseDays, forceRefresh],
+                            report.result
+                          );
+                          setExpandedReport(report.id);
+                          setHasStarted(true);
+                        }
+                      }}
+                      className="p-6 cursor-pointer hover:bg-gray-50 transition-all"
+                    >
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900">
@@ -1208,8 +1227,29 @@ const ProposalFollowupsPage: React.FC = () => {
                       <span>•</span>
                       <span>No Response: {report.parameters.no_response_days} days</span>
                     </div>
+                    </div>
+
+                    {/* Expanded Content */}
+                    {isExpanded && (
+                      <div className="border-t border-gray-200 p-6 bg-gray-50">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            queryClient.setQueryData(
+                              ['proposal-followups', daysBack, noResponseDays, forceRefresh],
+                              report.result
+                            );
+                            setSelectedTab('unanswered');
+                          }}
+                          className="w-full px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors"
+                        >
+                          View Full Report Details
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

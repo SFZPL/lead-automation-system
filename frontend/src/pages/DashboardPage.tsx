@@ -1,5 +1,6 @@
 import React from 'react';
 import { useQuery } from 'react-query';
+import { Link } from 'react-router-dom';
 import {
   ChartBarIcon,
   EnvelopeIcon,
@@ -170,7 +171,7 @@ const DashboardPage: React.FC = () => {
                               Lead: {item.odoo_lead.name || 'Unknown'}
                               {item.odoo_lead.expected_revenue && (
                                 <span className="ml-2 text-green-600 font-medium">
-                                  ${item.odoo_lead.expected_revenue.toLocaleString()}
+                                  AED {item.odoo_lead.expected_revenue.toLocaleString()}
                                 </span>
                               )}
                             </p>
@@ -185,12 +186,12 @@ const DashboardPage: React.FC = () => {
                 ))}
               </div>
               <div className="mt-4">
-                <a
-                  href="/proposal-followups"
+                <Link
+                  to="/followups"
                   className="text-sm font-medium text-red-700 hover:text-red-600"
                 >
                   View All Follow-ups →
-                </a>
+                </Link>
               </div>
             </div>
           </div>

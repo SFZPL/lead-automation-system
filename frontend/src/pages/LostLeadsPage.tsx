@@ -377,9 +377,9 @@ const LostLeadsPage: React.FC = () => {
   const formatCurrency = (value?: number) => {
     if (value === undefined || value === null) return '—';
     try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value);
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'AED' }).format(value);
     } catch (error) {
-      return `$${value}`;
+      return `AED ${value}`;
     }
   };
 
