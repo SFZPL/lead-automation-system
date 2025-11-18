@@ -167,15 +167,15 @@ const NDAAnalysisPage: React.FC = () => {
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">NDA Analysis</h1>
+        <h1 className="text-3xl font-bold text-gray-900">Document Analysis</h1>
         <p className="mt-2 text-sm text-gray-600">
-          Upload NDAs (English or Arabic) for AI-powered risk assessment
+          Upload NDAs and contracts (English or Arabic) for AI-powered risk assessment
         </p>
       </div>
 
       {/* Upload Section */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload NDA</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload Document</h2>
         <div className="flex items-center gap-4">
           <input
             type="file"
@@ -224,14 +224,14 @@ const NDAAnalysisPage: React.FC = () => {
         {/* Documents List */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Your NDAs</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Documents</h2>
 
             {isLoadingDocuments ? (
               <div className="text-center py-8 text-gray-500">Loading...</div>
             ) : documents.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <DocumentTextIcon className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                <p>No NDAs uploaded yet</p>
+                <p>No documents uploaded yet</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -289,7 +289,7 @@ const NDAAnalysisPage: React.FC = () => {
           {!selectedDocument ? (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
               <DocumentTextIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-500">Select an NDA to view analysis</p>
+              <p className="text-gray-500">Select a document to view analysis</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -416,7 +416,7 @@ const NDAAnalysisPage: React.FC = () => {
                     <div className="text-center py-8">
                       <CheckCircleIcon className="w-16 h-16 mx-auto mb-4 text-green-600" />
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">No Issues Found</h3>
-                      <p className="text-gray-600">This NDA appears to have standard, acceptable terms.</p>
+                      <p className="text-gray-600">This document appears to have standard, acceptable terms.</p>
                     </div>
                   </div>
                 )}

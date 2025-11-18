@@ -249,8 +249,8 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   }, [reportsQuery.data, selectedTab, hasAutoExpanded]);
 
-  // On mount/refresh, check if we have cached data and validate completed threads are filtered
-  React.useEffect(() => {
+  // Validate cache to filter out completed threads
+  const validateAndFilterCompletedThreads = React.useCallback(() => {
     const cachedData = queryClient.getQueryData<ProposalFollowupData>(['proposal-followups', daysBack, noResponseDays, forceRefresh]);
 
     if (cachedData && (cachedData.unanswered.length > 0 || cachedData.pending_proposals.length > 0)) {
@@ -280,7 +280,19 @@ const ProposalFollowupsPage: React.FC = () => {
         console.error('Error fetching completions:', err);
       });
     }
+  }, [queryClient, daysBack, noResponseDays, forceRefresh]);
+
+  // Validate on mount
+  React.useEffect(() => {
+    validateAndFilterCompletedThreads();
   }, []); // Only run once on mount
+
+  // Also validate when switching to unanswered/pending tabs
+  React.useEffect(() => {
+    if (selectedTab === 'unanswered' || selectedTab === 'pending') {
+      validateAndFilterCompletedThreads();
+    }
+  }, [selectedTab, validateAndFilterCompletedThreads]);
 
   // Timer effect for elapsed time
   React.useEffect(() => {
