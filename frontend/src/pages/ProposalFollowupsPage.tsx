@@ -193,9 +193,10 @@ const ProposalFollowupsPage: React.FC = () => {
       return response.data.reports as SavedReport[];
     },
     {
-      enabled: selectedTab === 'reports',
-      refetchOnWindowFocus: true,
-      staleTime: 10 * 1000, // 10 seconds - shorter to pick up completion changes quickly
+      refetchOnWindowFocus: false, // Don't refetch on Teams tab switch
+      refetchOnMount: true, // Only fetch on mount
+      staleTime: 5 * 60 * 1000, // 5 minutes - keep reports fresh but not too aggressive
+      cacheTime: 30 * 60 * 1000, // 30 minutes - keep in cache for Teams tab switches
       onError: (error) => {
         console.error('Error fetching saved reports:', error);
         toast.error('Failed to load saved reports');
@@ -242,6 +243,18 @@ const ProposalFollowupsPage: React.FC = () => {
 
   // Auto-load the latest saved report on initial page load
   React.useEffect(() => {
+    // Check if data already exists in React Query cache
+    const cachedData = queryClient.getQueryData<ProposalFollowupData>(['proposal-followups', daysBack, noResponseDays, forceRefresh]);
+
+    // If cache exists, just show it and skip fetching
+    if (cachedData && !hasAutoExpanded) {
+      setSelectedTab('unanswered');
+      setHasStarted(true);
+      setHasAutoExpanded(true);
+      return;
+    }
+
+    // Otherwise, load from latest report
     if (!hasAutoExpanded && reportsQuery.data && reportsQuery.data.length > 0) {
       const latestReport = reportsQuery.data[0]; // Reports are sorted by created_at desc
 

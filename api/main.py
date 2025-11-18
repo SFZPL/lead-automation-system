@@ -4347,8 +4347,21 @@ def get_dashboard_summary(
                 if not result:
                     result = {}
 
-                unanswered_count = result.get("summary", {}).get("unanswered_count", 0)
-                pending_proposals_count = result.get("summary", {}).get("pending_proposals_count", 0)
+                # Get completed thread IDs to filter them out
+                db = SupabaseDatabase()
+                completed_threads = db.get_completed_followups_with_timestamps()
+                completed_ids = set(completed_threads.keys())
+
+                # Filter out completed threads from unanswered and pending_proposals
+                unanswered = result.get("unanswered", [])
+                pending_proposals = result.get("pending_proposals", [])
+
+                unanswered_filtered = [t for t in unanswered if t.get("conversation_id") not in completed_ids]
+                pending_filtered = [t for t in pending_proposals if t.get("conversation_id") not in completed_ids]
+
+                unanswered_count = len(unanswered_filtered)
+                pending_proposals_count = len(pending_filtered)
+
                 stats["unanswered_emails"] = unanswered_count
                 stats["pending_proposals"] = pending_proposals_count
                 stats["last_updated"] = report_data.get("created_at")
@@ -4358,8 +4371,8 @@ def get_dashboard_summary(
                         "unanswered_count": unanswered_count,
                         "pending_proposals_count": pending_proposals_count
                     },
-                    "unanswered": result.get("unanswered", []),
-                    "pending_proposals": result.get("pending_proposals", [])
+                    "unanswered": unanswered_filtered,
+                    "pending_proposals": pending_filtered
                 }
             else:
                 # No reports yet
