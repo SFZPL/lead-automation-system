@@ -11,9 +11,12 @@ import {
   HomeIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   SparklesIcon,
   HeartIcon,
   DocumentTextIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -21,14 +24,26 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-const navigation = [
+interface NavigationItem {
+  name: string;
+  href?: string;
+  icon: any;
+  children?: { name: string; href: string; icon: any }[];
+}
+
+const navigation: NavigationItem[] = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Unenriched Leads', href: '/enrichment', icon: SparklesIcon },
-  { name: 'Lost Lead Insights', href: '/lost-leads', icon: ClipboardDocumentListIcon },
-  { name: 'Follow-ups Hub', href: '/followups', icon: EnvelopeIcon },
-  { name: 'Pipeline Reports', href: '/pipeline-reports', icon: ClipboardDocumentListIcon },
+  {
+    name: 'Reporting',
+    icon: ChartBarIcon,
+    children: [
+      { name: 'Follow-ups Hub', href: '/followups', icon: EnvelopeIcon },
+      { name: 'Pipeline Reports', href: '/pipeline-reports', icon: ClipboardDocumentListIcon },
+      { name: 'Lost Lead Insights', href: '/lost-leads', icon: HeartIcon },
+    ]
+  },
   { name: 'Pre-discovery Call Flow', href: '/call-flow', icon: ClipboardDocumentListIcon },
-  { name: 'Knowledge Base', href: '/knowledge-base', icon: DocumentTextIcon },
   { name: 'Document Analysis', href: '/nda-analysis', icon: DocumentTextIcon },
   { name: 'Settings', href: '/settings', icon: CogIcon },
 ];
@@ -105,6 +120,13 @@ interface SidebarProps {
 function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const location = useLocation();
   const { logout } = useAuth();
+  const [openDropdowns, setOpenDropdowns] = useState<string[]>(['Reporting']); // Reporting open by default
+
+  const toggleDropdown = (name: string) => {
+    setOpenDropdowns(prev =>
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+    );
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col border-r border-gray-200 bg-white">
@@ -139,11 +161,75 @@ function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         {/* Navigation */}
         <nav className="mt-8 flex-1 space-y-1 px-2">
           {navigation.map((item) => {
-            const isActive = location.pathname === item.href;
+            // Check if any child is active for dropdown items
+            const isDropdownActive = item.children?.some(child => location.pathname === child.href);
+            const isActive = item.href ? location.pathname === item.href : false;
+            const isOpen = openDropdowns.includes(item.name);
+
+            // If item has children, render as dropdown
+            if (item.children) {
+              return (
+                <div key={item.name}>
+                  <button
+                    onClick={() => !collapsed && toggleDropdown(item.name)}
+                    className={`w-full relative group flex items-center ${collapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 ${
+                      isDropdownActive
+                        ? 'bg-primary-50 text-primary-900 shadow-sm ring-1 ring-primary-100'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                    title={collapsed ? item.name : undefined}
+                  >
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
+                        isDropdownActive
+                          ? 'border-primary-100 bg-primary-100 text-primary-700'
+                          : 'border-gray-200 text-gray-400 group-hover:border-gray-300 group-hover:text-gray-500'
+                      }`}
+                    >
+                      <item.icon className="h-5 w-5" />
+                    </span>
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1 text-left">{item.name}</span>
+                        {isOpen ? (
+                          <ChevronUpIcon className="h-4 w-4" />
+                        ) : (
+                          <ChevronDownIcon className="h-4 w-4" />
+                        )}
+                      </>
+                    )}
+                  </button>
+                  {/* Dropdown items */}
+                  {!collapsed && isOpen && (
+                    <div className="ml-8 mt-1 space-y-1">
+                      {item.children.map((child) => {
+                        const isChildActive = location.pathname === child.href;
+                        return (
+                          <Link
+                            key={child.name}
+                            to={child.href}
+                            className={`relative group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ${
+                              isChildActive
+                                ? 'bg-primary-50 text-primary-900'
+                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                            }`}
+                          >
+                            <child.icon className={`h-4 w-4 ${isChildActive ? 'text-primary-700' : 'text-gray-400'}`} />
+                            <span>{child.name}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            // Regular navigation item
             return (
               <Link
                 key={item.name}
-                to={item.href}
+                to={item.href!}
                 className={`relative group flex items-center ${collapsed ? 'justify-center' : 'gap-3'} rounded-xl px-3 py-2 text-sm font-medium transition-all duration-200 ${
                   isActive
                     ? 'bg-primary-50 text-primary-900 shadow-sm ring-1 ring-primary-100'

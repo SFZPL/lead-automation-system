@@ -13,6 +13,8 @@ import {
   XCircleIcon,
   ArrowPathIcon,
   TrashIcon,
+  DocumentTextIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import { apiClient } from '../utils/api';
 
@@ -722,6 +724,31 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Knowledge Base Section */}
+      <div className="card mb-6">
+        <div className="card-header">
+          <div className="flex items-center">
+            <div className="flex items-center justify-center h-8 w-8 rounded-md bg-purple-500 mr-3">
+              <DocumentTextIcon className="h-5 w-5 text-white" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900">Knowledge Base</h3>
+          </div>
+        </div>
+        <div className="card-body">
+          <p className="text-sm text-gray-600 mb-4">
+            Access documentation, guides, and resources to help you use the Lead Automation Hub effectively.
+          </p>
+          <a
+            href="/knowledge-base"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            <DocumentTextIcon className="h-5 w-5" />
+            <span>Open Knowledge Base</span>
+            <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+          </a>
         </div>
       </div>
 
