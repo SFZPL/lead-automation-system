@@ -246,6 +246,39 @@ const ProposalFollowupsPage: React.FC = () => {
     }
   }, [reportsQuery.data, selectedTab, hasAutoExpanded]);
 
+  // On mount/refresh, check if we have cached data and validate completed threads are filtered
+  React.useEffect(() => {
+    const cachedData = queryClient.getQueryData<ProposalFollowupData>(['proposal-followups', daysBack, noResponseDays, forceRefresh]);
+
+    if (cachedData && (cachedData.unanswered.length > 0 || cachedData.pending_proposals.length > 0)) {
+      // Fetch fresh completions list from backend to ensure cache is accurate
+      api.get('/proposal-followups/completions').then((response) => {
+        const completedIds = new Set(response.data.map((c: any) => c.conversation_id));
+
+        // Check if any threads in cache are now completed
+        const hasStaleData =
+          cachedData.unanswered.some(t => completedIds.has(t.conversation_id)) ||
+          cachedData.pending_proposals.some(t => completedIds.has(t.conversation_id));
+
+        if (hasStaleData) {
+          // Cache has completed threads, filter them out
+          const updatedData = {
+            ...cachedData,
+            unanswered: cachedData.unanswered.filter(t => !completedIds.has(t.conversation_id)),
+            pending_proposals: cachedData.pending_proposals.filter(t => !completedIds.has(t.conversation_id)),
+          };
+          updatedData.summary.unanswered_count = updatedData.unanswered.length;
+          updatedData.summary.pending_proposals_count = updatedData.pending_proposals.length;
+          updatedData.summary.total_count = updatedData.unanswered.length + updatedData.pending_proposals.length;
+
+          queryClient.setQueryData(['proposal-followups', daysBack, noResponseDays, forceRefresh], updatedData);
+        }
+      }).catch(err => {
+        console.error('Error fetching completions:', err);
+      });
+    }
+  }, []); // Only run once on mount
+
   // Timer effect for elapsed time
   React.useEffect(() => {
     if (followupsQuery.isLoading && startTime) {

@@ -2635,6 +2635,24 @@ def mark_followup_complete(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/proposal-followups/completions")
+def get_completed_followups(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Get list of all completed followup thread IDs."""
+    try:
+        completions = db.get_completed_followups_with_timestamps()
+        # Return as list of objects with conversation_id and completed_at
+        return [
+            {"conversation_id": conv_id, "completed_at": timestamp}
+            for conv_id, timestamp in completions.items()
+        ]
+    except Exception as e:
+        logger.error(f"Error fetching completions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/proposal-followups/{thread_id}/favorite")
 def favorite_followup(
     thread_id: str,
