@@ -240,14 +240,23 @@ const ProposalFollowupsPage: React.FC = () => {
     localStorage.setItem('proposalFollowups_showFilteredEmails', JSON.stringify(showFilteredEmails));
   }, [showFilteredEmails]);
 
-  // Auto-expand the latest saved report on load
+  // Auto-load the latest saved report on initial page load
   React.useEffect(() => {
-    if (!hasAutoExpanded && reportsQuery.data && reportsQuery.data.length > 0 && selectedTab === 'reports') {
+    if (!hasAutoExpanded && reportsQuery.data && reportsQuery.data.length > 0) {
       const latestReport = reportsQuery.data[0]; // Reports are sorted by created_at desc
-      setExpandedReport(latestReport.id);
+
+      // Load the report data into cache
+      queryClient.setQueryData(
+        ['proposal-followups', daysBack, noResponseDays, forceRefresh],
+        latestReport.result
+      );
+
+      // Set the tab to 'unanswered' to show the data
+      setSelectedTab('unanswered');
+      setHasStarted(true);
       setHasAutoExpanded(true);
     }
-  }, [reportsQuery.data, selectedTab, hasAutoExpanded]);
+  }, [reportsQuery.data, hasAutoExpanded, queryClient, daysBack, noResponseDays, forceRefresh]);
 
   // Validate cache to filter out completed threads
   const validateAndFilterCompletedThreads = React.useCallback(() => {
