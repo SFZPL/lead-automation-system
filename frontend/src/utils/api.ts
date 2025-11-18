@@ -91,9 +91,9 @@ export const api = {
   analyzeFollowupThread: (threadData: any) => apiClient.post('/proposal-followups/analyze-thread', threadData),
 
   // Proposal follow-up reports
-  getSavedReports: (params?: { report_type?: '90day' | 'monthly' | 'weekly' }) =>
+  getSavedReports: (params?: { report_type?: '90day' | 'monthly' | 'weekly' | 'complete' }) =>
     apiClient.get('/proposal-followups/reports', { params }),
-  generateReport: (data: { report_type: '90day' | 'monthly' | 'weekly'; days_back?: number; no_response_days?: number; engage_email?: string }) =>
+  generateReport: (data: { report_type: '90day' | 'monthly' | 'weekly' | 'complete'; days_back?: number; no_response_days?: number; engage_email?: string }) =>
     apiClient.post('/proposal-followups/reports/generate', data),
   deleteReport: (reportId: string) =>
     apiClient.delete(`/proposal-followups/reports/${reportId}`),
