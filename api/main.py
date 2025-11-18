@@ -2494,6 +2494,30 @@ def send_daily_digest(
     try:
         from modules.daily_digest_formatter import DailyDigestFormatter
         from modules.teams_messenger import TeamsMessenger
+        from modules.email_token_store import EmailTokenStore
+
+        # Get Microsoft access token
+        token_store = EmailTokenStore()
+        user_id = str(current_user.get("id"))
+        user_email = current_user.get("email")
+
+        logger.info(f"Getting tokens for user ID: {user_id} (email: {user_email})")
+        tokens = token_store.get_tokens(user_id)
+
+        if not tokens or not isinstance(tokens, dict):
+            logger.error(f"No valid tokens found for {user_email}")
+            raise HTTPException(
+                status_code=401,
+                detail="No Microsoft authentication found. Please connect your Microsoft account in Settings."
+            )
+
+        access_token = tokens.get("access_token")
+        if not access_token:
+            logger.error(f"Token data found but no access_token field for {user_email}")
+            raise HTTPException(
+                status_code=401,
+                detail="Microsoft token is invalid. Please reconnect your Microsoft account in Settings."
+            )
 
         # Get the most recent complete report
         reports = db.get_saved_reports(
@@ -2515,8 +2539,8 @@ def send_daily_digest(
 
         # Send to Teams
         teams_chat_id = '19:1d7fae90086342a49e12a433576697c7@thread.v2'
-        messenger = TeamsMessenger(user_identifier=current_user.get("email"))
-        messenger.send_message(teams_chat_id, digest_html)
+        teams = TeamsMessenger(access_token)
+        teams.send_message_to_chat(teams_chat_id, digest_html)
 
         logger.info(f"Daily digest sent successfully to Teams chat {teams_chat_id}")
 
