@@ -2035,7 +2035,7 @@ class SavedReportsResponse(BaseModel):
 
 
 class GenerateReportRequest(BaseModel):
-    report_type: Literal["90day", "monthly", "weekly"]
+    report_type: Literal["90day", "monthly", "weekly", "complete"]
     days_back: Optional[int] = None
     no_response_days: int = 3
     engage_email: str = "automated.response@prezlab.com"
@@ -2431,7 +2431,10 @@ def generate_saved_report(
         user_identifier = current_user.get("email")
 
         # Determine days_back based on report type
-        if request.report_type == "90day":
+        if request.report_type == "complete":
+            days_back = 365  # Analyze all emails from the past year
+            report_period = datetime.now().strftime("%Y")
+        elif request.report_type == "90day":
             days_back = 90
             report_period = datetime.now().strftime("%Y-Q%q")
         elif request.report_type == "monthly":

@@ -125,7 +125,6 @@ const ProposalFollowupsPage: React.FC = () => {
   const [assignModalOpen, setAssignModalOpen] = useState<boolean>(false);
   const [selectedLeadForAssignment, setSelectedLeadForAssignment] = useState<ProposalFollowupThread | null>(null);
   const [showGenerateReportModal, setShowGenerateReportModal] = useState<boolean>(false);
-  const [selectedReportType, setSelectedReportType] = useState<'90day' | 'monthly' | 'weekly'>('weekly');
   const [showDraftModal, setShowDraftModal] = useState<boolean>(false);
   const [selectedThread, setSelectedThread] = useState<ProposalFollowupThread | null>(null);
   const [showThreadUrlModal, setShowThreadUrlModal] = useState<boolean>(false);
@@ -1178,14 +1177,10 @@ const ProposalFollowupsPage: React.FC = () => {
                     <ArrowPathIcon className="w-8 h-8 text-purple-600 animate-spin" />
                     <div>
                       <p className="text-lg font-semibold text-purple-900">
-                        Generating {selectedReportType === '90day' ? '90-day' : selectedReportType} report...
+                        Generating complete report...
                       </p>
                       <p className="text-sm text-purple-700 mt-1">
-                        Elapsed time: {formatTime(reportElapsedTime)} • Estimated: {
-                          selectedReportType === 'weekly' ? 'up to 5 minutes' :
-                          selectedReportType === 'monthly' ? 'up to 10 minutes' :
-                          'up to 20 minutes'
-                        }
+                        Elapsed time: {formatTime(reportElapsedTime)} • Estimated: up to 20 minutes
                       </p>
                     </div>
                   </div>
@@ -1319,23 +1314,15 @@ const ProposalFollowupsPage: React.FC = () => {
       {showGenerateReportModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Generate New Report</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Generate Complete Follow-up Report</h3>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Report Type
-                </label>
-                <select
-                  value={selectedReportType}
-                  onChange={(e) => setSelectedReportType(e.target.value as '90day' | 'monthly' | 'weekly')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                >
-                  <option value="weekly">Weekly Report (7 days)</option>
-                  <option value="monthly">Monthly Report (30 days)</option>
-                  <option value="90day">90-Day Report</option>
-                </select>
-              </div>
+              <p className="text-sm text-gray-600">
+                This will analyze all emails from engage@prezlab.com to identify unanswered emails and pending proposals.
+              </p>
+              <p className="text-sm text-gray-500 italic">
+                Estimated time: up to 20 minutes
+              </p>
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -1348,13 +1335,6 @@ const ProposalFollowupsPage: React.FC = () => {
               </button>
               <button
                 onClick={async () => {
-                  const estimatedTimes = {
-                    weekly: 30,
-                    monthly: 120,
-                    '90day': 300
-                  };
-                  const estimatedSeconds = estimatedTimes[selectedReportType];
-
                   setIsGeneratingReport(true);
                   setReportGenerationStartTime(Date.now());
                   setShowGenerateReportModal(false);
@@ -1362,12 +1342,12 @@ const ProposalFollowupsPage: React.FC = () => {
                   try {
                     await toast.promise(
                       api.generateReport({
-                        report_type: selectedReportType,
+                        report_type: 'complete',
                         no_response_days: noResponseDays,
                         engage_email: 'automated.response@prezlab.com'
                       }),
                       {
-                        loading: `Generating ${selectedReportType} report... (estimated ${Math.floor(estimatedSeconds / 60)}${estimatedSeconds >= 60 ? ` min` : ` sec`})`,
+                        loading: 'Generating complete report... (estimated up to 20 minutes)',
                         success: 'Report generated successfully!',
                         error: 'Failed to generate report'
                       }
