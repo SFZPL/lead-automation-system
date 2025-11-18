@@ -18,6 +18,7 @@ import {
   ArrowDownTrayIcon,
   StarIcon,
   ChatBubbleLeftRightIcon,
+  PaperAirplaneIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import api from '../utils/api';
@@ -1152,13 +1153,35 @@ const ProposalFollowupsPage: React.FC = () => {
                 <h2 className="text-lg font-semibold text-gray-900">Saved Reports</h2>
                 <p className="text-sm text-gray-600">View and generate follow-up reports for your team</p>
               </div>
-              <button
-                onClick={() => setShowGenerateReportModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-              >
-                <DocumentTextIcon className="w-5 h-5" />
-                Generate New Report
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      await toast.promise(
+                        api.sendDailyDigest(),
+                        {
+                          loading: 'Sending daily digest to Teams...',
+                          success: 'Daily digest sent successfully!',
+                          error: 'Failed to send daily digest'
+                        }
+                      );
+                    } catch (error) {
+                      console.error('Error sending daily digest:', error);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  <PaperAirplaneIcon className="w-5 h-5" />
+                  Send Daily Digest
+                </button>
+                <button
+                  onClick={() => setShowGenerateReportModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  <DocumentTextIcon className="w-5 h-5" />
+                  Generate New Report
+                </button>
+              </div>
             </div>
 
             {/* Reports List */}

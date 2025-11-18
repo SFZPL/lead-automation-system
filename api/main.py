@@ -2485,6 +2485,55 @@ def generate_saved_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/proposal-followups/daily-digest/send")
+def send_daily_digest(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Send daily digest to Teams based on most recent complete report."""
+    try:
+        from modules.daily_digest_formatter import DailyDigestFormatter
+        from modules.teams_messenger import TeamsMessenger
+
+        # Get the most recent complete report
+        reports = db.get_saved_reports(
+            analysis_type="proposal_followups",
+            report_type="complete"
+        )
+
+        if not reports:
+            raise HTTPException(
+                status_code=404,
+                detail="No complete reports found. Please generate a complete report first."
+            )
+
+        latest_report = reports[0]  # Reports are sorted by created_at desc
+        report_data = latest_report.get('result', {})
+
+        # Format the daily digest
+        digest_html = DailyDigestFormatter.format_digest(report_data)
+
+        # Send to Teams
+        teams_chat_id = '19:1d7fae90086342a49e12a433576697c7@thread.v2'
+        messenger = TeamsMessenger(user_identifier=current_user.get("email"))
+        messenger.send_message(teams_chat_id, digest_html)
+
+        logger.info(f"Daily digest sent successfully to Teams chat {teams_chat_id}")
+
+        return {
+            "success": True,
+            "message": "Daily digest sent to Teams",
+            "report_date": latest_report.get('created_at'),
+            "total_followups": report_data.get('summary', {}).get('total_count', 0)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending daily digest: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/proposal-followups/{thread_id}/mark-complete")
 def mark_followup_complete(
     thread_id: str,

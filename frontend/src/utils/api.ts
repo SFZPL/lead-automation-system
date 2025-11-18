@@ -101,6 +101,8 @@ export const api = {
     apiClient.get(`/proposal-followups/reports/${reportId}/export`, { responseType: 'blob' }),
   sendReportToTeams: (data: { chat_id: string; report_data: any }) =>
     apiClient.post('/proposal-followups/send-to-teams', data),
+  sendDailyDigest: () =>
+    apiClient.post('/proposal-followups/daily-digest/send'),
   markFollowupComplete: (data: { thread_id: string; conversation_id: string; notes?: string }) =>
     apiClient.post(`/proposal-followups/${data.thread_id}/mark-complete`, data),
   favoriteFollowup: (data: { thread_id: string; conversation_id: string }) =>
