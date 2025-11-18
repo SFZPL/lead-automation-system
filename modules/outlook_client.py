@@ -41,10 +41,11 @@ class OutlookClient:
         # Add Teams permissions only if requested (for personal email auth)
         if include_teams:
             scopes.extend([
-                "User.Read.All",       # Read all users (for Teams member list)
-                "Group.Read.All",      # Read groups/teams
-                "TeamMember.Read.All", # Read team members
                 "Chat.ReadWrite",      # Send Teams chat messages
+                "ChatMessage.Read",    # Read chat messages
+                "ChatMessage.Send",    # Send chat messages
+                "Mail.Send",           # Send emails
+                "Group.Read.All",      # Read groups/teams (already has admin consent)
             ])
 
         scope_str = " ".join(scopes)
