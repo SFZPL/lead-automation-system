@@ -70,6 +70,9 @@ interface ProposalFollowupThread {
   analysis?: ThreadAnalysis;
   classification?: EmailClassification;
   is_favorited?: boolean;
+  last_internal_sender?: string;
+  last_internal_sender_email?: string;
+  last_internal_email_date?: string;
 }
 
 interface ProposalFollowupData {
@@ -697,6 +700,12 @@ const ProposalFollowupsPage: React.FC = () => {
                 <ClockIcon className="w-4 h-4" />
                 <span>{thread.days_waiting} days ago</span>
               </div>
+              {thread.last_internal_sender && (
+                <div className="flex items-center gap-1">
+                  <UserCircleIcon className="w-4 h-4 text-purple-600" />
+                  <span className="text-xs text-purple-700 font-medium">Last from: {thread.last_internal_sender}</span>
+                </div>
+              )}
               {thread.classification && (
                 <div className="flex items-center gap-1">
                   {getClassificationBadge(thread.classification)}

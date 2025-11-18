@@ -258,6 +258,18 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                 last_email.get("receivedDateTime", "").replace("Z", "+00:00")
             )
 
+            # Find the last internal sender (prezlab.com) who sent an email
+            last_internal_sender = None
+            last_internal_sender_email = None
+            last_internal_email_date = None
+            for email in reversed(thread):  # Go backwards to find most recent
+                sender_email = _extract_email(email.get("from", {}).get("emailAddress", {}).get("address", ""))
+                if self._is_internal_email(sender_email):
+                    last_internal_sender = email.get("from", {}).get("emailAddress", {}).get("name", "")
+                    last_internal_sender_email = sender_email
+                    last_internal_email_date = email.get("receivedDateTime", "")
+                    break
+
             # Check if last email is from external sender (unanswered)
             if not self._is_internal_email(last_sender):
                 if last_received < cutoff_date:
@@ -278,7 +290,10 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                         "subject": last_email.get("subject", ""),
                         "days_waiting": (datetime.now(timezone.utc) - last_received).days,
                         "web_link": last_email.get("webLink"),
-                        "classification": classification
+                        "classification": classification,
+                        "last_internal_sender": last_internal_sender,
+                        "last_internal_sender_email": last_internal_sender_email,
+                        "last_internal_email_date": last_internal_email_date
                     }
 
                     # Add to appropriate list based on classification
@@ -355,7 +370,10 @@ NOISE is: job applications, recruitment, newsletters, ads, automated notificatio
                                 "subject": last_email.get("subject", ""),
                                 "days_waiting": (datetime.now(timezone.utc) - proposal_date).days,
                                 "web_link": last_email.get("webLink"),
-                                "classification": classification
+                                "classification": classification,
+                                "last_internal_sender": last_internal_sender,
+                                "last_internal_sender_email": last_internal_sender_email,
+                                "last_internal_email_date": last_internal_email_date
                             }
 
                             # Add to appropriate list based on classification
