@@ -1187,6 +1187,26 @@ const ProposalFollowupsPage: React.FC = () => {
                   Send Daily Digest
                 </button>
                 <button
+                  onClick={async () => {
+                    try {
+                      const response = await toast.promise(
+                        api.sendIndividualDigests(),
+                        {
+                          loading: 'Sending individual digests to team...',
+                          success: (data: any) => `Sent ${data.data.digests_sent} individual digests!`,
+                          error: 'Failed to send individual digests'
+                        }
+                      );
+                    } catch (error) {
+                      console.error('Error sending individual digests:', error);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <UserCircleIcon className="w-5 h-5" />
+                  Send Individual Digests
+                </button>
+                <button
                   onClick={() => setShowGenerateReportModal(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
                 >

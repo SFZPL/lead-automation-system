@@ -103,6 +103,8 @@ export const api = {
     apiClient.post('/proposal-followups/send-to-teams', data),
   sendDailyDigest: () =>
     apiClient.post('/proposal-followups/daily-digest/send'),
+  sendIndividualDigests: () =>
+    apiClient.post('/proposal-followups/daily-digest/send-individual'),
   markFollowupComplete: (data: { thread_id: string; conversation_id: string; notes?: string }) =>
     apiClient.post(`/proposal-followups/${data.thread_id}/mark-complete`, data),
   favoriteFollowup: (data: { thread_id: string; conversation_id: string }) =>

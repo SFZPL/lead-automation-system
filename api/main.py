@@ -2558,6 +2558,101 @@ def send_daily_digest(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/proposal-followups/daily-digest/send-individual")
+def send_individual_digests(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Send personalized daily digests to each team member via Teams."""
+    try:
+        from modules.daily_digest_formatter import DailyDigestFormatter
+        from modules.teams_messenger import TeamsMessenger
+        from modules.email_token_store import EmailTokenStore
+
+        # Get Microsoft access token
+        token_store = EmailTokenStore()
+        user_id = str(current_user.get("id"))
+        user_email = current_user.get("email")
+
+        logger.info(f"Getting tokens for user ID: {user_id} (email: {user_email})")
+        tokens = token_store.get_tokens(user_id)
+
+        if not tokens or not isinstance(tokens, dict):
+            logger.error(f"No valid tokens found for {user_email}")
+            raise HTTPException(
+                status_code=401,
+                detail="No Microsoft authentication found. Please connect your Microsoft account in Settings."
+            )
+
+        access_token = tokens.get("access_token")
+        if not access_token:
+            logger.error(f"Token data found but no access_token field for {user_email}")
+            raise HTTPException(
+                status_code=401,
+                detail="Microsoft token is invalid. Please reconnect your Microsoft account in Settings."
+            )
+
+        # Get the most recent complete report
+        reports = db.get_saved_reports(
+            analysis_type="proposal_followups",
+            report_type="complete"
+        )
+
+        if not reports:
+            raise HTTPException(
+                status_code=404,
+                detail="No complete reports found. Please generate a complete report first."
+            )
+
+        latest_report = reports[0]
+        report_data = latest_report.get('result', {})
+
+        # Get all unique team members from the report
+        all_threads = report_data.get('unanswered', []) + report_data.get('pending_proposals', [])
+        team_members = set()
+        for thread in all_threads:
+            sender = thread.get('last_internal_sender')
+            if sender:
+                team_members.add(sender)
+
+        if not team_members:
+            return {
+                "success": True,
+                "message": "No team members found in report",
+                "digests_sent": 0
+            }
+
+        # Initialize Teams messenger
+        teams = TeamsMessenger(access_token)
+        teams_chat_id = '19:1d7fae90086342a49e12a433576697c7@thread.v2'
+
+        digests_sent = 0
+        for member in team_members:
+            # Generate individual digest
+            digest_html = DailyDigestFormatter.format_individual_digest(report_data, member)
+
+            if digest_html:
+                # Send to Teams chat (for now - later can be DM)
+                teams.send_message_to_chat(teams_chat_id, digest_html)
+                digests_sent += 1
+                logger.info(f"Sent individual digest for {member}")
+
+        logger.info(f"Sent {digests_sent} individual digests")
+
+        return {
+            "success": True,
+            "message": f"Individual digests sent to {digests_sent} team members",
+            "digests_sent": digests_sent,
+            "team_members": list(team_members)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending individual digests: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/proposal-followups/{thread_id}/mark-complete")
 def mark_followup_complete(
     thread_id: str,
