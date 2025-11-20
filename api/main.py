@@ -2494,15 +2494,16 @@ def send_daily_digest(
     try:
         from modules.daily_digest_formatter import DailyDigestFormatter
         from modules.teams_messenger import TeamsMessenger
-        from modules.email_token_store import EmailTokenStore
 
-        # Get Microsoft access token
-        token_store = EmailTokenStore()
+        # Get Microsoft access token (with automatic refresh if expired)
         user_id = str(current_user.get("id"))
         user_email = current_user.get("email")
 
         logger.info(f"Getting tokens for user ID: {user_id} (email: {user_email})")
-        tokens = token_store.get_tokens(user_id)
+
+        # Use OutlookClient to get tokens with automatic refresh
+        outlook = get_outlook_client()
+        tokens = outlook.get_user_auth_tokens(user_id)
 
         if not tokens or not isinstance(tokens, dict):
             logger.error(f"No valid tokens found for {user_email}")
@@ -2567,15 +2568,16 @@ def send_individual_digests(
     try:
         from modules.daily_digest_formatter import DailyDigestFormatter
         from modules.teams_messenger import TeamsMessenger
-        from modules.email_token_store import EmailTokenStore
 
-        # Get Microsoft access token
-        token_store = EmailTokenStore()
+        # Get Microsoft access token (with automatic refresh if expired)
         user_id = str(current_user.get("id"))
         user_email = current_user.get("email")
 
         logger.info(f"Getting tokens for user ID: {user_id} (email: {user_email})")
-        tokens = token_store.get_tokens(user_id)
+
+        # Use OutlookClient to get tokens with automatic refresh
+        outlook = get_outlook_client()
+        tokens = outlook.get_user_auth_tokens(user_id)
 
         if not tokens or not isinstance(tokens, dict):
             logger.error(f"No valid tokens found for {user_email}")
