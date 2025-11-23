@@ -59,6 +59,66 @@ class TeamsMessenger:
             logger.error(f"Response: {e.response.text}")
             raise
 
+    def create_one_on_one_chat(self, user_email: str) -> Optional[str]:
+        """
+        Create or get a 1:1 chat with a user.
+
+        Args:
+            user_email: The email address of the user to chat with
+
+        Returns:
+            The chat ID if successful, None otherwise
+        """
+        url = f"{self.GRAPH_BASE}/chats"
+
+        payload = {
+            "chatType": "oneOnOne",
+            "members": [
+                {
+                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                    "roles": ["owner"],
+                    "user@odata.bind": f"https://graph.microsoft.com/v1.0/users/{user_email}"
+                },
+                {
+                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                    "roles": ["owner"],
+                    "user@odata.bind": "https://graph.microsoft.com/v1.0/me"
+                }
+            ]
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=self.headers)
+            response.raise_for_status()
+            chat_data = response.json()
+            chat_id = chat_data.get("id")
+            logger.info(f"Created/retrieved 1:1 chat with {user_email}: {chat_id}")
+            return chat_id
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Failed to create 1:1 chat with {user_email}: {e}")
+            logger.error(f"Response: {e.response.text}")
+            return None
+
+    def send_direct_message(self, user_email: str, message_html: str) -> Dict[str, Any]:
+        """
+        Send a direct message to a user (creates 1:1 chat if needed).
+
+        Args:
+            user_email: The email address of the recipient
+            message_html: HTML-formatted message content
+
+        Returns:
+            Response from Microsoft Graph API or error dict
+        """
+        # Create or get the 1:1 chat
+        chat_id = self.create_one_on_one_chat(user_email)
+
+        if not chat_id:
+            return {"success": False, "error": f"Could not create chat with {user_email}"}
+
+        # Send the message to the 1:1 chat
+        return self.send_message_to_chat(chat_id, message_html)
+
     @staticmethod
     def format_followup_report_summary(report_data: Dict[str, Any]) -> str:
         """

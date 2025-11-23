@@ -2626,27 +2626,37 @@ def send_individual_digests(
 
         # Initialize Teams messenger
         teams = TeamsMessenger(access_token)
-        teams_chat_id = '19:1d7fae90086342a49e12a433576697c7@thread.v2'
 
         digests_sent = 0
+        failed_sends = []
         for member in team_members:
             # Generate individual digest
             digest_html = DailyDigestFormatter.format_individual_digest(report_data, member)
 
             if digest_html:
-                # Send to Teams chat (for now - later can be DM)
-                teams.send_message_to_chat(teams_chat_id, digest_html)
-                digests_sent += 1
-                logger.info(f"Sent individual digest for {member}")
+                # Send as direct 1:1 message to each team member
+                try:
+                    teams.send_direct_message(member, digest_html)
+                    digests_sent += 1
+                    logger.info(f"Sent individual digest DM to {member}")
+                except Exception as e:
+                    logger.error(f"Failed to send DM to {member}: {e}")
+                    failed_sends.append(member)
 
         logger.info(f"Sent {digests_sent} individual digests")
 
-        return {
+        response = {
             "success": True,
             "message": f"Individual digests sent to {digests_sent} team members",
             "digests_sent": digests_sent,
             "team_members": list(team_members)
         }
+
+        if failed_sends:
+            response["failed_sends"] = failed_sends
+            response["message"] += f" ({len(failed_sends)} failed)"
+
+        return response
 
     except HTTPException:
         raise
