@@ -69,8 +69,10 @@ class TeamsMessenger:
         Returns:
             The chat ID if successful, None otherwise
         """
+        import json
         url = f"{self.GRAPH_BASE}/chats"
 
+        # Build payload with explicit key strings to ensure @ symbol is preserved
         payload = {
             "chatType": "oneOnOne",
             "members": [
@@ -86,6 +88,9 @@ class TeamsMessenger:
                 }
             ]
         }
+
+        # Log the actual payload being sent for debugging
+        logger.info(f"Creating 1:1 chat with payload: {json.dumps(payload)}")
 
         try:
             response = requests.post(url, json=payload, headers=self.headers)
