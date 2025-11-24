@@ -69,39 +69,52 @@ class TeamsMessenger:
         Returns:
             The chat ID if successful, None otherwise
         """
-        import json
-        url = f"{self.GRAPH_BASE}/chats"
-
-        # Build payload with explicit key strings to ensure @ symbol is preserved
-        payload = {
-            "chatType": "oneOnOne",
-            "members": [
-                {
-                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
-                    "roles": ["owner"],
-                    "user@odata.bind": f"https://graph.microsoft.com/v1.0/users/{user_email}"
-                },
-                {
-                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
-                    "roles": ["owner"],
-                    "user@odata.bind": "https://graph.microsoft.com/v1.0/me"
-                }
-            ]
-        }
-
-        # Log the actual payload being sent for debugging
-        logger.info(f"Creating 1:1 chat with payload: {json.dumps(payload)}")
-
         try:
-            response = requests.post(url, json=payload, headers=self.headers)
-            response.raise_for_status()
-            chat_data = response.json()
-            chat_id = chat_data.get("id")
+            # Step 1: Get the recipient's user ID from their email
+            user_url = f"{self.GRAPH_BASE}/users/{user_email}"
+            user_response = requests.get(user_url, headers=self.headers, timeout=30)
+            user_response.raise_for_status()
+            recipient_user_id = user_response.json().get("id")
+
+            if not recipient_user_id:
+                logger.error(f"Could not get user ID for {user_email}")
+                return None
+
+            logger.info(f"Got user ID {recipient_user_id} for {user_email}")
+
+            # Step 2: Get current user ID (sender)
+            me_response = requests.get(f"{self.GRAPH_BASE}/me", headers=self.headers, timeout=30)
+            me_response.raise_for_status()
+            my_user_id = me_response.json().get("id")
+
+            # Step 3: Create or get existing 1:1 chat using user IDs
+            chat_payload = {
+                "chatType": "oneOnOne",
+                "members": [
+                    {
+                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                        "roles": ["owner"],
+                        "user@odata.bind": f"{self.GRAPH_BASE}/users/{my_user_id}"
+                    },
+                    {
+                        "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                        "roles": ["owner"],
+                        "user@odata.bind": f"{self.GRAPH_BASE}/users/{recipient_user_id}"
+                    }
+                ]
+            }
+
+            chat_response = requests.post(f"{self.GRAPH_BASE}/chats", headers=self.headers, json=chat_payload, timeout=30)
+            chat_response.raise_for_status()
+            chat_id = chat_response.json().get("id")
+
             logger.info(f"Created/retrieved 1:1 chat with {user_email}: {chat_id}")
             return chat_id
+
         except requests.exceptions.HTTPError as e:
             logger.error(f"Failed to create 1:1 chat with {user_email}: {e}")
-            logger.error(f"Response: {e.response.text}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
             return None
 
     def send_direct_message(self, user_email: str, message_html: str) -> Dict[str, Any]:
