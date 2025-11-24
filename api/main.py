@@ -2609,13 +2609,14 @@ def send_individual_digests(
         latest_report = reports[0]
         report_data = latest_report.get('result', {})
 
-        # Get all unique team members from the report
+        # Get all unique team members from the report (map name -> email)
         all_threads = report_data.get('unanswered', []) + report_data.get('pending_proposals', [])
-        team_members = set()
+        team_members = {}  # name -> email mapping
         for thread in all_threads:
-            sender = thread.get('last_internal_sender')
-            if sender:
-                team_members.add(sender)
+            sender_name = thread.get('last_internal_sender')
+            sender_email = thread.get('last_internal_sender_email')
+            if sender_name and sender_email:
+                team_members[sender_name] = sender_email
 
         if not team_members:
             return {
@@ -2629,19 +2630,19 @@ def send_individual_digests(
 
         digests_sent = 0
         failed_sends = []
-        for member in team_members:
-            # Generate individual digest
-            digest_html = DailyDigestFormatter.format_individual_digest(report_data, member)
+        for member_name, member_email in team_members.items():
+            # Generate individual digest (uses name to match threads)
+            digest_html = DailyDigestFormatter.format_individual_digest(report_data, member_name)
 
             if digest_html:
-                # Send as direct 1:1 message to each team member
+                # Send as direct 1:1 message to each team member using their email
                 try:
-                    teams.send_direct_message(member, digest_html)
+                    teams.send_direct_message(member_email, digest_html)
                     digests_sent += 1
-                    logger.info(f"Sent individual digest DM to {member}")
+                    logger.info(f"Sent individual digest DM to {member_name} ({member_email})")
                 except Exception as e:
-                    logger.error(f"Failed to send DM to {member}: {e}")
-                    failed_sends.append(member)
+                    logger.error(f"Failed to send DM to {member_name} ({member_email}): {e}")
+                    failed_sends.append(member_name)
 
         logger.info(f"Sent {digests_sent} individual digests")
 
