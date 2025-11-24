@@ -4600,12 +4600,13 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
             }
         )
 
-    except requests.RequestException as e:
-        logger.error(f"Odoo authentication failed: {e}")
-        raise HTTPException(status_code=401, detail="Unable to authenticate with Odoo")
     except HTTPException:
         raise
     except Exception as e:
+        # Handle network/request errors from Odoo
+        if "RequestException" in type(e).__name__ or "ConnectionError" in type(e).__name__:
+            logger.error(f"Odoo authentication failed: {e}")
+            raise HTTPException(status_code=401, detail="Unable to authenticate with Odoo")
         logger.error(f"Login error: {e}")
         raise HTTPException(status_code=500, detail="Authentication failed")
 
