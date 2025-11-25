@@ -2561,10 +2561,15 @@ def send_daily_digest(
 
 @app.post("/proposal-followups/daily-digest/send-individual")
 def send_individual_digests(
+    member_emails: Optional[List[str]] = Body(None),
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Send personalized daily digests to each team member via Teams."""
+    """Send personalized daily digests to each team member via Teams.
+
+    Args:
+        member_emails: Optional list of specific email addresses to send to. If None, sends to all.
+    """
     try:
         from modules.daily_digest_formatter import DailyDigestFormatter
         from modules.teams_messenger import TeamsMessenger
@@ -2635,6 +2640,16 @@ def send_individual_digests(
                 "message": "No team members found in report",
                 "digests_sent": 0
             }
+
+        # Filter team members if specific emails provided
+        if member_emails:
+            team_members = {name: email for name, email in team_members.items() if email in member_emails}
+            if not team_members:
+                return {
+                    "success": True,
+                    "message": "None of the specified team members found in report",
+                    "digests_sent": 0
+                }
 
         # Initialize Teams messenger
         teams = TeamsMessenger(access_token)
