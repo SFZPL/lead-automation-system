@@ -2609,8 +2609,19 @@ def send_individual_digests(
         latest_report = reports[0]
         report_data = latest_report.get('result', {})
 
+        # Filter out completed threads
+        completed_threads = db.get_completed_followups_with_timestamps()
+        completed_ids = set(completed_threads.keys())
+
+        unanswered = [t for t in report_data.get('unanswered', []) if t.get('conversation_id') not in completed_ids]
+        pending_proposals = [t for t in report_data.get('pending_proposals', []) if t.get('conversation_id') not in completed_ids]
+
+        # Update report data with filtered threads
+        report_data['unanswered'] = unanswered
+        report_data['pending_proposals'] = pending_proposals
+
         # Get all unique team members from the report (map name -> email)
-        all_threads = report_data.get('unanswered', []) + report_data.get('pending_proposals', [])
+        all_threads = unanswered + pending_proposals
         team_members = {}  # name -> email mapping
         for thread in all_threads:
             sender_name = thread.get('last_internal_sender')
