@@ -15,6 +15,7 @@ interface KnowledgeBaseDocument {
   filename: string;
   file_size: number;
   description?: string;
+  document_type?: string;
   uploaded_by_user_id: number;
   is_active: boolean;
   created_at: string;
@@ -24,6 +25,7 @@ interface KnowledgeBaseDocument {
 const KnowledgeBasePage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [description, setDescription] = useState<string>('');
+  const [documentType, setDocumentType] = useState<string>('general');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const queryClient = useQueryClient();
 
@@ -46,6 +48,7 @@ const KnowledgeBasePage: React.FC = () => {
       if (description.trim()) {
         formData.append('description', description.trim());
       }
+      formData.append('document_type', documentType);
 
       setIsUploading(true);
       const response = await api.post('/knowledge-base/upload', formData, {
@@ -58,6 +61,7 @@ const KnowledgeBasePage: React.FC = () => {
         toast.success('Document uploaded successfully');
         setSelectedFile(null);
         setDescription('');
+        setDocumentType('general');
         setIsUploading(false);
         queryClient.invalidateQueries('knowledge-base-documents');
       },
@@ -188,6 +192,29 @@ const KnowledgeBasePage: React.FC = () => {
             />
           </div>
 
+          <div>
+            <label htmlFor="document_type" className="block text-sm font-medium text-gray-700">
+              Document Type
+            </label>
+            <select
+              id="document_type"
+              value={documentType}
+              onChange={(e) => setDocumentType(e.target.value)}
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            >
+              <option value="general">General Knowledge</option>
+              <option value="reference_nda">Reference NDA Template</option>
+              <option value="reference_contract">Reference Contract Template</option>
+              <option value="pre_discovery_guide">Pre-Discovery Call Guide</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {documentType === 'reference_nda' && 'Used as a comparison template when analyzing uploaded NDAs'}
+              {documentType === 'reference_contract' && 'Used as a comparison template when analyzing uploaded contracts'}
+              {documentType === 'pre_discovery_guide' && 'Used when generating pre-discovery call documents'}
+              {documentType === 'general' && 'General knowledge base content for AI context'}
+            </p>
+          </div>
+
           <button
             onClick={handleUpload}
             disabled={!selectedFile || isUploading}
@@ -247,7 +274,22 @@ const KnowledgeBasePage: React.FC = () => {
               <div className="flex gap-3">
                 <DocumentTextIcon className="h-6 w-6 flex-shrink-0 text-gray-400" />
                 <div>
-                  <h3 className="text-sm font-medium text-gray-900">{doc.filename}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-medium text-gray-900">{doc.filename}</h3>
+                    {doc.document_type && doc.document_type !== 'general' && (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        doc.document_type === 'reference_nda' ? 'bg-blue-100 text-blue-800' :
+                        doc.document_type === 'reference_contract' ? 'bg-green-100 text-green-800' :
+                        doc.document_type === 'pre_discovery_guide' ? 'bg-purple-100 text-purple-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {doc.document_type === 'reference_nda' ? 'NDA Template' :
+                         doc.document_type === 'reference_contract' ? 'Contract Template' :
+                         doc.document_type === 'pre_discovery_guide' ? 'Pre-Discovery Guide' :
+                         doc.document_type}
+                      </span>
+                    )}
+                  </div>
                   {doc.description && (
                     <p className="mt-1 text-sm text-gray-600">{doc.description}</p>
                   )}

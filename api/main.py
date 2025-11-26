@@ -4733,11 +4733,15 @@ class KnowledgeBaseUploadResponse(BaseModel):
 async def upload_knowledge_base_document(
     file: UploadFile = File(...),
     description: Optional[str] = Form(None),
+    document_type: str = Form('general'),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """
     Upload a PDF document to the knowledge base.
     The content will be extracted and used as context for AI analyses.
+
+    Args:
+        document_type: Type of document (general, reference_nda, reference_contract, pre_discovery_guide)
     """
     if not supabase.is_connected():
         raise HTTPException(
@@ -4789,6 +4793,7 @@ async def upload_knowledge_base_document(
             "file_size": file_size,
             "content": text_content,
             "description": description,
+            "document_type": document_type,
             "uploaded_by_user_id": current_user["id"],
             "is_active": True
         }).execute()
