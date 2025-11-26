@@ -5,6 +5,8 @@
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Literal
+import io
+import PyPDF2
 
 from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -4762,9 +4764,7 @@ async def upload_knowledge_base_document(
         file_size = len(content_bytes)
 
         # Extract text from PDF
-        import io
         try:
-            import PyPDF2
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(content_bytes))
             text_content = ""
             for page in pdf_reader.pages:
@@ -4775,11 +4775,6 @@ async def upload_knowledge_base_document(
                     status_code=400,
                     detail="Could not extract text from PDF. Please ensure the PDF contains readable text."
                 )
-        except ImportError:
-            raise HTTPException(
-                status_code=500,
-                detail="PDF parsing library not installed. Please install PyPDF2."
-            )
         except Exception as e:
             logger.error(f"Error extracting PDF text: {e}")
             raise HTTPException(
