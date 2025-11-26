@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation } from 'react-query';
 import toast from 'react-hot-toast';
@@ -542,191 +543,6 @@ export default function SettingsPage() {
       </div>
 
       {/* Configuration Sections */}
-      <div className="space-y-6">
-        {/* Odoo Configuration */}
-        <div className="card">
-          <div className="card-header">
-            <div className="flex items-center">
-              <div className="flex items-center justify-center h-8 w-8 rounded-md bg-blue-500 mr-3">
-                <CogIcon className="h-5 w-5 text-white" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900">Odoo Integration</h3>
-            </div>
-          </div>
-          <div className="card-body">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="form-label">Odoo URL</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={config?.odoo_url || ''}
-                  disabled={!isEditing}
-                />
-              </div>
-              <div>
-                <label className="form-label">Database</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={config?.odoo_db || ''}
-                  disabled={!isEditing}
-                />
-              </div>
-              <div>
-                <label className="form-label">Username</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={config?.odoo_username || ''}
-                  disabled={!isEditing}
-                />
-              </div>
-              <div>
-                <label className="form-label">Connection Status</label>
-                <div className="mt-1">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    <div className="h-2 w-2 bg-green-400 rounded-full mr-2"></div>
-                    Connected
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Google Sheets Configuration */}
-        <div className="card">
-          <div className="card-header">
-            <div className="flex items-center">
-              <div className="flex items-center justify-center h-8 w-8 rounded-md bg-green-500 mr-3">
-                <CloudIcon className="h-5 w-5 text-white" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900">Google Sheets Integration</h3>
-            </div>
-          </div>
-          <div className="card-body">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="form-label">Service Account Status</label>
-                <div className="mt-1">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    config?.google_service_account_configured
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    <div className={`h-2 w-2 rounded-full mr-2 ${
-                      config?.google_service_account_configured ? 'bg-green-400' : 'bg-red-400'
-                    }`}></div>
-                    {config?.google_service_account_configured ? 'Configured' : 'Not Configured'}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <label className="form-label">Setup Instructions</label>
-                <div className="mt-1">
-                  <a
-                    href="https://console.cloud.google.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 text-sm"
-                  >
-                    Google Cloud Console →
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Processing Configuration */}
-        <div className="card">
-          <div className="card-header">
-            <div className="flex items-center">
-              <div className="flex items-center justify-center h-8 w-8 rounded-md bg-purple-500 mr-3">
-                <UserIcon className="h-5 w-5 text-white" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900">Processing Settings</h3>
-            </div>
-          </div>
-          <div className="card-body">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="form-label">Salesperson Name</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={config?.salesperson_name || ''}
-                  disabled={!isEditing}
-                />
-              </div>
-              <div>
-                <label className="form-label">Batch Size</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={config?.batch_size || 50}
-                  disabled={!isEditing}
-                />
-              </div>
-              <div>
-                <label className="form-label">Max Concurrent Requests</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={config?.max_concurrent_requests || 5}
-                  disabled={!isEditing}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* LinkedIn/Apify Configuration */}
-        <div className="card">
-          <div className="card-header">
-            <div className="flex items-center">
-              <div className="flex items-center justify-center h-8 w-8 rounded-md bg-blue-600 mr-3">
-                <KeyIcon className="h-5 w-5 text-white" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900">LinkedIn Enrichment (Apify)</h3>
-            </div>
-          </div>
-          <div className="card-body">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="form-label">API Token Status</label>
-                <div className="mt-1">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    config?.apify_token_configured
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    <div className={`h-2 w-2 rounded-full mr-2 ${
-                      config?.apify_token_configured ? 'bg-green-400' : 'bg-yellow-400'
-                    }`}></div>
-                    {config?.apify_token_configured ? 'Configured' : 'Optional - Not Configured'}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <label className="form-label">Setup Instructions</label>
-                <div className="mt-1">
-                  <a
-                    href="https://apify.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 text-sm"
-                  >
-                    Apify Console →
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Knowledge Base Section */}
       <div className="card mb-6">
         <div className="card-header">
@@ -741,14 +557,14 @@ export default function SettingsPage() {
           <p className="text-sm text-gray-600 mb-4">
             Access documentation, guides, and resources to help you use the Lead Automation Hub effectively.
           </p>
-          <a
-            href="/knowledge-base"
+          <Link
+            to="/knowledge-base"
             className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
           >
             <DocumentTextIcon className="h-5 w-5" />
             <span>Open Knowledge Base</span>
             <ArrowTopRightOnSquareIcon className="h-4 w-4" />
-          </a>
+          </Link>
         </div>
       </div>
 
