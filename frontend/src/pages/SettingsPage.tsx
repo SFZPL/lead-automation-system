@@ -69,6 +69,7 @@ export default function SettingsPage() {
   const [kbDescription, setKbDescription] = useState<string>('');
   const [documentType, setDocumentType] = useState<string>('general');
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Fetch configuration
   const { data: config, isLoading } = useQuery<ConfigData>('config',
@@ -683,13 +684,22 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">PDF File</label>
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".pdf"
                 onChange={handleFileChange}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-md file:border-0 file:bg-purple-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-purple-700"
+                className="hidden"
               />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <DocumentTextIcon className="h-5 w-5" />
+                Choose File
+              </button>
               {selectedFile && (
-                <p className="mt-1 text-sm text-gray-600">
+                <p className="mt-2 text-sm text-gray-600">
                   Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
                 </p>
               )}
