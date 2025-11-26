@@ -146,6 +146,9 @@ const ProposalFollowupsPage: React.FC = () => {
   const [reportToDelete, setReportToDelete] = useState<string | null>(null);
   const [expandedReport, setExpandedReport] = useState<string | null>(null);
   const [hasAutoExpanded, setHasAutoExpanded] = useState<boolean>(false);
+  const [showIndividualDigestModal, setShowIndividualDigestModal] = useState<boolean>(false);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [availableMembers, setAvailableMembers] = useState<{name: string, email: string}[]>([]);
 
   // Mock users list - TODO: Replace with actual API call to fetch users
   const mockUsers = [
@@ -1209,19 +1212,21 @@ const ProposalFollowupsPage: React.FC = () => {
                   Send Daily Digest
                 </button>
                 <button
-                  onClick={async () => {
-                    try {
-                      const response = await toast.promise(
-                        api.sendIndividualDigests(),
-                        {
-                          loading: 'Sending individual digests to team...',
-                          success: (data: any) => `Sent ${data.data.digests_sent} individual digests!`,
-                          error: 'Failed to send individual digests'
+                  onClick={() => {
+                    // Extract unique team members from current data
+                    const members = new Map<string, {name: string, email: string}>();
+                    if (followupsQuery.data) {
+                      [...(followupsQuery.data.unanswered || []), ...(followupsQuery.data.pending_proposals || [])].forEach(thread => {
+                        const name = thread.last_internal_sender;
+                        const email = thread.last_internal_sender_email;
+                        if (name && email) {
+                          members.set(email, { name, email });
                         }
-                      );
-                    } catch (error) {
-                      console.error('Error sending individual digests:', error);
+                      });
                     }
+                    setAvailableMembers(Array.from(members.values()));
+                    setSelectedMembers([]);
+                    setShowIndividualDigestModal(true);
                   }}
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                 >
@@ -1757,6 +1762,101 @@ const ProposalFollowupsPage: React.FC = () => {
                 className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Individual Digest Modal */}
+      {showIndividualDigestModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-xl font-semibold text-gray-900">Send Individual Digests</h3>
+              <p className="text-sm text-gray-600 mt-1">Select team members to receive personalized digests</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {availableMembers.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No team members found in current report</p>
+              ) : (
+                <div className="space-y-2">
+                  {/* Select All */}
+                  <label className="flex items-center p-3 rounded-lg hover:bg-gray-50 cursor-pointer border-b border-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={selectedMembers.length === availableMembers.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedMembers(availableMembers.map(m => m.email));
+                        } else {
+                          setSelectedMembers([]);
+                        }
+                      }}
+                      className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-3 font-medium text-gray-900">Select All</span>
+                  </label>
+
+                  {/* Individual Members */}
+                  {availableMembers.map((member) => (
+                    <label key={member.email} className="flex items-center p-3 rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedMembers.includes(member.email)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedMembers([...selectedMembers, member.email]);
+                          } else {
+                            setSelectedMembers(selectedMembers.filter(email => email !== member.email));
+                          }
+                        }}
+                        className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                      />
+                      <div className="ml-3">
+                        <div className="font-medium text-gray-900">{member.name}</div>
+                        <div className="text-sm text-gray-500">{member.email}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => setShowIndividualDigestModal(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const emailsToSend = selectedMembers.length > 0 ? selectedMembers : undefined;
+                    setShowIndividualDigestModal(false);
+
+                    await toast.promise(
+                      api.sendIndividualDigests(emailsToSend),
+                      {
+                        loading: 'Sending individual digests...',
+                        success: (data: any) => `Sent ${data.data.digests_sent} individual digest${data.data.digests_sent !== 1 ? 's' : ''}!`,
+                        error: 'Failed to send individual digests'
+                      }
+                    );
+                  } catch (error) {
+                    console.error('Error sending individual digests:', error);
+                  }
+                }}
+                disabled={selectedMembers.length === 0}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  selectedMembers.length === 0
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                Send to {selectedMembers.length || 0} Member{selectedMembers.length !== 1 ? 's' : ''}
               </button>
             </div>
           </div>
