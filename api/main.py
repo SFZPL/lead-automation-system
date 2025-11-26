@@ -3100,10 +3100,11 @@ def send_pipeline_to_teams(
 async def upload_nda(
     file: UploadFile = File(...),
     save_to_database: bool = Form(True),
+    document_type: str = Form('nda'),
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Upload an NDA document for analysis. Optionally save to database."""
+    """Upload an NDA or contract document for analysis. Optionally save to database."""
     try:
         from modules.nda_analyzer import NDAAnalyzer
 
@@ -3125,9 +3126,9 @@ async def upload_nda(
         # Detect language
         language = analyzer.detect_language(nda_text)
 
-        # Perform analysis
+        # Perform analysis with document type
         try:
-            analysis = analyzer.analyze_nda(nda_text, language)
+            analysis = analyzer.analyze_nda(nda_text, language, document_type=document_type)
 
             # If save_to_database is True, save the NDA and analysis
             if save_to_database:

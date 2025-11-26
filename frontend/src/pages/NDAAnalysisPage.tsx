@@ -40,6 +40,7 @@ const NDAAnalysisPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [saveToDatabase, setSaveToDatabase] = useState(true);
+  const [documentType, setDocumentType] = useState<'nda' | 'contract'>('nda');
   const [selectedDocument, setSelectedDocument] = useState<NDADocument | null>(null);
   const queryClient = useQueryClient();
 
@@ -89,6 +90,7 @@ const NDAAnalysisPage: React.FC = () => {
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('save_to_database', saveToDatabase.toString());
+      formData.append('document_type', documentType);
 
       const response = await api.uploadNDA(formData);
 
@@ -176,6 +178,28 @@ const NDAAnalysisPage: React.FC = () => {
       {/* Upload Section */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload Document</h2>
+
+        {/* Document Type Selector */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Document Type
+          </label>
+          <select
+            value={documentType}
+            onChange={(e) => setDocumentType(e.target.value as 'nda' | 'contract')}
+            className="block w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="nda">NDA (Non-Disclosure Agreement)</option>
+            <option value="contract">Contract</option>
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            {documentType === 'nda'
+              ? 'Analysis will focus on confidentiality terms, permitted disclosures, and term length'
+              : 'Analysis will focus on deliverables, payment terms, liability, and termination clauses'
+            }
+          </p>
+        </div>
+
         <div className="flex items-center gap-4">
           <input
             type="file"

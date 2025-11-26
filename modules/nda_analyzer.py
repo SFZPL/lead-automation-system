@@ -99,14 +99,15 @@ class NDAAnalyzer:
 
         return chunks
 
-    def analyze_nda(self, nda_text: str, language: Optional[str] = None) -> Dict[str, Any]:
+    def analyze_nda(self, nda_text: str, language: Optional[str] = None, document_type: str = 'nda') -> Dict[str, Any]:
         """
-        Analyze NDA document and return risk assessment.
+        Analyze NDA or contract document and return risk assessment.
         Uses chunked analysis for large documents to ensure nothing is skipped.
 
         Args:
-            nda_text: The full text of the NDA document
+            nda_text: The full text of the document
             language: Optional language code ('en' or 'ar'). Will auto-detect if not provided.
+            document_type: Type of document ('nda' or 'contract'). Defaults to 'nda'.
 
         Returns:
             Dictionary containing:
@@ -121,31 +122,31 @@ class NDAAnalyzer:
             if not language:
                 language = self.detect_language(nda_text)
 
-            logger.info(f"Analyzing NDA (language: {language}, length: {len(nda_text)} chars)")
+            logger.info(f"Analyzing {document_type.upper()} (language: {language}, length: {len(nda_text)} chars)")
 
             # Check if we need to use chunked analysis
             max_single_chars = 80000  # Conservative limit for single-pass analysis
 
             if len(nda_text) > max_single_chars:
                 logger.info(f"Document is large ({len(nda_text)} chars), using chunked analysis")
-                return self._analyze_nda_chunked(nda_text, language)
+                return self._analyze_nda_chunked(nda_text, language, document_type)
             else:
                 logger.info("Document size is manageable, using single-pass analysis")
-                return self._analyze_nda_single(nda_text, language)
+                return self._analyze_nda_single(nda_text, language, document_type)
 
         except Exception as e:
             logger.error(f"Error analyzing NDA: {e}", exc_info=True)
             raise
 
-    def _analyze_nda_single(self, nda_text: str, language: str) -> Dict[str, Any]:
-        """Analyze entire NDA in a single pass."""
-        # Build prompt based on language
+    def _analyze_nda_single(self, nda_text: str, language: str, document_type: str = 'nda') -> Dict[str, Any]:
+        """Analyze entire document in a single pass."""
+        # Build prompt based on language and document type
         if language == "ar":
-            system_prompt = self._get_arabic_system_prompt()
-            user_prompt = self._get_arabic_user_prompt(nda_text)
+            system_prompt = self._get_arabic_system_prompt(document_type)
+            user_prompt = self._get_arabic_user_prompt(nda_text, document_type)
         else:
-            system_prompt = self._get_english_system_prompt()
-            user_prompt = self._get_english_user_prompt(nda_text)
+            system_prompt = self._get_english_system_prompt(document_type)
+            user_prompt = self._get_english_user_prompt(nda_text, document_type)
 
         # Call OpenAI API (gpt-5-mini only supports default temperature of 1)
         response = self.client.chat.completions.create(
@@ -182,7 +183,7 @@ class NDAAnalyzer:
         logger.info(f"Analysis complete: {result['risk_category']} (score: {result['risk_score']})")
         return result
 
-    def _analyze_nda_chunked(self, nda_text: str, language: str) -> Dict[str, Any]:
+    def _analyze_nda_chunked(self, nda_text: str, language: str, document_type: str = 'nda') -> Dict[str, Any]:
         """Analyze large NDA in chunks to ensure complete coverage."""
         chunks = self._chunk_text(nda_text)
         logger.info(f"Split document into {len(chunks)} chunks for analysis")
@@ -249,9 +250,35 @@ class NDAAnalyzer:
             }
         }
 
-    def _get_english_system_prompt(self) -> str:
-        """Get system prompt for English NDA analysis."""
-        return """You are an expert legal analyst specializing in Non-Disclosure Agreements (NDAs).
+    def _get_english_system_prompt(self, document_type: str = 'nda') -> str:
+        """Get system prompt for English document analysis."""
+        if document_type == 'contract':
+            return """You are an expert legal analyst specializing in business contracts.
+Your role is to analyze contract documents and assess their risk level for the signing party.
+
+You must respond with a JSON object containing:
+1. risk_category: One of "Safe", "Needs Attention", or "Risky"
+2. risk_score: Integer from 0-100 (0=safest, 100=riskiest)
+3. summary: A brief 2-3 sentence summary of the overall assessment
+4. questionable_clauses: An array of objects, each containing:
+   - clause: The exact text or description of the concerning clause
+   - concern: What makes this clause problematic
+   - suggestion: Recommended modification or action
+   - severity: One of "low", "medium", "high"
+
+Consider these risk factors for contracts:
+- Unclear scope of work or deliverables
+- Unfavorable payment terms or schedules
+- Excessive liability or indemnification clauses
+- One-sided termination rights
+- Unreasonable warranties or guarantees
+- Intellectual property ownership concerns
+- Non-compete or non-solicitation clauses
+- Lack of limitation of liability
+- Automatic renewal or extension clauses
+- Unfavorable jurisdiction and dispute resolution"""
+        else:  # NDA
+            return """You are an expert legal analyst specializing in Non-Disclosure Agreements (NDAs).
 Your role is to analyze NDA documents and assess their risk level for the signing party.
 
 You must respond with a JSON object containing:
@@ -275,19 +302,20 @@ Consider these risk factors:
 - Lack of exceptions (prior knowledge, public domain, etc.)
 - Jurisdiction and dispute resolution clauses"""
 
-    def _get_english_user_prompt(self, nda_text: str) -> str:
-        """Get user prompt for English NDA analysis."""
-        return f"""Please analyze the following NDA document and provide a comprehensive risk assessment.
+    def _get_english_user_prompt(self, nda_text: str, document_type: str = 'nda') -> str:
+        """Get user prompt for English document analysis."""
+        doc_name = "contract" if document_type == 'contract' else "NDA"
+        return f"""Please analyze the following {doc_name} document and provide a comprehensive risk assessment.
 
-NDA Document:
+{doc_name.upper()} Document:
 {nda_text}
 
 Provide your analysis as a JSON object with the structure specified in your system instructions."""
 
-    def _get_arabic_system_prompt(self) -> str:
-        """Get system prompt for Arabic NDA analysis."""
-        return """أنت محلل قانوني خبير متخصص في اتفاقيات عدم الإفصاح (NDAs).
-دورك هو تحليل وثائق اتفاقيات عدم الإفصاح وتقييم مستوى المخاطر للطرف الموقع.
+    def _get_arabic_system_prompt(self, document_type: str = 'nda') -> str:
+        """Get system prompt for Arabic document analysis."""
+        return """أنت محلل قانوني خبير متخصص في اتفاقيات عدم الإفصاح والعقود.
+دورك هو تحليل الوثائق القانونية وتقييم مستوى المخاطر للطرف الموقع.
 
 يجب أن ترد بكائن JSON يحتوي على:
 1. risk_category: واحد من "Safe" أو "Needs Attention" أو "Risky"
@@ -310,9 +338,10 @@ Provide your analysis as a JSON object with the structure specified in your syst
 - عدم وجود استثناءات (معرفة مسبقة، مجال عام، إلخ)
 - بنود الاختصاص القضائي وحل النزاعات"""
 
-    def _get_arabic_user_prompt(self, nda_text: str) -> str:
-        """Get user prompt for Arabic NDA analysis."""
-        return f"""يرجى تحليل وثيقة اتفاقية عدم الإفصاح التالية وتقديم تقييم شامل للمخاطر.
+    def _get_arabic_user_prompt(self, nda_text: str, document_type: str = 'nda') -> str:
+        """Get user prompt for Arabic document analysis."""
+        doc_name_ar = "العقد" if document_type == 'contract' else "اتفاقية عدم الإفصاح"
+        return f"""يرجى تحليل وثيقة {doc_name_ar} التالية وتقديم تقييم شامل للمخاطر.
 
 وثيقة اتفاقية عدم الإفصاح:
 {nda_text}
