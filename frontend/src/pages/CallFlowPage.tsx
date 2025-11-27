@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from 'react-query';
 import toast from 'react-hot-toast';
-import { DocumentArrowDownIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { DocumentArrowDownIcon, SparklesIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { apiClient } from '../utils/api';
 
 interface Lead {
@@ -18,6 +18,7 @@ interface Lead {
 export default function CallFlowPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch enriched leads
   const { data: leadsData, isLoading } = useQuery(
@@ -65,8 +66,22 @@ export default function CallFlowPage() {
 
   const leads = leadsData?.leads || [];
 
+  // Filter leads based on search query
+  const filteredLeads = useMemo(() => {
+    if (!searchQuery.trim()) return leads;
+
+    const query = searchQuery.toLowerCase();
+    return leads.filter((lead: Lead) =>
+      lead.name?.toLowerCase().includes(query) ||
+      lead.partner_name?.toLowerCase().includes(query) ||
+      lead.email_from?.toLowerCase().includes(query) ||
+      lead.function?.toLowerCase().includes(query) ||
+      lead.stage_name?.toLowerCase().includes(query)
+    );
+  }, [leads, searchQuery]);
+
   return (
-    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Pre-discovery Call Flow Generation</h1>
         <p className="mt-2 text-sm text-gray-600">
@@ -74,22 +89,36 @@ export default function CallFlowPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Lead Selection */}
-        <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Select Lead</h2>
+      {/* Full Width Leads List */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Select Lead</h2>
+          {/* Search Bar */}
+          <div className="relative w-64">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search leads..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+        </div>
 
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
-            </div>
-          ) : leads.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center">
-              <p className="text-sm text-gray-500">No enriched leads found</p>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-[500px] overflow-y-auto">
-              {leads.map((lead: Lead) => (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
+          </div>
+        ) : filteredLeads.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-8 text-center">
+            <p className="text-sm text-gray-500">
+              {searchQuery ? 'No leads match your search' : 'No enriched leads found'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredLeads.map((lead: Lead) => (
                 <button
                   key={lead.id}
                   onClick={() => setSelectedLead(lead)}
@@ -109,87 +138,82 @@ export default function CallFlowPage() {
                   </div>
                 </button>
               ))}
-            </div>
-          )}
-        </div>
-
-        {/* Selected Lead Details & Actions */}
-        <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Lead Details</h2>
-
-          {selectedLead ? (
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700">Contact Name</label>
-                <p className="mt-1 text-gray-900">{selectedLead.name}</p>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">Company</label>
-                <p className="mt-1 text-gray-900">{selectedLead.partner_name}</p>
-              </div>
-
-              {selectedLead.email_from && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Email</label>
-                  <p className="mt-1 text-gray-900">{selectedLead.email_from}</p>
-                </div>
-              )}
-
-              {selectedLead.function && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Job Title</label>
-                  <p className="mt-1 text-gray-900">{selectedLead.function}</p>
-                </div>
-              )}
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">Stage</label>
-                <p className="mt-1 text-gray-900">{selectedLead.stage_name}</p>
-              </div>
-
-              {selectedLead.description && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Notes</label>
-                  <div
-                    className="mt-1 text-sm text-gray-600 line-clamp-3 prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: selectedLead.description }}
-                  />
-                </div>
-              )}
-
-              <div className="pt-4 border-t">
-                <button
-                  onClick={handleGenerateCallFlow}
-                  disabled={isGenerating}
-                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isGenerating ? (
-                    <>
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                      Generating Call Flow...
-                    </>
-                  ) : (
-                    <>
-                      <SparklesIcon className="h-5 w-5" />
-                      Generate Discovery Call Flow
-                      <DocumentArrowDownIcon className="h-5 w-5" />
-                    </>
-                  )}
-                </button>
-
-                <p className="mt-3 text-xs text-gray-500 text-center">
-                  This will generate a personalized discovery call flow document based on {selectedLead.name}'s enriched data
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center py-16 text-gray-400">
-              <p>Select a lead to view details</p>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
+
+      {/* Selected Lead Details & Actions - Full Width */}
+      {selectedLead && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Lead Details & Actions</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Contact Name</label>
+              <p className="mt-1 text-gray-900">{selectedLead.name}</p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700">Company</label>
+              <p className="mt-1 text-gray-900">{selectedLead.partner_name}</p>
+            </div>
+
+            {selectedLead.email_from && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">Email</label>
+                <p className="mt-1 text-gray-900">{selectedLead.email_from}</p>
+              </div>
+            )}
+
+            {selectedLead.function && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">Job Title</label>
+                <p className="mt-1 text-gray-900">{selectedLead.function}</p>
+              </div>
+            )}
+
+            <div>
+              <label className="text-sm font-medium text-gray-700">Stage</label>
+              <p className="mt-1 text-gray-900">{selectedLead.stage_name}</p>
+            </div>
+          </div>
+
+          {selectedLead.description && (
+            <div className="mb-6">
+              <label className="text-sm font-medium text-gray-700">Notes</label>
+              <div
+                className="mt-2 text-sm text-gray-600 prose prose-sm max-w-none bg-gray-50 rounded-lg p-4"
+                dangerouslySetInnerHTML={{ __html: selectedLead.description }}
+              />
+            </div>
+          )}
+
+          <div className="pt-4 border-t flex justify-center">
+            <button
+              onClick={handleGenerateCallFlow}
+              disabled={isGenerating}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isGenerating ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                  Generating Call Flow...
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="h-5 w-5" />
+                  Generate Discovery Call Flow
+                  <DocumentArrowDownIcon className="h-5 w-5" />
+                </>
+              )}
+            </button>
+          </div>
+
+          <p className="mt-3 text-xs text-gray-500 text-center">
+            This will generate a personalized discovery call flow document based on {selectedLead.name}'s enriched data
+          </p>
+        </div>
+      )}
     </div>
   );
 }

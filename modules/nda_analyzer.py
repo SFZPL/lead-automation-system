@@ -48,31 +48,63 @@ class NDAAnalyzer:
 
     def extract_text_from_file(self, file_content: bytes, file_name: str) -> str:
         """
-        Extract text from uploaded file.
-        For now, assumes text files. Can be extended to support PDF extraction.
+        Extract text from uploaded file (supports PDF, DOCX, and text files).
         """
-        try:
-            # Try to decode as UTF-8 text
-            text = file_content.decode('utf-8')
-            # Remove null bytes and other problematic characters
-            text = text.replace('\x00', '').replace('\u0000', '')
-            return text
-        except UnicodeDecodeError:
-            # Try other encodings for Arabic text
+        import io
+
+        # Check if it's a PDF file
+        if file_name.lower().endswith('.pdf'):
             try:
-                text = file_content.decode('utf-16')
+                import PyPDF2
+                pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_content))
+                text = ""
+                for page in pdf_reader.pages:
+                    text += page.extract_text() + "\n"
+
+                # Remove null bytes and other problematic characters
+                text = text.replace('\x00', '').replace('\u0000', '')
+                return text.strip()
+            except Exception as e:
+                logger.error(f"Error extracting text from PDF: {e}")
+                return ""
+
+        # Check if it's a DOCX file
+        elif file_name.lower().endswith('.docx'):
+            try:
+                import docx
+                doc = docx.Document(io.BytesIO(file_content))
+                text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                # Remove null bytes and other problematic characters
+                text = text.replace('\x00', '').replace('\u0000', '')
+                return text.strip()
+            except Exception as e:
+                logger.error(f"Error extracting text from DOCX: {e}")
+                return ""
+
+        # Otherwise treat as text file
+        else:
+            try:
+                # Try to decode as UTF-8 text
+                text = file_content.decode('utf-8')
                 # Remove null bytes and other problematic characters
                 text = text.replace('\x00', '').replace('\u0000', '')
                 return text
-            except:
+            except UnicodeDecodeError:
+                # Try other encodings for Arabic text
                 try:
-                    text = file_content.decode('iso-8859-1')
+                    text = file_content.decode('utf-16')
                     # Remove null bytes and other problematic characters
                     text = text.replace('\x00', '').replace('\u0000', '')
                     return text
-                except Exception as e:
-                    logger.error(f"Error extracting text from file: {e}")
-                    return ""
+                except:
+                    try:
+                        text = file_content.decode('iso-8859-1')
+                        # Remove null bytes and other problematic characters
+                        text = text.replace('\x00', '').replace('\u0000', '')
+                        return text
+                    except Exception as e:
+                        logger.error(f"Error extracting text from file: {e}")
+                        return ""
 
     def _chunk_text(self, text: str, max_chunk_chars: int = 80000) -> List[str]:
         """Split text into chunks that fit within token limits."""
