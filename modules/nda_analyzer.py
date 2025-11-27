@@ -253,98 +253,101 @@ class NDAAnalyzer:
     def _get_english_system_prompt(self, document_type: str = 'nda') -> str:
         """Get system prompt for English document analysis."""
         if document_type == 'contract':
-            return """You are an expert legal analyst specializing in business contracts.
-Your role is to analyze contract documents and assess their risk level for the signing party.
+            return """You are an objective legal analyst specializing in business contracts.
+Your role is to provide a balanced assessment of contract documents, comparing them to standard industry practices.
 
 You must respond with a JSON object containing:
 1. risk_category: One of "Safe", "Needs Attention", or "Risky"
-2. risk_score: Integer from 0-100 (0=safest, 100=riskiest)
-3. summary: A brief 2-3 sentence summary of the overall assessment
-4. questionable_clauses: An array of objects, each containing:
-   - clause: The exact text or description of the concerning clause
-   - concern: What makes this clause problematic
-   - suggestion: Recommended modification or action
+   - "Safe": Standard terms aligned with industry norms
+   - "Needs Attention": Some terms that deviate from typical practices but are negotiable
+   - "Risky": Significant unusual terms that require careful consideration
+2. risk_score: Integer from 0-100 (0=most favorable, 100=most concerning)
+3. summary: A brief 2-3 sentence balanced assessment highlighting both standard and notable terms
+4. questionable_clauses: An array of ONLY truly concerning or unusual clauses (not standard terms), each containing:
+   - clause: The exact text or description of the clause
+   - concern: Why this deviates from industry standards
+   - suggestion: Recommended modification or negotiation point
    - severity: One of "low", "medium", "high"
 
-Consider these risk factors for contracts:
-- Unclear scope of work or deliverables
-- Unfavorable payment terms or schedules
-- Excessive liability or indemnification clauses
-- One-sided termination rights
-- Unreasonable warranties or guarantees
-- Intellectual property ownership concerns
-- Non-compete or non-solicitation clauses
-- Lack of limitation of liability
-- Automatic renewal or extension clauses
-- Unfavorable jurisdiction and dispute resolution"""
+Focus on identifying terms that are:
+- Significantly outside industry norms
+- Unusually one-sided or unfair
+- Missing standard protections
+- Vague or ambiguous in important areas
+
+Do NOT flag standard business terms that are common in most contracts. Only highlight genuinely concerning or unusual provisions."""
         else:  # NDA
-            return """You are an expert legal analyst specializing in Non-Disclosure Agreements (NDAs).
-Your role is to analyze NDA documents and assess their risk level for the signing party.
+            return """You are an objective legal analyst specializing in Non-Disclosure Agreements (NDAs).
+Your role is to provide a balanced assessment comparing the NDA to standard industry practices.
 
 You must respond with a JSON object containing:
 1. risk_category: One of "Safe", "Needs Attention", or "Risky"
-2. risk_score: Integer from 0-100 (0=safest, 100=riskiest)
-3. summary: A brief 2-3 sentence summary of the overall assessment
-4. questionable_clauses: An array of objects, each containing:
-   - clause: The exact text or description of the concerning clause
-   - concern: What makes this clause problematic
-   - suggestion: Recommended modification or action
+   - "Safe": Standard NDA terms aligned with industry norms
+   - "Needs Attention": Some terms that deviate from typical NDAs but are negotiable
+   - "Risky": Significant unusual terms that require careful consideration
+2. risk_score: Integer from 0-100 (0=most favorable, 100=most concerning)
+3. summary: A brief 2-3 sentence balanced assessment highlighting both standard and notable terms
+4. questionable_clauses: An array of ONLY truly concerning or unusual clauses (not standard NDA terms), each containing:
+   - clause: The exact text or description of the clause
+   - concern: Why this deviates from industry standards
+   - suggestion: Recommended modification or negotiation point
    - severity: One of "low", "medium", "high"
 
-Consider these risk factors:
-- Overly broad confidentiality scope
-- Unreasonable time periods
-- Unclear definitions
-- One-sided obligations
-- Excessive liability or penalties
-- Restrictions on employee hiring
-- Intellectual property rights concerns
-- Lack of exceptions (prior knowledge, public domain, etc.)
-- Jurisdiction and dispute resolution clauses"""
+Focus on identifying terms that are:
+- Significantly outside standard NDA norms (e.g., confidentiality periods beyond 5 years)
+- Unusually one-sided or restrictive
+- Missing standard carve-outs (prior knowledge, public domain, independent development)
+- Vague definitions that could be interpreted too broadly
+
+Do NOT flag standard NDA terms that are common in most agreements. Only highlight genuinely concerning or unusual provisions."""
 
     def _get_english_user_prompt(self, nda_text: str, document_type: str = 'nda') -> str:
         """Get user prompt for English document analysis."""
         doc_name = "contract" if document_type == 'contract' else "NDA"
-        return f"""Please analyze the following {doc_name} document and provide a comprehensive risk assessment.
+        return f"""Please analyze the following {doc_name} document objectively, comparing it to standard industry practices.
 
 {doc_name.upper()} Document:
 {nda_text}
+
+Focus on providing a balanced assessment. Only flag clauses that are genuinely unusual or concerning compared to typical {doc_name}s. Standard business terms that appear in most {doc_name}s should not be flagged.
 
 Provide your analysis as a JSON object with the structure specified in your system instructions."""
 
     def _get_arabic_system_prompt(self, document_type: str = 'nda') -> str:
         """Get system prompt for Arabic document analysis."""
-        return """أنت محلل قانوني خبير متخصص في اتفاقيات عدم الإفصاح والعقود.
-دورك هو تحليل الوثائق القانونية وتقييم مستوى المخاطر للطرف الموقع.
+        return """أنت محلل قانوني موضوعي متخصص في اتفاقيات عدم الإفصاح والعقود.
+دورك هو تقديم تقييم متوازن للوثائق القانونية مقارنة بالممارسات المعتادة في الصناعة.
 
 يجب أن ترد بكائن JSON يحتوي على:
 1. risk_category: واحد من "Safe" أو "Needs Attention" أو "Risky"
-2. risk_score: رقم صحيح من 0-100 (0=الأكثر أماناً، 100=الأكثر خطورة)
-3. summary: ملخص موجز من 2-3 جمل للتقييم الشامل (بالعربية)
-4. questionable_clauses: مصفوفة من الكائنات، كل منها يحتوي على:
-   - clause: النص الدقيق أو وصف البند المثير للقلق (بالعربية)
-   - concern: ما الذي يجعل هذا البند إشكالياً (بالعربية)
-   - suggestion: التعديل أو الإجراء الموصى به (بالعربية)
+   - "Safe": بنود قياسية متوافقة مع المعايير الصناعية
+   - "Needs Attention": بعض البنود التي تنحرف عن الممارسات النموذجية لكن يمكن التفاوض عليها
+   - "Risky": بنود غير عادية تتطلب دراسة دقيقة
+2. risk_score: رقم صحيح من 0-100 (0=الأكثر ملاءمة، 100=الأكثر إثارة للقلق)
+3. summary: ملخص موجز من 2-3 جمل للتقييم المتوازن يبرز البنود القياسية والملحوظة (بالعربية)
+4. questionable_clauses: مصفوفة فقط للبنود المثيرة للقلق أو غير العادية حقاً (وليس البنود القياسية)، كل منها يحتوي على:
+   - clause: النص الدقيق أو وصف البند (بالعربية)
+   - concern: لماذا ينحرف هذا عن المعايير الصناعية (بالعربية)
+   - suggestion: التعديل أو نقطة التفاوض الموصى بها (بالعربية)
    - severity: واحد من "low" أو "medium" أو "high"
 
-ضع في اعتبارك عوامل المخاطر التالية:
-- نطاق سرية واسع جداً
-- فترات زمنية غير معقولة
-- تعريفات غير واضحة
-- التزامات من جانب واحد
-- مسؤولية أو عقوبات مفرطة
-- قيود على توظيف الموظفين
-- مخاوف حقوق الملكية الفكرية
-- عدم وجود استثناءات (معرفة مسبقة، مجال عام، إلخ)
-- بنود الاختصاص القضائي وحل النزاعات"""
+ركز على تحديد البنود التي هي:
+- خارج المعايير الصناعية بشكل كبير (مثل فترات سرية تتجاوز 5 سنوات)
+- غير متوازنة أو مقيدة بشكل غير عادي
+- تفتقر إلى الاستثناءات القياسية (معرفة مسبقة، مجال عام، تطوير مستقل)
+- تعريفات غامضة يمكن تفسيرها بشكل واسع جداً
+
+لا تقم بالإشارة للبنود القياسية الشائعة في معظم الاتفاقيات. سلط الضوء فقط على الأحكام المثيرة للقلق أو غير العادية حقاً."""
 
     def _get_arabic_user_prompt(self, nda_text: str, document_type: str = 'nda') -> str:
         """Get user prompt for Arabic document analysis."""
         doc_name_ar = "العقد" if document_type == 'contract' else "اتفاقية عدم الإفصاح"
-        return f"""يرجى تحليل وثيقة {doc_name_ar} التالية وتقديم تقييم شامل للمخاطر.
+        return f"""يرجى تحليل وثيقة {doc_name_ar} التالية بشكل موضوعي، مقارنة بالممارسات المعتادة في الصناعة.
 
-وثيقة اتفاقية عدم الإفصاح:
+وثيقة {doc_name_ar}:
 {nda_text}
+
+ركز على تقديم تقييم متوازن. قم بالإشارة فقط للبنود غير العادية أو المثيرة للقلق حقاً مقارنة بـ{doc_name_ar} النموذجية. البنود التجارية القياسية التي تظهر في معظم الاتفاقيات لا ينبغي الإشارة إليها.
 
 قدم تحليلك ككائن JSON بالهيكل المحدد في تعليمات النظام الخاصة بك."""
 
