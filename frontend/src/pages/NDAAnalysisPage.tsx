@@ -244,79 +244,72 @@ const NDAAnalysisPage: React.FC = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Documents List */}
-        <div className="lg:col-span-1">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Documents</h2>
+      {/* Documents List - Full Width */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Documents</h2>
 
-            {isLoadingDocuments ? (
-              <div className="text-center py-8 text-gray-500">Loading...</div>
-            ) : documents.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <DocumentTextIcon className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                <p>No documents uploaded yet</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {documents.map((doc) => (
-                  <div
-                    key={doc.id}
-                    onClick={() => setSelectedDocument(doc)}
-                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                      selectedDocument?.id === doc.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {doc.file_name}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {formatDate(doc.uploaded_at)}
-                        </p>
-                        {doc.status === 'completed' && (
-                          <div className="mt-2">
-                            <span
-                              className={`inline-block px-2 py-1 text-xs font-medium rounded border ${getRiskBadge(
-                                doc.risk_category
-                              )}`}
-                            >
-                              {doc.risk_category}
-                            </span>
-                          </div>
-                        )}
-                        {doc.status === 'analyzing' && (
-                          <span className="inline-block px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded mt-2">
-                            Analyzing...
-                          </span>
-                        )}
-                        {doc.status === 'failed' && (
-                          <span className="inline-block px-2 py-1 text-xs font-medium text-red-700 bg-red-100 rounded mt-2">
-                            Failed
-                          </span>
-                        )}
-                      </div>
-                      {getRiskIcon(doc.risk_category)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        {isLoadingDocuments ? (
+          <div className="text-center py-8 text-gray-500">Loading...</div>
+        ) : documents.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <DocumentTextIcon className="w-12 h-12 mx-auto mb-2 text-gray-400" />
+            <p>No documents uploaded yet</p>
           </div>
-        </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {documents.map((doc) => (
+              <div
+                key={doc.id}
+                onClick={() => setSelectedDocument(doc)}
+                className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                  selectedDocument?.id === doc.id
+                    ? 'border-blue-500 bg-blue-50 shadow-md'
+                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  {getRiskIcon(doc.risk_category)}
+                  {doc.status === 'completed' && doc.risk_score !== undefined && (
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-gray-900">{doc.risk_score}</div>
+                      <div className="text-xs text-gray-500">/ 100</div>
+                    </div>
+                  )}
+                </div>
+                <p className="text-sm font-medium text-gray-900 truncate mb-1">
+                  {doc.file_name}
+                </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  {formatDate(doc.uploaded_at)}
+                </p>
+                {doc.status === 'completed' && (
+                  <span
+                    className={`inline-block px-2 py-1 text-xs font-medium rounded ${getRiskBadge(
+                      doc.risk_category
+                    )}`}
+                  >
+                    {doc.risk_category}
+                  </span>
+                )}
+                {doc.status === 'analyzing' && (
+                  <span className="inline-block px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded">
+                    Analyzing...
+                  </span>
+                )}
+                {doc.status === 'failed' && (
+                  <span className="inline-block px-2 py-1 text-xs font-medium text-red-700 bg-red-100 rounded">
+                    Failed
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-        {/* Analysis Details */}
-        <div className="lg:col-span-2">
-          {!selectedDocument ? (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
-              <DocumentTextIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-              <p className="text-gray-500">Select a document to view analysis</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
+      {/* Analysis Details - Full Width */}
+      {selectedDocument && (
+        <div className="space-y-6">
               {/* Header */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <div className="flex items-start justify-between mb-4">
@@ -434,20 +427,18 @@ const NDAAnalysisPage: React.FC = () => {
               )}
 
               {/* No issues found */}
-              {selectedDocument.status === 'completed' &&
-                (!selectedDocument.questionable_clauses || selectedDocument.questionable_clauses.length === 0) && (
-                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                    <div className="text-center py-8">
-                      <CheckCircleIcon className="w-16 h-16 mx-auto mb-4 text-green-600" />
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">No Issues Found</h3>
-                      <p className="text-gray-600">This document appears to have standard, acceptable terms.</p>
-                    </div>
-                  </div>
-                )}
-            </div>
-          )}
+          {selectedDocument.status === 'completed' &&
+            (!selectedDocument.questionable_clauses || selectedDocument.questionable_clauses.length === 0) && (
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div className="text-center py-8">
+                  <CheckCircleIcon className="w-16 h-16 mx-auto mb-4 text-green-600" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Issues Found</h3>
+                  <p className="text-gray-600">This document appears to have standard, acceptable terms.</p>
+                </div>
+              </div>
+            )}
         </div>
-      </div>
+      )}
     </div>
   );
 };
