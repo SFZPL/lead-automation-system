@@ -2563,7 +2563,7 @@ def send_daily_digest(
 
 @app.post("/proposal-followups/daily-digest/send-individual")
 def send_individual_digests(
-    member_emails: Optional[List[str]] = Body(None),
+    member_emails: Optional[List[str]] = Body(None, embed=True),
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
