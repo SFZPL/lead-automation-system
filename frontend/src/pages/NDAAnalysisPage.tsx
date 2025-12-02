@@ -656,12 +656,18 @@ ${doc.questionable_clauses.map((clause, i) => `
                   setIsChatLoading(true);
 
                   try {
-                    // Use EventSource for streaming
-                    const response = await fetch(`${api.defaults.baseURL}/nda/chat`, {
+                    // Get API base URL
+                    const apiBaseUrl = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+
+                    // Get auth token
+                    const token = localStorage.getItem('prezlab_auth_token') || sessionStorage.getItem('prezlab_auth_token');
+
+                    // Use fetch for streaming
+                    const response = await fetch(`${apiBaseUrl}/nda/chat`, {
                       method: 'POST',
                       headers: {
                         'Content-Type': 'application/json',
-                        ...api.defaults.headers.common
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
                       },
                       body: JSON.stringify({
                         document_id: selectedDocument.id,
