@@ -37,6 +37,10 @@ interface NDADocument {
   questionable_clauses?: QuestionableClause[];
   status: 'pending' | 'analyzing' | 'completed' | 'failed';
   error_message?: string;
+  approval_status?: 'pending' | 'approved' | 'rejected';
+  approved_by?: string;
+  approved_at?: string;
+  teams_message_id?: string;
 }
 
 const NDAAnalysisPage: React.FC = () => {
@@ -223,6 +227,30 @@ ${doc.questionable_clauses.map((clause, i) => `
     }
   };
 
+  const getApprovalBadge = (status?: string) => {
+    switch (status) {
+      case 'approved':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'rejected':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'pending':
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getApprovalIcon = (status?: string) => {
+    switch (status) {
+      case 'approved':
+        return '✅';
+      case 'rejected':
+        return '❌';
+      case 'pending':
+      default:
+        return '⏳';
+    }
+  };
+
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleString();
@@ -351,25 +379,36 @@ ${doc.questionable_clauses.map((clause, i) => `
                 <p className="text-xs text-gray-500 mb-3">
                   {formatDate(doc.uploaded_at)}
                 </p>
-                {doc.status === 'completed' && (
-                  <span
-                    className={`inline-block px-2 py-1 text-xs font-medium rounded ${getRiskBadge(
-                      doc.risk_category
-                    )}`}
-                  >
-                    {doc.risk_category}
-                  </span>
-                )}
-                {doc.status === 'analyzing' && (
-                  <span className="inline-block px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded">
-                    Analyzing...
-                  </span>
-                )}
-                {doc.status === 'failed' && (
-                  <span className="inline-block px-2 py-1 text-xs font-medium text-red-700 bg-red-100 rounded">
-                    Failed
-                  </span>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {doc.status === 'completed' && (
+                    <span
+                      className={`inline-block px-2 py-1 text-xs font-medium rounded border ${getRiskBadge(
+                        doc.risk_category
+                      )}`}
+                    >
+                      {doc.risk_category}
+                    </span>
+                  )}
+                  {doc.status === 'analyzing' && (
+                    <span className="inline-block px-2 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded">
+                      Analyzing...
+                    </span>
+                  )}
+                  {doc.status === 'failed' && (
+                    <span className="inline-block px-2 py-1 text-xs font-medium text-red-700 bg-red-100 rounded">
+                      Failed
+                    </span>
+                  )}
+                  {doc.approval_status && (
+                    <span
+                      className={`inline-block px-2 py-1 text-xs font-medium rounded border ${getApprovalBadge(
+                        doc.approval_status
+                      )}`}
+                    >
+                      {getApprovalIcon(doc.approval_status)} {doc.approval_status.charAt(0).toUpperCase() + doc.approval_status.slice(1)}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -392,6 +431,20 @@ ${doc.questionable_clauses.map((clause, i) => `
                       Language: {selectedDocument.language === 'ar' ? 'Arabic' : 'English'} • Size:{' '}
                       {formatFileSize(selectedDocument.file_size)}
                     </p>
+                    {selectedDocument.approval_status && selectedDocument.approval_status !== 'pending' && (
+                      <div className="mt-2">
+                        <span
+                          className={`inline-block px-3 py-1 text-sm font-medium rounded border ${getApprovalBadge(
+                            selectedDocument.approval_status
+                          )}`}
+                        >
+                          {getApprovalIcon(selectedDocument.approval_status)}{' '}
+                          {selectedDocument.approval_status.charAt(0).toUpperCase() + selectedDocument.approval_status.slice(1)}
+                          {selectedDocument.approved_by && ` by ${selectedDocument.approved_by}`}
+                          {selectedDocument.approved_at && ` on ${formatDate(selectedDocument.approved_at)}`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {selectedDocument.status === 'completed' && (
@@ -603,24 +656,79 @@ ${doc.questionable_clauses.map((clause, i) => `
                   setIsChatLoading(true);
 
                   try {
-                    const response = await api.post('/nda/chat', {
-                      document_id: selectedDocument.id,
-                      question: userMessage,
-                      document_content: selectedDocument.summary,
-                      analysis: selectedDocument.questionable_clauses
+                    // Use EventSource for streaming
+                    const response = await fetch(`${api.defaults.baseURL}/nda/chat`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...api.defaults.headers.common
+                      },
+                      body: JSON.stringify({
+                        document_id: selectedDocument.id,
+                        question: userMessage
+                      })
                     });
 
+                    if (!response.ok) {
+                      throw new Error('Failed to get response');
+                    }
+
+                    // Add empty assistant message that we'll update with streaming content
+                    const assistantMessageIndex = chatMessages.length + 1;
                     setChatMessages(prev => [...prev, {
                       role: 'assistant',
-                      content: response.data.answer
+                      content: ''
                     }]);
+
+                    const reader = response.body?.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+
+                    if (reader) {
+                      while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        for (const line of lines) {
+                          if (line.startsWith('data: ')) {
+                            const data = JSON.parse(line.slice(6));
+
+                            if (data.content) {
+                              // Append content to the assistant message
+                              setChatMessages(prev => {
+                                const newMessages = [...prev];
+                                newMessages[assistantMessageIndex] = {
+                                  ...newMessages[assistantMessageIndex],
+                                  content: newMessages[assistantMessageIndex].content + data.content
+                                };
+                                return newMessages;
+                              });
+                            }
+
+                            if (data.error) {
+                              toast.error(data.error);
+                              break;
+                            }
+
+                            if (data.done) {
+                              break;
+                            }
+                          }
+                        }
+                      }
+                    }
+
+                    setIsChatLoading(false);
                   } catch (error: any) {
-                    toast.error(error?.response?.data?.detail || 'Failed to get response');
+                    toast.error(error?.message || 'Failed to get response');
                     setChatMessages(prev => [...prev, {
                       role: 'assistant',
                       content: 'Sorry, I encountered an error. Please try again.'
                     }]);
-                  } finally {
                     setIsChatLoading(false);
                   }
                 }}

@@ -3288,27 +3288,41 @@ def delete_nda_document(
 
 
 @app.post("/nda/chat")
-def chat_about_document(
+async def chat_about_document(
     document_id: str = Body(...),
     question: str = Body(...),
     document_content: str = Body(None),
     analysis: List[Dict[str, Any]] = Body(None),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Answer questions about an analyzed document using AI."""
+    """Answer questions about an analyzed document using AI with streaming support."""
+    from fastapi.responses import StreamingResponse
+    from openai import OpenAI
+    import json
+
     try:
-        from openai import OpenAI
+        # Fetch full document content from database
+        document = db.get_nda_document(document_id)
 
-        client = OpenAI(
-            api_key=Config.OPENAI_API_KEY,
-            base_url=Config.OPENAI_API_BASE
-        )
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
 
-        # Build context from document analysis
-        context = f"Document Analysis Summary:\n{document_content}\n\n"
-        if analysis:
-            context += "Issues Found:\n"
-            for i, clause in enumerate(analysis, 1):
+        # Verify user owns this document
+        user_id = str(current_user.get("id", "unknown"))
+        if document.get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Get full document text
+        full_document_text = document.get("file_content", "")
+
+        # Build context with FULL document content
+        context = f"Full Document Content:\n{full_document_text}\n\n"
+        context += f"Document Analysis Summary:\n{document.get('summary', '')}\n\n"
+
+        if document.get('questionable_clauses'):
+            context += "Issues Found in Analysis:\n"
+            for i, clause in enumerate(document['questionable_clauses'], 1):
                 context += f"{i}. {clause.get('clause', '')}\n"
                 context += f"   Concern: {clause.get('concern', '')}\n"
                 context += f"   Suggestion: {clause.get('suggestion', '')}\n\n"
@@ -3316,7 +3330,7 @@ def chat_about_document(
         messages = [
             {
                 "role": "system",
-                "content": "You are a helpful assistant that answers questions about document analysis in simple, clear language. Avoid legal jargon."
+                "content": "You are a helpful assistant that answers questions about legal documents (NDAs and contracts) in simple, clear language. You have access to the full document text and the analysis report. Avoid legal jargon. When answering, you can reference specific clauses from the document."
             },
             {
                 "role": "user",
@@ -3324,18 +3338,37 @@ def chat_about_document(
             }
         ]
 
-        response = client.chat.completions.create(
-            model=Config.OPENAI_MODEL,
-            messages=messages,
-            max_completion_tokens=50000
+        client = OpenAI(
+            api_key=Config.OPENAI_API_KEY,
+            base_url=Config.OPENAI_API_BASE
         )
 
-        answer = response.choices[0].message.content
+        # Stream the response
+        def generate():
+            try:
+                stream = client.chat.completions.create(
+                    model=Config.OPENAI_MODEL,
+                    messages=messages,
+                    max_completion_tokens=50000,
+                    stream=True
+                )
 
-        return {
-            "success": True,
-            "answer": answer
-        }
+                for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        # Send each chunk as Server-Sent Event
+                        yield f"data: {json.dumps({'content': chunk.choices[0].delta.content})}\n\n"
+
+                # Send completion signal
+                yield f"data: {json.dumps({'done': True})}\n\n"
+
+            except Exception as e:
+                logger.error(f"Error in streaming chat: {e}")
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in document chat: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3346,9 +3379,10 @@ def forward_to_teams(
     document_id: str = Body(...),
     recipient_email: str = Body(...),
     message: str = Body(...),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Forward document analysis report to Teams."""
+    """Forward document analysis report to Teams with approval tracking."""
     try:
         from modules.teams_messenger import TeamsMessenger
         from modules.outlook_client import OutlookClient
@@ -3370,22 +3404,153 @@ def forward_to_teams(
         if user_email and user_email.lower() == recipient_email.lower():
             raise HTTPException(status_code=400, detail="Cannot send message to yourself. Please specify a different recipient.")
 
+        # Add approval instructions to the message
+        approval_message = message + """
+
+<hr/>
+<p style='background-color: #e3f2fd; padding: 12px; border-left: 4px solid #2196f3; margin-top: 16px;'>
+<strong>📋 Approval Required:</strong><br/>
+Reply to this message with <strong>"Approved"</strong> to approve this document or <strong>"Rejected"</strong> to reject it.
+</p>
+"""
+
         # Send message to Teams
         teams = TeamsMessenger(access_token)
-        result = teams.send_direct_message(recipient_email, message)
+        result = teams.send_direct_message(recipient_email, approval_message)
 
         # Check if there was an error (error dict with "success": False)
         if isinstance(result, dict) and result.get("success") == False:
             raise HTTPException(status_code=500, detail=result.get("error", "Failed to send message"))
 
+        # Store the Teams message ID in the database for tracking approvals
+        message_id = result.get("id") if isinstance(result, dict) else None
+        if message_id:
+            try:
+                db.client.table("nda_documents")\
+                    .update({"teams_message_id": message_id})\
+                    .eq("id", document_id)\
+                    .execute()
+                logger.info(f"Saved Teams message ID {message_id} for document {document_id}")
+            except Exception as e:
+                logger.warning(f"Failed to save Teams message ID: {e}")
+
         return {
             "success": True,
-            "message": "Report forwarded to Teams successfully"
+            "message": "Report forwarded to Teams successfully",
+            "message_id": message_id
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error forwarding to Teams: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/nda/approval-webhook")
+async def nda_approval_webhook(
+    request: Request,
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """
+    Webhook endpoint to receive Teams message replies for NDA approval.
+
+    This endpoint listens for Teams messages and checks if they contain
+    "Approved" or "Rejected" in response to a forwarded NDA report.
+    """
+    try:
+        payload = await request.json()
+        logger.info(f"Received Teams webhook payload: {payload}")
+
+        # Extract message details from Teams webhook
+        # The payload structure depends on how Teams sends the webhook
+        # Typical structure includes: message content, sender, chat_id, reply_to_id
+
+        message_content = payload.get("body", {}).get("content", "")
+        sender_email = payload.get("from", {}).get("user", {}).get("email", "")
+        reply_to_id = payload.get("replyToId")
+
+        # Check if this is an approval/rejection response
+        message_lower = message_content.lower().strip()
+
+        if "approved" in message_lower:
+            approval_status = "approved"
+        elif "rejected" in message_lower:
+            approval_status = "rejected"
+        else:
+            # Not an approval/rejection message, ignore
+            return {"success": True, "message": "Message ignored (not an approval response)"}
+
+        # Find the document by Teams message ID
+        if reply_to_id:
+            result = db.client.table("nda_documents")\
+                .select("*")\
+                .eq("teams_message_id", reply_to_id)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                document = result.data[0]
+                document_id = document["id"]
+
+                # Update approval status
+                db.client.table("nda_documents")\
+                    .update({
+                        "approval_status": approval_status,
+                        "approved_by": sender_email,
+                        "approved_at": "now()"
+                    })\
+                    .eq("id", document_id)\
+                    .execute()
+
+                logger.info(f"Document {document_id} {approval_status} by {sender_email}")
+
+                return {
+                    "success": True,
+                    "message": f"Document {approval_status}",
+                    "document_id": document_id
+                }
+            else:
+                logger.warning(f"No document found for Teams message ID: {reply_to_id}")
+                return {"success": False, "message": "Document not found"}
+
+        return {"success": True, "message": "No reply_to_id found"}
+
+    except Exception as e:
+        logger.error(f"Error in approval webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/nda/manual-approval")
+def manual_approval(
+    document_id: str = Body(...),
+    approval_status: str = Body(...),  # 'approved' or 'rejected'
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Manually approve or reject an NDA document."""
+    try:
+        if approval_status not in ['approved', 'rejected']:
+            raise HTTPException(status_code=400, detail="approval_status must be 'approved' or 'rejected'")
+
+        # Update approval status
+        db.client.table("nda_documents")\
+            .update({
+                "approval_status": approval_status,
+                "approved_by": current_user.get("email"),
+                "approved_at": "now()"
+            })\
+            .eq("id", document_id)\
+            .execute()
+
+        return {
+            "success": True,
+            "message": f"Document {approval_status}",
+            "document_id": document_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in manual approval: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
