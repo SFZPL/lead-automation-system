@@ -3327,8 +3327,7 @@ def chat_about_document(
         response = client.chat.completions.create(
             model=Config.OPENAI_MODEL,
             messages=messages,
-            temperature=0.7,
-            max_tokens=500
+            max_completion_tokens=50000
         )
 
         answer = response.choices[0].message.content
