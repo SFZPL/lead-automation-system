@@ -59,6 +59,43 @@ class TeamsMessenger:
             logger.error(f"Response: {e.response.text}")
             raise
 
+    def send_adaptive_card_to_chat(self, chat_id: str, card_content: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Send an Adaptive Card to a Teams chat.
+
+        Args:
+            chat_id: The Teams chat ID
+            card_content: The Adaptive Card JSON content
+
+        Returns:
+            Response from Microsoft Graph API
+        """
+        url = f"{self.GRAPH_BASE}/chats/{chat_id}/messages"
+
+        payload = {
+            "body": {
+                "contentType": "html",
+                "content": "<attachment id=\"1\"></attachment>"
+            },
+            "attachments": [
+                {
+                    "id": "1",
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": card_content
+                }
+            ]
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=self.headers)
+            response.raise_for_status()
+            logger.info(f"Successfully sent Adaptive Card to Teams chat {chat_id}")
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Failed to send Adaptive Card: {e}")
+            logger.error(f"Response: {e.response.text}")
+            raise
+
     def create_one_on_one_chat(self, user_email: str) -> Optional[str]:
         """
         Create or get a 1:1 chat with a user.
@@ -117,13 +154,14 @@ class TeamsMessenger:
                 logger.error(f"Response: {e.response.text}")
             return None
 
-    def send_direct_message(self, user_email: str, message_html: str) -> Dict[str, Any]:
+    def send_direct_message(self, user_email: str, message_html: str = None, adaptive_card: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Send a direct message to a user (creates 1:1 chat if needed).
 
         Args:
             user_email: The email address of the recipient
-            message_html: HTML-formatted message content
+            message_html: HTML-formatted message content (optional if adaptive_card is provided)
+            adaptive_card: Adaptive Card JSON content (optional)
 
         Returns:
             Response from Microsoft Graph API or error dict
@@ -135,7 +173,10 @@ class TeamsMessenger:
             return {"success": False, "error": f"Could not create chat with {user_email}"}
 
         # Send the message to the 1:1 chat
-        return self.send_message_to_chat(chat_id, message_html)
+        if adaptive_card:
+            return self.send_adaptive_card_to_chat(chat_id, adaptive_card)
+        else:
+            return self.send_message_to_chat(chat_id, message_html)
 
     @staticmethod
     def format_followup_report_summary(report_data: Dict[str, Any]) -> str:

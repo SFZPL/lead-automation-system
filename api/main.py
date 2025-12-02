@@ -3382,10 +3382,11 @@ def forward_to_teams(
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Forward document analysis report to Teams with approval tracking."""
+    """Forward document analysis report to Teams with Adaptive Card approval buttons."""
     try:
         from modules.teams_messenger import TeamsMessenger
         from modules.outlook_client import OutlookClient
+        import os
 
         # Get user tokens
         user_id = str(current_user.get("id"))
@@ -3404,19 +3405,105 @@ def forward_to_teams(
         if user_email and user_email.lower() == recipient_email.lower():
             raise HTTPException(status_code=400, detail="Cannot send message to yourself. Please specify a different recipient.")
 
-        # Add approval instructions to the message
-        approval_message = message + """
+        # Get the document details for the card
+        document = db.get_nda_document(document_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
 
-<hr/>
-<p style='background-color: #e3f2fd; padding: 12px; border-left: 4px solid #2196f3; margin-top: 16px;'>
-<strong>📋 Approval Required:</strong><br/>
-Reply to this message with <strong>"Approved"</strong> to approve this document or <strong>"Rejected"</strong> to reject it.
-</p>
-"""
+        # Get the API base URL from environment or config
+        api_base_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
-        # Send message to Teams
+        # Create Adaptive Card with approval buttons
+        adaptive_card = {
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "type": "AdaptiveCard",
+            "version": "1.4",
+            "body": [
+                {
+                    "type": "TextBlock",
+                    "text": "📄 Document Analysis Report",
+                    "size": "Large",
+                    "weight": "Bolder",
+                    "color": "Accent"
+                },
+                {
+                    "type": "FactSet",
+                    "facts": [
+                        {"title": "File:", "value": document.get("file_name", "N/A")},
+                        {"title": "Risk Score:", "value": f"{document.get('risk_score', 'N/A')}/100"},
+                        {"title": "Risk Category:", "value": document.get("risk_category", "N/A")}
+                    ]
+                },
+                {
+                    "type": "TextBlock",
+                    "text": "Summary",
+                    "weight": "Bolder",
+                    "size": "Medium",
+                    "spacing": "Medium"
+                },
+                {
+                    "type": "TextBlock",
+                    "text": document.get("summary", "No summary available"),
+                    "wrap": True
+                }
+            ],
+            "actions": [
+                {
+                    "type": "Action.Http",
+                    "title": "✅ Approve",
+                    "method": "POST",
+                    "url": f"{api_base_url}/nda/manual-approval",
+                    "body": f"{{\"document_id\": \"{document_id}\", \"approval_status\": \"approved\"}}",
+                    "headers": [
+                        {"name": "Content-Type", "value": "application/json"}
+                    ]
+                },
+                {
+                    "type": "Action.Http",
+                    "title": "❌ Reject",
+                    "method": "POST",
+                    "url": f"{api_base_url}/nda/manual-approval",
+                    "body": f"{{\"document_id\": \"{document_id}\", \"approval_status\": \"rejected\"}}",
+                    "headers": [
+                        {"name": "Content-Type", "value": "application/json"}
+                    ]
+                }
+            ]
+        }
+
+        # If there are issues, add them to the card
+        if document.get("questionable_clauses"):
+            issues_text = f"\n\n**⚠️ Issues Found ({len(document['questionable_clauses'])})**\n\n"
+            for i, clause in enumerate(document["questionable_clauses"][:5], 1):  # Show first 5
+                severity = clause.get("severity", "unknown").upper()
+                issues_text += f"{i}. **{severity}**: {clause.get('clause', 'N/A')}\n"
+                issues_text += f"   - Concern: {clause.get('concern', 'N/A')}\n"
+                issues_text += f"   - Suggestion: {clause.get('suggestion', 'N/A')}\n\n"
+
+            if len(document["questionable_clauses"]) > 5:
+                issues_text += f"...and {len(document['questionable_clauses']) - 5} more issues"
+
+            adaptive_card["body"].append({
+                "type": "TextBlock",
+                "text": issues_text,
+                "wrap": True,
+                "spacing": "Medium"
+            })
+
+        # Add footer
+        adaptive_card["body"].append({
+            "type": "TextBlock",
+            "text": "🤖 Generated with PrezLab Lead Automation System",
+            "size": "Small",
+            "color": "Accent",
+            "horizontalAlignment": "Center",
+            "spacing": "Medium",
+            "separator": True
+        })
+
+        # Send Adaptive Card to Teams
         teams = TeamsMessenger(access_token)
-        result = teams.send_direct_message(recipient_email, approval_message)
+        result = teams.send_direct_message(recipient_email, adaptive_card=adaptive_card)
 
         # Check if there was an error (error dict with "success": False)
         if isinstance(result, dict) and result.get("success") == False:
@@ -3523,23 +3610,33 @@ async def nda_approval_webhook(
 def manual_approval(
     document_id: str = Body(...),
     approval_status: str = Body(...),  # 'approved' or 'rejected'
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    approved_by: str = Body(None),  # Optional: email of approver
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
-    """Manually approve or reject an NDA document."""
+    """
+    Manually approve or reject an NDA document.
+
+    This endpoint is public (no auth required) so it can be called by Teams action buttons.
+    """
     try:
         if approval_status not in ['approved', 'rejected']:
             raise HTTPException(status_code=400, detail="approval_status must be 'approved' or 'rejected'")
 
         # Update approval status
+        update_data = {
+            "approval_status": approval_status,
+            "approved_at": "now()"
+        }
+
+        if approved_by:
+            update_data["approved_by"] = approved_by
+
         db.client.table("nda_documents")\
-            .update({
-                "approval_status": approval_status,
-                "approved_by": current_user.get("email"),
-                "approved_at": "now()"
-            })\
+            .update(update_data)\
             .eq("id", document_id)\
             .execute()
+
+        logger.info(f"Document {document_id} {approval_status} by {approved_by or 'unknown'}")
 
         return {
             "success": True,
