@@ -70,8 +70,11 @@ class TeamsMessenger:
         Returns:
             Response from Microsoft Graph API
         """
+        import json as json_module
+
         url = f"{self.GRAPH_BASE}/chats/{chat_id}/messages"
 
+        # For Adaptive Cards, the content needs to be a JSON string
         payload = {
             "body": {
                 "contentType": "html",
@@ -81,7 +84,7 @@ class TeamsMessenger:
                 {
                     "id": "1",
                     "contentType": "application/vnd.microsoft.card.adaptive",
-                    "content": card_content
+                    "content": json_module.dumps(card_content)
                 }
             ]
         }
