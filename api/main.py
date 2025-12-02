@@ -3449,24 +3449,14 @@ def forward_to_teams(
             ],
             "actions": [
                 {
-                    "type": "Action.Http",
+                    "type": "Action.OpenUrl",
                     "title": "✅ Approve",
-                    "method": "POST",
-                    "url": f"{api_base_url}/nda/manual-approval",
-                    "body": f"{{\"document_id\": \"{document_id}\", \"approval_status\": \"approved\"}}",
-                    "headers": [
-                        {"name": "Content-Type", "value": "application/json"}
-                    ]
+                    "url": f"{api_base_url}/nda/approve-page?document_id={document_id}&action=approved"
                 },
                 {
-                    "type": "Action.Http",
+                    "type": "Action.OpenUrl",
                     "title": "❌ Reject",
-                    "method": "POST",
-                    "url": f"{api_base_url}/nda/manual-approval",
-                    "body": f"{{\"document_id\": \"{document_id}\", \"approval_status\": \"rejected\"}}",
-                    "headers": [
-                        {"name": "Content-Type", "value": "application/json"}
-                    ]
+                    "url": f"{api_base_url}/nda/approve-page?document_id={document_id}&action=rejected"
                 }
             ]
         }
@@ -3606,6 +3596,115 @@ async def nda_approval_webhook(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/nda/approve-page")
+async def approve_page(
+    document_id: str,
+    action: str,
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """
+    Simple approval page that processes the approval/rejection and shows confirmation.
+    This is called when user clicks the Approve/Reject button in Teams.
+    """
+    from fastapi.responses import HTMLResponse
+
+    try:
+        if action not in ['approved', 'rejected']:
+            return HTMLResponse(content="<html><body><h1>Invalid action</h1></body></html>", status_code=400)
+
+        # Update approval status
+        update_data = {
+            "approval_status": action,
+            "approved_at": "now()"
+        }
+
+        db.client.table("nda_documents")\
+            .update(update_data)\
+            .eq("id", document_id)\
+            .execute()
+
+        logger.info(f"Document {document_id} {action} via approval page")
+
+        # Return a nice confirmation page
+        status_emoji = "✅" if action == "approved" else "❌"
+        status_text = "Approved" if action == "approved" else "Rejected"
+        status_color = "#10b981" if action == "approved" else "#ef4444"
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Document {status_text}</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                }}
+                .card {{
+                    background: white;
+                    padding: 3rem;
+                    border-radius: 1rem;
+                    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                    text-align: center;
+                    max-width: 400px;
+                }}
+                .icon {{
+                    font-size: 4rem;
+                    margin-bottom: 1rem;
+                }}
+                h1 {{
+                    color: {status_color};
+                    margin: 0 0 1rem 0;
+                    font-size: 2rem;
+                }}
+                p {{
+                    color: #666;
+                    margin: 0 0 2rem 0;
+                    font-size: 1.1rem;
+                }}
+                .button {{
+                    background: {status_color};
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 2rem;
+                    border-radius: 0.5rem;
+                    font-size: 1rem;
+                    cursor: pointer;
+                    text-decoration: none;
+                    display: inline-block;
+                }}
+                .button:hover {{
+                    opacity: 0.9;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="icon">{status_emoji}</div>
+                <h1>Document {status_text}</h1>
+                <p>The document has been successfully {action}.</p>
+                <a href="#" onclick="window.close()" class="button">Close Window</a>
+            </div>
+        </body>
+        </html>
+        """
+
+        return HTMLResponse(content=html_content)
+
+    except Exception as e:
+        logger.error(f"Error in approval page: {e}")
+        return HTMLResponse(
+            content=f"<html><body><h1>Error</h1><p>{str(e)}</p></body></html>",
+            status_code=500
+        )
+
+
 @app.post("/nda/manual-approval")
 def manual_approval(
     document_id: str = Body(...),
@@ -3614,9 +3713,9 @@ def manual_approval(
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
     """
-    Manually approve or reject an NDA document.
+    Manually approve or reject an NDA document via API.
 
-    This endpoint is public (no auth required) so it can be called by Teams action buttons.
+    This endpoint is public (no auth required) so it can be called programmatically.
     """
     try:
         if approval_status not in ['approved', 'rejected']:
