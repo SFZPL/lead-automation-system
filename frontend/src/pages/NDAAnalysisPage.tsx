@@ -10,6 +10,9 @@ import {
   ClockIcon,
   ShieldCheckIcon,
   ShieldExclamationIcon,
+  ChatBubbleLeftRightIcon,
+  PaperAirplaneIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 
@@ -42,6 +45,10 @@ const NDAAnalysisPage: React.FC = () => {
   const [saveToDatabase, setSaveToDatabase] = useState(true);
   const [documentType, setDocumentType] = useState<'nda' | 'contract'>('nda');
   const [selectedDocument, setSelectedDocument] = useState<NDADocument | null>(null);
+  const [showChatbot, setShowChatbot] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', content: string}>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch NDA documents
@@ -68,6 +75,49 @@ const NDAAnalysisPage: React.FC = () => {
       },
       onError: () => {
         toast.error('Failed to delete document');
+      },
+    }
+  );
+
+  // Forward to Teams mutation
+  const forwardToTeamsMutation = useMutation(
+    async (documentId: string) => {
+      const doc = documents.find(d => d.id === documentId);
+      if (!doc) throw new Error('Document not found');
+
+      const reportText = `
+📄 *Document Analysis Report*
+
+*File:* ${doc.file_name}
+*Risk Score:* ${doc.risk_score}/100
+*Risk Category:* ${doc.risk_category}
+
+*Summary:*
+${doc.summary}
+
+${doc.questionable_clauses && doc.questionable_clauses.length > 0 ? `
+*Issues Found (${doc.questionable_clauses.length}):*
+${doc.questionable_clauses.map((clause, i) => `
+${i + 1}. *${clause.severity.toUpperCase()}*: ${clause.clause}
+   - Concern: ${clause.concern}
+   - Suggestion: ${clause.suggestion}
+`).join('\n')}
+` : '*No issues found* ✅'}
+      `.trim();
+
+      // Send to Teams via API
+      return api.post('/nda/forward-to-teams', {
+        document_id: documentId,
+        recipient_email: 'sanad.zaqtan@prezlab.com',
+        message: reportText
+      });
+    },
+    {
+      onSuccess: () => {
+        toast.success('Report forwarded to Teams successfully');
+      },
+      onError: (error: any) => {
+        toast.error(error?.response?.data?.detail || 'Failed to forward report');
       },
     }
   );
@@ -324,13 +374,39 @@ const NDAAnalysisPage: React.FC = () => {
                       {formatFileSize(selectedDocument.file_size)}
                     </p>
                   </div>
-                  <button
-                    onClick={() => deleteMutation.mutate(selectedDocument.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Delete document"
-                  >
-                    <TrashIcon className="w-5 h-5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {selectedDocument.status === 'completed' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setShowChatbot(true);
+                            setChatMessages([]);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                          title="Ask questions about this document"
+                        >
+                          <ChatBubbleLeftRightIcon className="w-5 h-5" />
+                          Ask AI
+                        </button>
+                        <button
+                          onClick={() => forwardToTeamsMutation.mutate(selectedDocument.id)}
+                          disabled={forwardToTeamsMutation.isLoading}
+                          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium disabled:opacity-50"
+                          title="Forward report to Teams"
+                        >
+                          <PaperAirplaneIcon className="w-5 h-5" />
+                          {forwardToTeamsMutation.isLoading ? 'Sending...' : 'Forward to Teams'}
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => deleteMutation.mutate(selectedDocument.id)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete document"
+                    >
+                      <TrashIcon className="w-5 h-5" />
+                    </button>
+                  </div>
                 </div>
 
                 {selectedDocument.status === 'completed' && (
@@ -437,6 +513,118 @@ const NDAAnalysisPage: React.FC = () => {
                 </div>
               </div>
             )}
+        </div>
+      )}
+
+      {/* Chatbot Modal */}
+      {showChatbot && selectedDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <ChatBubbleLeftRightIcon className="w-6 h-6 text-blue-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Ask About This Document</h3>
+              </div>
+              <button
+                onClick={() => setShowChatbot(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {chatMessages.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <p className="mb-2">Ask me anything about {selectedDocument.file_name}</p>
+                  <p className="text-sm">Example: "What are the main risks in this document?"</p>
+                </div>
+              )}
+              {chatMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[80%] rounded-lg p-3 ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-900'
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  </div>
+                </div>
+              ))}
+              {isChatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 rounded-lg p-3">
+                    <div className="flex gap-2">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="p-4 border-t">
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!chatInput.trim() || isChatLoading) return;
+
+                  const userMessage = chatInput.trim();
+                  setChatInput('');
+                  setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+                  setIsChatLoading(true);
+
+                  try {
+                    const response = await api.post('/nda/chat', {
+                      document_id: selectedDocument.id,
+                      question: userMessage,
+                      document_content: selectedDocument.summary,
+                      analysis: selectedDocument.questionable_clauses
+                    });
+
+                    setChatMessages(prev => [...prev, {
+                      role: 'assistant',
+                      content: response.data.answer
+                    }]);
+                  } catch (error: any) {
+                    toast.error(error?.response?.data?.detail || 'Failed to get response');
+                    setChatMessages(prev => [...prev, {
+                      role: 'assistant',
+                      content: 'Sorry, I encountered an error. Please try again.'
+                    }]);
+                  } finally {
+                    setIsChatLoading(false);
+                  }
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask a question..."
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={isChatLoading}
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || isChatLoading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <PaperAirplaneIcon className="w-5 h-5" />
+                </button>
+              </form>
+            </div>
+          </div>
         </div>
       )}
     </div>

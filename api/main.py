@@ -3287,6 +3287,103 @@ def delete_nda_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/nda/chat")
+def chat_about_document(
+    document_id: str = Body(...),
+    question: str = Body(...),
+    document_content: str = Body(None),
+    analysis: List[Dict[str, Any]] = Body(None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Answer questions about an analyzed document using AI."""
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=Config.OPENAI_API_KEY,
+            base_url=Config.OPENAI_API_BASE
+        )
+
+        # Build context from document analysis
+        context = f"Document Analysis Summary:\n{document_content}\n\n"
+        if analysis:
+            context += "Issues Found:\n"
+            for i, clause in enumerate(analysis, 1):
+                context += f"{i}. {clause.get('clause', '')}\n"
+                context += f"   Concern: {clause.get('concern', '')}\n"
+                context += f"   Suggestion: {clause.get('suggestion', '')}\n\n"
+
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that answers questions about document analysis in simple, clear language. Avoid legal jargon."
+            },
+            {
+                "role": "user",
+                "content": f"{context}\n\nQuestion: {question}"
+            }
+        ]
+
+        response = client.chat.completions.create(
+            model=Config.OPENAI_MODEL,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=500
+        )
+
+        answer = response.choices[0].message.content
+
+        return {
+            "success": True,
+            "answer": answer
+        }
+    except Exception as e:
+        logger.error(f"Error in document chat: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/nda/forward-to-teams")
+def forward_to_teams(
+    document_id: str = Body(...),
+    recipient_email: str = Body(...),
+    message: str = Body(...),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Forward document analysis report to Teams."""
+    try:
+        from modules.teams_messenger import TeamsMessenger
+        from modules.outlook_client import OutlookClient
+
+        # Get user tokens
+        user_id = str(current_user.get("id"))
+        outlook = get_outlook_client()
+        tokens = outlook.get_user_auth_tokens(user_id)
+
+        if not tokens or not isinstance(tokens, dict):
+            raise HTTPException(status_code=401, detail="Not authenticated with Microsoft. Please authenticate first.")
+
+        access_token = tokens.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=401, detail="No access token found")
+
+        # Send message to Teams
+        teams = TeamsMessenger(access_token)
+        result = teams.send_direct_message(recipient_email, message)
+
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to send message"))
+
+        return {
+            "success": True,
+            "message": "Report forwarded to Teams successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error forwarding to Teams: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/proposal-followups/generate-draft")
 def generate_email_draft(request: GenerateDraftRequest):
     """Generate an email draft for a specific thread."""

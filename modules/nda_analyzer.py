@@ -302,11 +302,11 @@ You must respond with a JSON object containing:
    - "Needs Attention": Some terms worth negotiating but not deal-breakers (score 41-60)
    - "Risky": Unusual or extremely one-sided terms requiring serious consideration (score 61-100)
 2. risk_score: Integer from 0-100 following the guidelines above
-3. summary: A brief 2-3 sentence balanced assessment that starts with what's standard, then mentions any concerns
+3. summary: A brief 2-3 sentence plain-English assessment that starts with what's standard, then mentions any concerns. Use simple, clear language - avoid legal jargon.
 4. questionable_clauses: An array of ONLY genuinely problematic clauses (typically 0-4 items for standard contracts), each containing:
-   - clause: The exact text or description of the clause
-   - concern: Why this is actually problematic (not just present)
-   - suggestion: Recommended modification or negotiation point
+   - clause: Plain-English description of what this part of the contract says (avoid legal terms)
+   - concern: Explain in simple terms why this could be a problem for you
+   - suggestion: Simple, practical advice on what to do about it
    - severity: One of "low", "medium", "high"
 
 ONLY flag clauses if they are:
@@ -326,6 +326,7 @@ Common contract provisions that should NOT be flagged:
         else:  # NDA
             return """You are an objective legal analyst specializing in Non-Disclosure Agreements (NDAs).
 Your role is to provide a balanced, practical assessment comparing the NDA to standard business practices.
+IMPORTANT: Use plain, simple English - avoid legal jargon and technical terms. Explain things as if talking to a business owner, not a lawyer.
 
 IMPORTANT SCORING GUIDELINES:
 - 0-30: Very favorable or standard mutual NDAs with balanced terms
@@ -341,11 +342,11 @@ You must respond with a JSON object containing:
    - "Needs Attention": Some terms worth discussing but not deal-breakers (score 41-60)
    - "Risky": Unusual or extremely one-sided terms requiring serious consideration (score 61-100)
 2. risk_score: Integer from 0-100 following the guidelines above
-3. summary: A brief 2-3 sentence balanced assessment that starts with what's standard, then mentions any concerns
+3. summary: A brief 2-3 sentence plain-English assessment that starts with what's standard, then mentions any concerns. Use simple, clear language - avoid legal jargon.
 4. questionable_clauses: An array of ONLY genuinely problematic clauses (typically 0-3 items for standard NDAs), each containing:
-   - clause: The exact text or description of the clause
-   - concern: Why this is actually problematic (not just present)
-   - suggestion: Recommended modification or negotiation point
+   - clause: Plain-English description of what this part of the NDA says (avoid legal terms like "indemnification", "carve-outs", etc.)
+   - concern: Explain in simple terms why this could be a problem for you
+   - suggestion: Simple, practical advice on what to do about it
    - severity: One of "low", "medium", "high"
 
 ONLY flag clauses if they are:
