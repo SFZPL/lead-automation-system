@@ -3374,7 +3374,8 @@ def forward_to_teams(
         teams = TeamsMessenger(access_token)
         result = teams.send_direct_message(recipient_email, message)
 
-        if not result.get("success"):
+        # Check if there was an error (error dict with "success": False)
+        if isinstance(result, dict) and result.get("success") == False:
             raise HTTPException(status_code=500, detail=result.get("error", "Failed to send message"))
 
         return {

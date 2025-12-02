@@ -86,23 +86,42 @@ const NDAAnalysisPage: React.FC = () => {
       if (!doc) throw new Error('Document not found');
 
       const reportText = `
-📄 *Document Analysis Report*
+<h2>📄 Document Analysis Report</h2>
+<hr/>
 
-*File:* ${doc.file_name}
-*Risk Score:* ${doc.risk_score}/100
-*Risk Category:* ${doc.risk_category}
+<p><strong>File:</strong> ${doc.file_name}</p>
+<p><strong>Risk Score:</strong> ${doc.risk_score}/100</p>
+<p><strong>Risk Category:</strong> ${doc.risk_category}</p>
 
-*Summary:*
-${doc.summary}
+<h3>Summary</h3>
+<p>${doc.summary}</p>
 
 ${doc.questionable_clauses && doc.questionable_clauses.length > 0 ? `
-*Issues Found (${doc.questionable_clauses.length}):*
+<h3>⚠️ Issues Found (${doc.questionable_clauses.length})</h3>
+<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%;'>
+<tr style='background-color: #f0f0f0;'>
+<th>#</th>
+<th>Severity</th>
+<th>Issue</th>
+<th>Concern</th>
+<th>Suggestion</th>
+</tr>
 ${doc.questionable_clauses.map((clause, i) => `
-${i + 1}. *${clause.severity.toUpperCase()}*: ${clause.clause}
-   - Concern: ${clause.concern}
-   - Suggestion: ${clause.suggestion}
-`).join('\n')}
-` : '*No issues found* ✅'}
+<tr style='background-color: ${clause.severity === 'high' ? '#ffebee' : clause.severity === 'medium' ? '#fff3e0' : '#f1f8e9'};'>
+<td>${i + 1}</td>
+<td><strong style='color: ${clause.severity === 'high' ? 'red' : clause.severity === 'medium' ? 'orange' : 'green'};'>${clause.severity.toUpperCase()}</strong></td>
+<td>${clause.clause}</td>
+<td>${clause.concern}</td>
+<td>${clause.suggestion}</td>
+</tr>
+`).join('')}
+</table>
+` : '<p><strong>✅ No issues found</strong></p>'}
+
+<hr/>
+<p style='text-align: center; color: gray; font-size: 12px;'>
+🤖 Generated with PrezLab Lead Automation System
+</p>
       `.trim();
 
       // Send to Teams via API
