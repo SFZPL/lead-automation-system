@@ -3411,7 +3411,12 @@ def forward_to_teams(
             raise HTTPException(status_code=404, detail="Document not found")
 
         # Get the API base URL from environment or config
-        api_base_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+        # Try to detect if we're on Render by checking for RENDER environment variable
+        if os.getenv("RENDER"):
+            # On Render, construct the URL from the service name
+            api_base_url = os.getenv("API_BASE_URL") or "https://lead-automation-system.onrender.com"
+        else:
+            api_base_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
         # Create Adaptive Card with approval buttons
         adaptive_card = {
