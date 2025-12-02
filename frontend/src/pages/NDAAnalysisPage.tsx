@@ -108,7 +108,7 @@ ${i + 1}. *${clause.severity.toUpperCase()}*: ${clause.clause}
       // Send to Teams via API
       return api.post('/nda/forward-to-teams', {
         document_id: documentId,
-        recipient_email: 'sanad.zaqtan@prezlab.com',
+        recipient_email: 'saba.dababneh@prezlab.com',
         message: reportText
       });
     },

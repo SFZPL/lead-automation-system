@@ -3365,6 +3365,11 @@ def forward_to_teams(
         if not access_token:
             raise HTTPException(status_code=401, detail="No access token found")
 
+        # Check if user is trying to send to themselves
+        user_email = current_user.get("email")
+        if user_email and user_email.lower() == recipient_email.lower():
+            raise HTTPException(status_code=400, detail="Cannot send message to yourself. Please specify a different recipient.")
+
         # Send message to Teams
         teams = TeamsMessenger(access_token)
         result = teams.send_direct_message(recipient_email, message)
