@@ -3415,13 +3415,19 @@ def forward_to_teams(
 
         # If not explicitly set, try to detect deployment environment
         if not api_base_url:
+            # Check if we're on Railway (has RAILWAY_PUBLIC_DOMAIN or RAILWAY_STATIC_URL)
+            railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN") or os.getenv("RAILWAY_STATIC_URL")
+            if railway_domain:
+                api_base_url = f"https://{railway_domain}"
+                logger.info(f"Detected Railway environment, using URL: {api_base_url}")
             # Check if we're on Render
-            if os.getenv("RENDER") or os.getenv("RENDER_SERVICE_NAME"):
+            elif os.getenv("RENDER") or os.getenv("RENDER_SERVICE_NAME"):
                 api_base_url = "https://lead-automation-system.onrender.com"
                 logger.info(f"Detected Render environment, using URL: {api_base_url}")
             else:
                 api_base_url = "http://127.0.0.1:8000"
-                logger.warning(f"No API_BASE_URL set, defaulting to: {api_base_url}")
+                logger.warning(f"⚠️ No API_BASE_URL set and couldn't detect platform. Please set API_BASE_URL environment variable!")
+                logger.warning(f"Defaulting to: {api_base_url}")
         else:
             logger.info(f"Using configured API_BASE_URL: {api_base_url}")
 
