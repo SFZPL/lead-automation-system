@@ -63,6 +63,12 @@ const PipelineReportsPage: React.FC = () => {
   const [weekEnd, setWeekEnd] = useState<string>('');
   const [salespersonFilter, setSalespersonFilter] = useState<string>('');
   const [isSendingToTeams, setIsSendingToTeams] = useState<boolean>(false);
+  // Track the "committed" filter values that only update when Generate is clicked
+  const [committedFilters, setCommittedFilters] = useState<{
+    weekStart: string;
+    weekEnd: string;
+    salespersonFilter: string;
+  } | null>(null);
 
   React.useEffect(() => {
     const today = new Date();
@@ -77,24 +83,41 @@ const PipelineReportsPage: React.FC = () => {
   }, []);
 
   const reportQuery = useQuery<PipelineReport>(
-    ['pipeline-report', weekStart, weekEnd, salespersonFilter],
+    ['pipeline-report', committedFilters?.weekStart, committedFilters?.weekEnd, committedFilters?.salespersonFilter],
     async () => {
+      if (!committedFilters) return null;
       const params = new URLSearchParams();
-      if (weekStart) params.append('week_start', weekStart);
-      if (weekEnd) params.append('week_end', weekEnd);
-      if (salespersonFilter) params.append('salesperson_filter', salespersonFilter);
+      if (committedFilters.weekStart) params.append('week_start', committedFilters.weekStart);
+      if (committedFilters.weekEnd) params.append('week_end', committedFilters.weekEnd);
+      if (committedFilters.salespersonFilter) params.append('salesperson_filter', committedFilters.salespersonFilter);
 
       const response = await api.get(`/pipeline/weekly-report?${params.toString()}`);
       return response.data;
     },
     {
-      enabled: !!weekStart && !!weekEnd,
+      enabled: !!committedFilters,
       staleTime: 60000,
     }
   );
 
+  const handleGenerate = () => {
+    if (!weekStart || !weekEnd) {
+      toast.error('Please select both start and end dates');
+      return;
+    }
+    setCommittedFilters({
+      weekStart,
+      weekEnd,
+      salespersonFilter,
+    });
+  };
+
   const handleRefresh = () => {
-    reportQuery.refetch();
+    if (committedFilters) {
+      reportQuery.refetch();
+    } else {
+      handleGenerate();
+    }
   };
 
   const handleSendToTeams = async () => {
@@ -203,8 +226,8 @@ const PipelineReportsPage: React.FC = () => {
 
           <div className="flex items-end gap-2">
             <button
-              onClick={handleRefresh}
-              disabled={reportQuery.isLoading}
+              onClick={handleGenerate}
+              disabled={reportQuery.isLoading || !weekStart || !weekEnd}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
             >
               <ArrowPathIcon className={`h-4 w-4 ${reportQuery.isLoading ? 'animate-spin' : ''}`} />
