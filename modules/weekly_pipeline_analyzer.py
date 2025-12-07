@@ -109,15 +109,61 @@ class WeeklyPipelineAnalyzer:
                 'crm.lead', 'search_count', [qualified_domain]
             )
 
-            # Proposals sent (moved to "Proposal" stage during this week)
-            proposals_domain = base_domain + [
-                ['stage_id.name', '=', 'Proposal'],
-                ['date_last_stage_update', '>=', f'{week_start} 00:00:00'],
-                ['date_last_stage_update', '<=', f'{week_end} 23:59:59']
-            ]
-            proposals_sent = self.odoo._call_kw(
-                'crm.lead', 'search_count', [proposals_domain]
-            )
+            # Proposals sent - count leads that entered Proposal/Proposition stage during this week
+            # We use mail.tracking.value to find all leads where stage changed TO a proposal stage
+            # This captures leads even if they've since moved to another stage
+            try:
+                # First, get the stage ID(s) for Proposal/Proposition stages
+                proposal_stages = self.odoo._call_kw(
+                    'crm.stage', 'search_read',
+                    [[['name', 'ilike', 'propos']]],  # Matches "Proposal", "Proposition", etc.
+                    {'fields': ['id', 'name']}
+                )
+                proposal_stage_ids = [s['id'] for s in proposal_stages]
+
+                if proposal_stage_ids:
+                    # Search mail.tracking.value for stage changes TO proposal stages during the week
+                    tracking_domain = [
+                        ['field_id.name', '=', 'stage_id'],
+                        ['new_value_integer', 'in', proposal_stage_ids],
+                        ['create_date', '>=', f'{week_start} 00:00:00'],
+                        ['create_date', '<=', f'{week_end} 23:59:59']
+                    ]
+                    tracking_records = self.odoo._call_kw(
+                        'mail.tracking.value', 'search_read',
+                        [tracking_domain],
+                        {'fields': ['mail_message_id']}
+                    )
+
+                    # Get unique lead IDs from these tracking records
+                    if tracking_records:
+                        message_ids = [t['mail_message_id'][0] for t in tracking_records if t.get('mail_message_id')]
+                        if message_ids:
+                            messages = self.odoo._call_kw(
+                                'mail.message', 'search_read',
+                                [[['id', 'in', message_ids], ['model', '=', 'crm.lead']]],
+                                {'fields': ['res_id']}
+                            )
+                            unique_lead_ids = set(m['res_id'] for m in messages)
+                            proposals_sent = len(unique_lead_ids)
+                        else:
+                            proposals_sent = 0
+                    else:
+                        proposals_sent = 0
+                else:
+                    proposals_sent = 0
+                    logger.warning("No proposal stages found in Odoo")
+            except Exception as e:
+                logger.warning(f"Could not track proposal stage changes, falling back to simple count: {e}")
+                # Fallback to simple count if tracking doesn't work
+                proposals_domain = base_domain + [
+                    ['stage_id.name', 'ilike', 'propos'],  # Matches Proposal/Proposition
+                    ['date_last_stage_update', '>=', f'{week_start} 00:00:00'],
+                    ['date_last_stage_update', '<=', f'{week_end} 23:59:59']
+                ]
+                proposals_sent = self.odoo._call_kw(
+                    'crm.lead', 'search_count', [proposals_domain]
+                )
 
             # Deals closed this week (using is_won boolean field)
             closed_domain = base_domain + [
