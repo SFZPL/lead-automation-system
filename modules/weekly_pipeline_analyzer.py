@@ -177,7 +177,7 @@ class WeeklyPipelineAnalyzer:
                 {'fields': ['expected_revenue']}
             )
             deals_closed = len(closed_leads)
-            closed_value = sum(lead.get('expected_revenue', 0) for lead in closed_leads)
+            closed_value = sum((lead.get('expected_revenue') or 0) for lead in closed_leads)
 
             # Deals lost this week
             lost_domain = base_domain + [
@@ -262,10 +262,12 @@ class WeeklyPipelineAnalyzer:
                         pass
 
                 stages[stage_name]["count"] += 1
-                stages[stage_name]["total_value"] += lead.get('expected_revenue', 0)
+                stages[stage_name]["total_value"] += lead.get('expected_revenue', 0) or 0
+                # Odoo returns False for empty fields, not None
+                partner_name = lead.get('partner_name')
                 stages[stage_name]["leads"].append({
-                    "name": lead.get('partner_name', 'Unknown'),
-                    "value": lead.get('expected_revenue', 0)
+                    "name": partner_name if partner_name else 'Unknown',
+                    "value": lead.get('expected_revenue', 0) or 0
                 })
 
             # Calculate average ages and format
@@ -336,11 +338,13 @@ class WeeklyPipelineAnalyzer:
                     except:
                         pass
 
+                opp_name = opp.get('name')
+                partner_name = opp.get('partner_name')
                 result.append({
-                    "opportunity_name": opp.get('name') or opp.get('partner_name', 'Unknown'),
-                    "company": opp.get('partner_name', ''),
+                    "opportunity_name": opp_name if opp_name else (partner_name if partner_name else 'Unknown'),
+                    "company": partner_name if partner_name else '',
                     "stage": stage_name,
-                    "potential_value": opp.get('expected_revenue', 0),
+                    "potential_value": opp.get('expected_revenue', 0) or 0,
                     "owner": owner_name,
                     "days_since_last_activity": days_since_activity
                 })
@@ -388,12 +392,14 @@ class WeeklyPipelineAnalyzer:
                     except:
                         pass
 
+                lead_name = lead.get('name')
+                partner_name = lead.get('partner_name')
                 result.append({
-                    "lead_name": lead.get('name') or lead.get('partner_name', 'Unknown'),
-                    "company": lead.get('partner_name', ''),
+                    "lead_name": lead_name if lead_name else (partner_name if partner_name else 'Unknown'),
+                    "company": partner_name if partner_name else '',
                     "stage": stage_name,
                     "owner": owner_name,
-                    "value": lead.get('expected_revenue', 0),
+                    "value": lead.get('expected_revenue', 0) or 0,
                     "days_inactive": days_inactive
                 })
 
