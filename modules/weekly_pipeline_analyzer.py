@@ -119,9 +119,9 @@ class WeeklyPipelineAnalyzer:
                 'crm.lead', 'search_count', [proposals_domain]
             )
 
-            # Deals closed this week
+            # Deals closed this week (using is_won boolean field)
             closed_domain = base_domain + [
-                ['stage_id.name', '=', 'Won'],
+                ['stage_id.is_won', '=', True],
                 ['date_closed', '>=', f'{week_start} 00:00:00'],
                 ['date_closed', '<=', f'{week_end} 23:59:59']
             ]
