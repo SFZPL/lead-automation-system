@@ -3636,7 +3636,7 @@ async def approve_page(
             "approved_at": "now()"
         }
 
-        db.client.table("nda_documents")\
+        db.supabase.client.table("nda_documents")\
             .update(update_data)\
             .eq("id", document_id)\
             .execute()
