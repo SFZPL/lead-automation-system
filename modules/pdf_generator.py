@@ -74,14 +74,11 @@ class PDFGenerator:
             textColor=colors.HexColor('#2d3748'),
         ))
 
-        self.styles.add(ParagraphStyle(
-            name='BodyText',
-            parent=self.styles['Normal'],
-            fontSize=11,
-            alignment=TA_JUSTIFY,
-            spaceAfter=12,
-            leading=16,
-        ))
+        # Override existing BodyText style
+        self.styles['BodyText'].fontSize = 11
+        self.styles['BodyText'].alignment = TA_JUSTIFY
+        self.styles['BodyText'].spaceAfter = 12
+        self.styles['BodyText'].leading = 16
 
         self.styles.add(ParagraphStyle(
             name='SmallText',
