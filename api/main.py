@@ -3201,6 +3201,62 @@ async def upload_nda(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/nda/entities")
+def get_prezlab_entities():
+    """Get list of available Prezlab entities for contract signing."""
+    from modules.pdf_generator import get_all_entities
+    return {
+        "success": True,
+        "entities": get_all_entities()
+    }
+
+
+@app.get("/nda/documents/{document_id}/download-pdf")
+def download_filled_pdf(
+    document_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Download the auto-filled PDF for an approved document."""
+    from fastapi.responses import Response
+    import base64
+
+    try:
+        # Get the document
+        result = db.supabase.client.table("nda_documents")\
+            .select("file_name, filled_pdf_url, approval_status, selected_entity")\
+            .eq("id", document_id)\
+            .single()\
+            .execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        document = result.data
+        if document.get("approval_status") != "approved":
+            raise HTTPException(status_code=400, detail="Document has not been approved yet")
+
+        if not document.get("filled_pdf_url"):
+            raise HTTPException(status_code=404, detail="No generated PDF found for this document")
+
+        # Decode the base64 PDF
+        pdf_bytes = base64.b64decode(document["filled_pdf_url"])
+        file_name = document.get("file_name", "document").replace(".pdf", "").replace(".docx", "")
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_name}_contract_info.pdf"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/nda/documents")
 def get_nda_documents(
     limit: int = 50,
@@ -3379,6 +3435,8 @@ def forward_to_teams(
     document_id: str = Body(...),
     recipient_email: str = Body(...),
     message: str = Body(...),
+    selected_entity: str = Body(default=None),  # dubai, abu_dhabi, or riyadh
+    counterparty_name: str = Body(default=None),  # For PDF generation
     current_user: Dict[str, Any] = Depends(get_current_user),
     db: SupabaseDatabase = Depends(get_supabase_database)
 ):
@@ -3386,6 +3444,7 @@ def forward_to_teams(
     try:
         from modules.teams_messenger import TeamsMessenger
         from modules.outlook_client import OutlookClient
+        from modules.pdf_generator import get_entity_info
         import os
 
         # Get user tokens
@@ -3431,6 +3490,23 @@ def forward_to_teams(
         else:
             logger.info(f"Using configured API_BASE_URL: {api_base_url}")
 
+        # Get entity info if selected
+        entity_info = get_entity_info(selected_entity) if selected_entity else None
+
+        # Build facts list with optional entity info
+        facts = [
+            {"title": "File:", "value": document.get("file_name", "N/A")},
+            {"title": "Risk Score:", "value": f"{document.get('risk_score', 'N/A')}/100"},
+            {"title": "Risk Category:", "value": document.get("risk_category", "N/A")}
+        ]
+
+        if entity_info:
+            facts.append({"title": "Prezlab Entity:", "value": entity_info['company_name']})
+            facts.append({"title": "Signatory:", "value": entity_info['authorised_signatory']})
+
+        if counterparty_name:
+            facts.append({"title": "Counterparty:", "value": counterparty_name})
+
         # Create Adaptive Card with approval buttons
         adaptive_card = {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -3446,11 +3522,7 @@ def forward_to_teams(
                 },
                 {
                     "type": "FactSet",
-                    "facts": [
-                        {"title": "File:", "value": document.get("file_name", "N/A")},
-                        {"title": "Risk Score:", "value": f"{document.get('risk_score', 'N/A')}/100"},
-                        {"title": "Risk Category:", "value": document.get("risk_category", "N/A")}
-                    ]
+                    "facts": facts
                 },
                 {
                     "type": "TextBlock",
@@ -3517,17 +3589,23 @@ def forward_to_teams(
         if isinstance(result, dict) and result.get("success") == False:
             raise HTTPException(status_code=500, detail=result.get("error", "Failed to send message"))
 
-        # Store the Teams message ID in the database for tracking approvals
+        # Store the Teams message ID and entity selection in the database
         message_id = result.get("id") if isinstance(result, dict) else None
-        if message_id:
-            try:
-                db.client.table("nda_documents")\
-                    .update({"teams_message_id": message_id})\
+        try:
+            update_data = {"teams_message_id": message_id} if message_id else {}
+            if selected_entity:
+                update_data["selected_entity"] = selected_entity
+            if counterparty_name:
+                update_data["counterparty_name"] = counterparty_name
+
+            if update_data:
+                db.supabase.client.table("nda_documents")\
+                    .update(update_data)\
                     .eq("id", document_id)\
                     .execute()
-                logger.info(f"Saved Teams message ID {message_id} for document {document_id}")
-            except Exception as e:
-                logger.warning(f"Failed to save Teams message ID: {e}")
+                logger.info(f"Saved document data for {document_id}: entity={selected_entity}, counterparty={counterparty_name}")
+        except Exception as e:
+            logger.warning(f"Failed to save document metadata: {e}")
 
         return {
             "success": True,
@@ -3625,16 +3703,56 @@ async def approve_page(
     This is called when user clicks the Approve/Reject button in Teams.
     """
     from fastapi.responses import HTMLResponse
+    from modules.pdf_generator import get_pdf_generator, get_entity_info
+    import base64
 
     try:
         if action not in ['approved', 'rejected']:
             return HTMLResponse(content="<html><body><h1>Invalid action</h1></body></html>", status_code=400)
+
+        # Get the document to check if entity was selected
+        result = db.supabase.client.table("nda_documents")\
+            .select("*")\
+            .eq("id", document_id)\
+            .single()\
+            .execute()
+
+        document = result.data if result.data else {}
+        selected_entity = document.get("selected_entity")
+        counterparty_name = document.get("counterparty_name", "")
+        file_name = document.get("file_name", "document")
 
         # Update approval status
         update_data = {
             "approval_status": action,
             "approved_at": "now()"
         }
+
+        # If approved and entity was selected, generate the filled PDF
+        pdf_generated = False
+        pdf_download_link = ""
+        if action == "approved" and selected_entity:
+            try:
+                pdf_gen = get_pdf_generator()
+                entity_info = get_entity_info(selected_entity)
+
+                if entity_info:
+                    # Generate the PDF
+                    pdf_bytes = pdf_gen.generate_filled_contract_info(
+                        entity_key=selected_entity,
+                        counterparty_name=counterparty_name,
+                        project_name=file_name
+                    )
+
+                    # Store PDF as base64 in database
+                    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                    update_data["filled_pdf_url"] = pdf_base64
+                    update_data["filled_pdf_generated_at"] = "now()"
+                    pdf_generated = True
+
+                    logger.info(f"Generated filled PDF for document {document_id}")
+            except Exception as pdf_error:
+                logger.error(f"Failed to generate PDF: {pdf_error}")
 
         db.supabase.client.table("nda_documents")\
             .update(update_data)\
@@ -3700,6 +3818,25 @@ async def approve_page(
                 .button:hover {{
                     opacity: 0.9;
                 }}
+                .pdf-notice {{
+                    background: #e8f5e9;
+                    border: 1px solid #a5d6a7;
+                    border-radius: 0.5rem;
+                    padding: 1rem;
+                    margin: 1rem 0;
+                    color: #2e7d32;
+                }}
+                .entity-info {{
+                    background: #f5f5f5;
+                    border-radius: 0.5rem;
+                    padding: 1rem;
+                    margin: 1rem 0;
+                    text-align: left;
+                    font-size: 0.9rem;
+                }}
+                .entity-info strong {{
+                    color: #333;
+                }}
             </style>
         </head>
         <body>
@@ -3707,6 +3844,7 @@ async def approve_page(
                 <div class="icon">{status_emoji}</div>
                 <h1>Document {status_text}</h1>
                 <p>The document has been successfully {action}.</p>
+                {"<div class='pdf-notice'>📄 Contract information sheet has been generated and saved.</div>" if pdf_generated else ""}
                 <a href="#" onclick="window.close()" class="button">Close Window</a>
             </div>
         </body>

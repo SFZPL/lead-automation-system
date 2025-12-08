@@ -41,6 +41,16 @@ interface NDADocument {
   approved_by?: string;
   approved_at?: string;
   teams_message_id?: string;
+  selected_entity?: string;
+  counterparty_name?: string;
+  filled_pdf_url?: string;
+}
+
+interface PrezlabEntity {
+  name: string;
+  company_name: string;
+  company_address: string;
+  authorised_signatory: string;
 }
 
 const NDAAnalysisPage: React.FC = () => {
@@ -53,6 +63,9 @@ const NDAAnalysisPage: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', content: string}>>([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [selectedEntity, setSelectedEntity] = useState<string>('');
+  const [counterpartyName, setCounterpartyName] = useState<string>('');
   const queryClient = useQueryClient();
 
   // Fetch NDA documents
@@ -63,6 +76,15 @@ const NDAAnalysisPage: React.FC = () => {
       refetchInterval: 5000, // Refetch every 5 seconds to check for analysis updates
     }
   );
+
+  // Fetch Prezlab entities
+  const { data: entitiesData } = useQuery(
+    'prezlab-entities',
+    () => api.get('/nda/entities'),
+    { staleTime: Infinity }
+  );
+
+  const entities: Record<string, PrezlabEntity> = entitiesData?.data?.entities || {};
 
   const documents: NDADocument[] = documentsData?.data?.documents || [];
 
@@ -85,7 +107,7 @@ const NDAAnalysisPage: React.FC = () => {
 
   // Forward to Teams mutation
   const forwardToTeamsMutation = useMutation(
-    async (documentId: string) => {
+    async ({ documentId, entity, counterparty }: { documentId: string; entity: string; counterparty: string }) => {
       const doc = documents.find(d => d.id === documentId);
       if (!doc) throw new Error('Document not found');
 
@@ -128,22 +150,59 @@ ${doc.questionable_clauses.map((clause, i) => `
 </p>
       `.trim();
 
-      // Send to Teams via API
+      // Send to Teams via API with entity info
       return api.post('/nda/forward-to-teams', {
         document_id: documentId,
         recipient_email: 'saba.dababneh@prezlab.com',
-        message: reportText
+        message: reportText,
+        selected_entity: entity || null,
+        counterparty_name: counterparty || null
       });
     },
     {
       onSuccess: () => {
-        toast.success('Report forwarded to Teams successfully');
+        toast.success('Report forwarded to Teams for approval');
+        setShowForwardModal(false);
+        setSelectedEntity('');
+        setCounterpartyName('');
+        queryClient.invalidateQueries('nda-documents');
       },
       onError: (error: any) => {
         toast.error(error?.response?.data?.detail || 'Failed to forward report');
       },
     }
   );
+
+  const handleForwardToTeams = () => {
+    if (!selectedDocument) return;
+    forwardToTeamsMutation.mutate({
+      documentId: selectedDocument.id,
+      entity: selectedEntity,
+      counterparty: counterpartyName
+    });
+  };
+
+  const handleDownloadPDF = async (documentId: string) => {
+    try {
+      const response = await api.get(`/nda/documents/${documentId}/download-pdf`, {
+        responseType: 'blob'
+      });
+
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'contract_info.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success('PDF downloaded successfully');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to download PDF');
+    }
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -461,14 +520,24 @@ ${doc.questionable_clauses.map((clause, i) => `
                           Ask AI
                         </button>
                         <button
-                          onClick={() => forwardToTeamsMutation.mutate(selectedDocument.id)}
+                          onClick={() => setShowForwardModal(true)}
                           disabled={forwardToTeamsMutation.isLoading}
                           className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium disabled:opacity-50"
-                          title="Forward report to Teams"
+                          title="Forward report to Teams for approval"
                         >
                           <PaperAirplaneIcon className="w-5 h-5" />
-                          {forwardToTeamsMutation.isLoading ? 'Sending...' : 'Forward to Teams'}
+                          {forwardToTeamsMutation.isLoading ? 'Sending...' : 'Send for Approval'}
                         </button>
+                        {selectedDocument.approval_status === 'approved' && selectedDocument.filled_pdf_url && (
+                          <button
+                            onClick={() => handleDownloadPDF(selectedDocument.id)}
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                            title="Download filled contract info PDF"
+                          >
+                            <DocumentTextIcon className="w-5 h-5" />
+                            Download PDF
+                          </button>
+                        )}
                       </>
                     )}
                     <button
@@ -756,6 +825,110 @@ ${doc.questionable_clauses.map((clause, i) => `
                   <PaperAirplaneIcon className="w-5 h-5" />
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Forward to Teams Modal */}
+      {showForwardModal && selectedDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Send for Approval</h3>
+              <button
+                onClick={() => {
+                  setShowForwardModal(false);
+                  setSelectedEntity('');
+                  setCounterpartyName('');
+                }}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                Send <strong>{selectedDocument.file_name}</strong> to Saba for approval.
+                Select the Prezlab entity for contract signing.
+              </p>
+
+              {/* Entity Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Prezlab Entity <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={selectedEntity}
+                  onChange={(e) => setSelectedEntity(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                >
+                  <option value="">Select entity...</option>
+                  {Object.entries(entities).map(([key, entity]) => (
+                    <option key={key} value={key}>
+                      {entity.name} - {entity.company_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Show selected entity details */}
+              {selectedEntity && entities[selectedEntity] && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-purple-900 mb-2">Selected Entity Details:</p>
+                  <div className="text-sm text-purple-700 space-y-1">
+                    <p><strong>Company:</strong> {entities[selectedEntity].company_name}</p>
+                    <p><strong>Address:</strong> {entities[selectedEntity].company_address}</p>
+                    <p><strong>Signatory:</strong> {entities[selectedEntity].authorised_signatory}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Counterparty Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Counterparty/Client Name
+                </label>
+                <input
+                  type="text"
+                  value={counterpartyName}
+                  onChange={(e) => setCounterpartyName(e.target.value)}
+                  placeholder="Enter client company name"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This will be included in the auto-generated contract info PDF after approval.
+                </p>
+              </div>
+
+              {/* Info box */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-700">
+                  Upon approval, a contract information sheet will be automatically generated with the selected entity details.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
+              <button
+                onClick={() => {
+                  setShowForwardModal(false);
+                  setSelectedEntity('');
+                  setCounterpartyName('');
+                }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleForwardToTeams}
+                disabled={!selectedEntity || forwardToTeamsMutation.isLoading}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                <PaperAirplaneIcon className="w-4 h-4" />
+                {forwardToTeamsMutation.isLoading ? 'Sending...' : 'Send for Approval'}
+              </button>
             </div>
           </div>
         </div>
