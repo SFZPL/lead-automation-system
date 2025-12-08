@@ -63,9 +63,10 @@ const NDAAnalysisPage: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant', content: string}>>([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [showFillPDFModal, setShowFillPDFModal] = useState(false);
   const [selectedEntity, setSelectedEntity] = useState<string>('');
   const [counterpartyName, setCounterpartyName] = useState<string>('');
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const queryClient = useQueryClient();
 
   // Fetch NDA documents
@@ -162,9 +163,6 @@ ${doc.questionable_clauses.map((clause, i) => `
     {
       onSuccess: () => {
         toast.success('Report forwarded to Teams for approval');
-        setShowForwardModal(false);
-        setSelectedEntity('');
-        setCounterpartyName('');
         queryClient.invalidateQueries('nda-documents');
       },
       onError: (error: any) => {
@@ -173,18 +171,16 @@ ${doc.questionable_clauses.map((clause, i) => `
     }
   );
 
-  const handleForwardToTeams = () => {
-    if (!selectedDocument) return;
-    forwardToTeamsMutation.mutate({
-      documentId: selectedDocument.id,
-      entity: selectedEntity,
-      counterparty: counterpartyName
-    });
-  };
+  const handleGenerateAndDownloadPDF = async () => {
+    if (!selectedDocument || !selectedEntity) return;
 
-  const handleDownloadPDF = async (documentId: string) => {
+    setIsGeneratingPDF(true);
     try {
-      const response = await api.get(`/nda/documents/${documentId}/download-pdf`, {
+      const response = await api.post('/nda/generate-pdf', {
+        document_id: selectedDocument.id,
+        selected_entity: selectedEntity,
+        counterparty_name: counterpartyName || ''
+      }, {
         responseType: 'blob'
       });
 
@@ -192,15 +188,21 @@ ${doc.questionable_clauses.map((clause, i) => `
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'contract_info.pdf';
+      const fileName = selectedDocument.file_name.replace(/\.(pdf|docx?)$/i, '');
+      link.download = `${fileName}_contract_info.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      toast.success('PDF downloaded successfully');
+      toast.success('PDF generated and downloaded!');
+      setShowFillPDFModal(false);
+      setSelectedEntity('');
+      setCounterpartyName('');
     } catch (error: any) {
-      toast.error(error?.response?.data?.detail || 'Failed to download PDF');
+      toast.error(error?.response?.data?.detail || 'Failed to generate PDF');
+    } finally {
+      setIsGeneratingPDF(false);
     }
   };
 
@@ -520,7 +522,15 @@ ${doc.questionable_clauses.map((clause, i) => `
                           Ask AI
                         </button>
                         <button
-                          onClick={() => setShowForwardModal(true)}
+                          onClick={() => setShowFillPDFModal(true)}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                          title="Generate contract info PDF with entity details"
+                        >
+                          <DocumentTextIcon className="w-5 h-5" />
+                          Fill PDF
+                        </button>
+                        <button
+                          onClick={() => forwardToTeamsMutation.mutate({ documentId: selectedDocument.id, entity: '', counterparty: '' })}
                           disabled={forwardToTeamsMutation.isLoading}
                           className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium disabled:opacity-50"
                           title="Forward report to Teams for approval"
@@ -528,16 +538,6 @@ ${doc.questionable_clauses.map((clause, i) => `
                           <PaperAirplaneIcon className="w-5 h-5" />
                           {forwardToTeamsMutation.isLoading ? 'Sending...' : 'Send for Approval'}
                         </button>
-                        {selectedDocument.approval_status === 'approved' && selectedDocument.filled_pdf_url && (
-                          <button
-                            onClick={() => handleDownloadPDF(selectedDocument.id)}
-                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                            title="Download filled contract info PDF"
-                          >
-                            <DocumentTextIcon className="w-5 h-5" />
-                            Download PDF
-                          </button>
-                        )}
                       </>
                     )}
                     <button
@@ -830,15 +830,15 @@ ${doc.questionable_clauses.map((clause, i) => `
         </div>
       )}
 
-      {/* Forward to Teams Modal */}
-      {showForwardModal && selectedDocument && (
+      {/* Fill PDF Modal */}
+      {showFillPDFModal && selectedDocument && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Send for Approval</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Generate Contract Info PDF</h3>
               <button
                 onClick={() => {
-                  setShowForwardModal(false);
+                  setShowFillPDFModal(false);
                   setSelectedEntity('');
                   setCounterpartyName('');
                 }}
@@ -850,8 +850,8 @@ ${doc.questionable_clauses.map((clause, i) => `
 
             <div className="p-4 space-y-4">
               <p className="text-sm text-gray-600">
-                Send <strong>{selectedDocument.file_name}</strong> to Saba for approval.
-                Select the Prezlab entity for contract signing.
+                Generate a contract information sheet for <strong>{selectedDocument.file_name}</strong>.
+                Select the Prezlab entity to use.
               </p>
 
               {/* Entity Selection */}
@@ -862,7 +862,7 @@ ${doc.questionable_clauses.map((clause, i) => `
                 <select
                   value={selectedEntity}
                   onChange={(e) => setSelectedEntity(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   <option value="">Select entity...</option>
                   {Object.entries(entities).map(([key, entity]) => (
@@ -875,9 +875,9 @@ ${doc.questionable_clauses.map((clause, i) => `
 
               {/* Show selected entity details */}
               {selectedEntity && entities[selectedEntity] && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                  <p className="text-sm font-medium text-purple-900 mb-2">Selected Entity Details:</p>
-                  <div className="text-sm text-purple-700 space-y-1">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-green-900 mb-2">Entity Details (will be filled in PDF):</p>
+                  <div className="text-sm text-green-700 space-y-1">
                     <p><strong>Company:</strong> {entities[selectedEntity].company_name}</p>
                     <p><strong>Address:</strong> {entities[selectedEntity].company_address}</p>
                     <p><strong>Signatory:</strong> {entities[selectedEntity].authorised_signatory}</p>
@@ -888,32 +888,22 @@ ${doc.questionable_clauses.map((clause, i) => `
               {/* Counterparty Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Counterparty/Client Name
+                  Counterparty/Client Name (Optional)
                 </label>
                 <input
                   type="text"
                   value={counterpartyName}
                   onChange={(e) => setCounterpartyName(e.target.value)}
                   placeholder="Enter client company name"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  This will be included in the auto-generated contract info PDF after approval.
-                </p>
-              </div>
-
-              {/* Info box */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-700">
-                  Upon approval, a contract information sheet will be automatically generated with the selected entity details.
-                </p>
               </div>
             </div>
 
             <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
               <button
                 onClick={() => {
-                  setShowForwardModal(false);
+                  setShowFillPDFModal(false);
                   setSelectedEntity('');
                   setCounterpartyName('');
                 }}
@@ -922,12 +912,12 @@ ${doc.questionable_clauses.map((clause, i) => `
                 Cancel
               </button>
               <button
-                onClick={handleForwardToTeams}
-                disabled={!selectedEntity || forwardToTeamsMutation.isLoading}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                onClick={handleGenerateAndDownloadPDF}
+                disabled={!selectedEntity || isGeneratingPDF}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                <PaperAirplaneIcon className="w-4 h-4" />
-                {forwardToTeamsMutation.isLoading ? 'Sending...' : 'Send for Approval'}
+                <DocumentTextIcon className="w-4 h-4" />
+                {isGeneratingPDF ? 'Generating...' : 'Generate & Download PDF'}
               </button>
             </div>
           </div>

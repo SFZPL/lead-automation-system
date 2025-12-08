@@ -3257,6 +3257,64 @@ def download_filled_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/nda/generate-pdf")
+def generate_contract_pdf(
+    document_id: str = Body(...),
+    selected_entity: str = Body(...),
+    counterparty_name: str = Body(default=""),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """Generate a contract info PDF with selected entity details and download it immediately."""
+    from fastapi.responses import Response
+    from modules.pdf_generator import get_pdf_generator, get_entity_info
+
+    try:
+        # Validate entity
+        entity_info = get_entity_info(selected_entity)
+        if not entity_info:
+            raise HTTPException(status_code=400, detail=f"Invalid entity: {selected_entity}")
+
+        # Get document info
+        result = db.supabase.client.table("nda_documents")\
+            .select("file_name")\
+            .eq("id", document_id)\
+            .single()\
+            .execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        file_name = result.data.get("file_name", "document")
+
+        # Generate PDF
+        pdf_gen = get_pdf_generator()
+        pdf_bytes = pdf_gen.generate_filled_contract_info(
+            entity_key=selected_entity,
+            counterparty_name=counterparty_name,
+            project_name=file_name.replace(".pdf", "").replace(".docx", "")
+        )
+
+        # Clean filename for download
+        clean_name = file_name.replace(".pdf", "").replace(".docx", "").replace(" ", "_")
+
+        logger.info(f"Generated PDF for document {document_id} with entity {selected_entity}")
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{clean_name}_contract_info.pdf"'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/nda/documents")
 def get_nda_documents(
     limit: int = 50,
