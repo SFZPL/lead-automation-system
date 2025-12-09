@@ -1720,9 +1720,20 @@ def send_lost_leads_report_to_teams(
 ):
     """Send lost leads report to Teams as a formatted message."""
     from modules.teams_messenger import TeamsMessenger
-    from modules.outlook_client import OutlookClient
 
     try:
+        # Get user tokens for Microsoft Graph API
+        user_id = str(current_user.get("id"))
+        outlook = get_outlook_client()
+        tokens = outlook.get_user_auth_tokens(user_id)
+
+        if not tokens or not isinstance(tokens, dict):
+            raise HTTPException(status_code=401, detail="Not authenticated with Microsoft. Please authenticate first.")
+
+        access_token = tokens.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=401, detail="No access token found")
+
         # Build date range string
         date_range = ""
         if date_from and date_to:
@@ -1836,9 +1847,8 @@ def send_lost_leads_report_to_teams(
 </p>
 """
 
-        # Send to Teams
-        outlook = OutlookClient()
-        teams = TeamsMessenger(outlook)
+        # Send to Teams using user's access token
+        teams = TeamsMessenger(access_token)
 
         # Send to saba.dababneh@prezlab.com
         result = teams.send_direct_message(
