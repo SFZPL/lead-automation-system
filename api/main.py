@@ -1842,9 +1842,8 @@ def send_lost_leads_report_to_teams(
 
         # Send to saba.dababneh@prezlab.com
         result = teams.send_direct_message(
-            recipient_email="saba.dababneh@prezlab.com",
-            message=html_message,
-            content_type="html"
+            user_email="saba.dababneh@prezlab.com",
+            message_html=html_message
         )
 
         if isinstance(result, dict) and result.get("success") == False:
