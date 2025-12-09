@@ -768,32 +768,19 @@ class LostLeadAnalyzer:
         limit: int = 100
     ) -> Dict[str, Any]:
         """
-        Generate comprehensive LLM-powered pattern analysis across 6 dimensions:
-        1. Lost reason clustering (group similar loss reasons)
-        2. Customer profile patterns (types of customers being lost)
-        3. Stage analysis (which stage most opportunities die)
-        4. Deal size correlation (are larger deals more likely lost?)
-        5. Response time impact (does slower response correlate with losses?)
-        6. Re-engagement recommendations (which lost opps are most likely to convert)
+        Generate simplified AI analysis of lost leads with actionable insights.
 
         Args:
             lost_leads: List of lost lead/opportunity data
             limit: Maximum leads to analyze
 
         Returns:
-            Dict with 6 analysis sections
+            Dict with summary, top reasons, and recommendations
         """
         self._ensure_llm()
 
         if not lost_leads:
-            return {
-                "lost_reason_clustering": {"error": "No data available"},
-                "customer_profile_patterns": {"error": "No data available"},
-                "stage_analysis": {"error": "No data available"},
-                "deal_size_correlation": {"error": "No data available"},
-                "response_time_impact": {"error": "No data available"},
-                "re_engagement_recommendations": {"error": "No data available"}
-            }
+            return {"error": "No data available"}
 
         # Limit the analysis to prevent overwhelming the LLM
         leads_to_analyze = lost_leads[:limit]
@@ -816,67 +803,43 @@ class LostLeadAnalyzer:
                 "lost_reason": reason_name,
                 "stage": stage_name,
                 "lost_date": lead.get("write_date"),
-                "country": lead.get("country_id", [None, "Unknown"])[1] if isinstance(lead.get("country_id"), list) else "Unknown",
-                "service": lead.get("x_studio_service") or "Not specified",
-                "quality_score": lead.get("x_studio_quality") or "Not rated"
             })
 
-        # Build comprehensive prompt for pattern analysis
-        prompt = f"""Analyze {len(leads_summary)} lost opportunities. Return EXACT JSON structure below:
+        # Calculate totals for context
+        total_value = sum(l.get("expected_revenue", 0) or 0 for l in leads_summary)
+
+        # Build simplified prompt
+        prompt = f"""Analyze these {len(leads_summary)} lost leads/opportunities (total value: AED {total_value:,.0f}).
 
 DATA:
 {self._format_leads_for_llm(leads_summary)}
 
-RETURN THIS EXACT JSON STRUCTURE:
+Provide a concise analysis in this JSON format:
 {{
-  "lost_reason_clustering": {{
-    "key_insight": "1-2 sentence summary",
-    "clusters": [
-      {{"cluster_name": "...", "reasons": ["..."], "count": 0, "percentage": 0, "insight": "..."}}
-    ]
+  "executive_summary": "2-3 sentences summarizing the key patterns and main issues",
+  "top_loss_reasons": [
+    {{"reason": "...", "count": 0, "percentage": 0, "action": "specific action to address this"}}
+  ],
+  "critical_stage": {{
+    "stage_name": "which pipeline stage has highest drop-off",
+    "insight": "why deals are dying at this stage"
   }},
-  "customer_profile_patterns": {{
-    "key_insight": "1-2 sentence summary",
-    "profiles": [
-      {{"profile_name": "...", "characteristics": ["..."], "loss_rate": "high/medium/low", "common_reasons": ["..."], "insight": "..."}}
-    ]
-  }},
-  "stage_analysis": {{
-    "key_insight": "1-2 sentence summary",
-    "critical_stages": [
-      {{"stage": "...", "loss_count": 0, "percentage": 0, "total_value": 0, "insight": "..."}}
-    ]
-  }},
-  "deal_size_correlation": {{
-    "key_insight": "1-2 sentence summary",
-    "segments": [
-      {{"segment": "Small/Medium/Large Deals", "count": 0, "loss_rate": "0%", "common_reasons": ["..."], "insight": "..."}}
-    ]
-  }},
-  "response_time_impact": {{
-    "key_insight": "1-2 sentence summary (or 'Response time data not available')",
-    "findings": [
-      {{"observation": "...", "impact": "high/medium/low", "insight": "..."}}
-    ]
-  }},
-  "re_engagement_recommendations": {{
-    "key_insight": "1-2 sentence summary",
-    "priorities": [
-      {{"priority": "High/Medium/Low", "criteria": ["..."], "count": 0, "approach": "...", "insight": "..."}}
-    ]
+  "quick_wins": [
+    "3-5 specific, actionable recommendations to reduce losses"
+  ],
+  "re_engage_priority": {{
+    "high_value_recoverable": 0,
+    "criteria": "what makes a lost lead worth re-engaging",
+    "suggested_approach": "how to approach re-engagement"
   }}
 }}
 
-CRITICAL: Match this structure EXACTLY. All sections must have key_insight + their data array."""
+Be direct and actionable. Focus on what the sales team can DO differently."""
 
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are an expert sales analyst specializing in lost opportunity analysis. "
-                    "Identify patterns, correlations, and actionable insights from sales data. "
-                    "Always return valid JSON in the exact structure requested."
-                )
+                "content": "You are a sales coach. Give practical, specific advice based on the data. No fluff."
             },
             {"role": "user", "content": prompt}
         ]
@@ -884,48 +847,13 @@ CRITICAL: Match this structure EXACTLY. All sections must have key_insight + the
         try:
             analysis = self.llm.chat_completion_json(
                 messages,
-                max_tokens=40000
+                max_tokens=2000
             )
-
-            # Log the analysis structure for debugging
             logger.info(f"Pattern analysis returned with keys: {list(analysis.keys()) if isinstance(analysis, dict) else 'not a dict'}")
-
-            # Validate that we have all 6 required sections
-            if isinstance(analysis, dict):
-                required_sections = [
-                    'lost_reason_clustering',
-                    'customer_profile_patterns',
-                    'stage_analysis',
-                    'deal_size_correlation',
-                    'response_time_impact',
-                    're_engagement_recommendations'
-                ]
-
-                missing_sections = [s for s in required_sections if s not in analysis]
-                if missing_sections:
-                    logger.warning(f"LLM analysis missing sections: {missing_sections}")
-
-                # Check if sections have actual data
-                for section in required_sections:
-                    if section in analysis:
-                        section_data = analysis[section]
-                        if isinstance(section_data, dict):
-                            has_key_insight = 'key_insight' in section_data
-                            data_keys = [k for k in section_data.keys() if k != 'key_insight']
-                            logger.info(f"Section {section}: has_key_insight={has_key_insight}, data_keys={data_keys}")
-
             return analysis
         except Exception as e:
             logger.error(f"Error generating pattern analysis: {e}")
-            return {
-                "error": str(e),
-                "lost_reason_clustering": {"error": "Analysis failed"},
-                "customer_profile_patterns": {"error": "Analysis failed"},
-                "stage_analysis": {"error": "Analysis failed"},
-                "deal_size_correlation": {"error": "Analysis failed"},
-                "response_time_impact": {"error": "Analysis failed"},
-                "re_engagement_recommendations": {"error": "Analysis failed"}
-            }
+            return {"error": str(e)}
 
     def _format_leads_for_llm(self, leads: List[Dict[str, Any]]) -> str:
         """Format leads data in a concise way for LLM analysis."""

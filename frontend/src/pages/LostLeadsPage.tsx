@@ -18,6 +18,7 @@ import {
   DocumentTextIcon,
   XCircleIcon,
   ChartBarIcon,
+  PaperAirplaneIcon,
 } from '@heroicons/react/24/outline';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import api from '../utils/api';
@@ -163,6 +164,7 @@ const LostLeadsPage: React.FC = () => {
   const [reportDateTo, setReportDateTo] = useState<string>('');
   const [includePatternAnalysis, setIncludePatternAnalysis] = useState<boolean>(false);
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
+  const [isSendingToTeams, setIsSendingToTeams] = useState<boolean>(false);
 
   // Persist report data to sessionStorage
   const [reportData, setReportData] = useState<any>(() => {
@@ -587,6 +589,28 @@ const LostLeadsPage: React.FC = () => {
       toast.error('Failed to generate report');
     } finally {
       setIsGeneratingReport(false);
+    }
+  };
+
+  const handleSendToTeams = async () => {
+    if (!reportData) {
+      toast.error('No report to send');
+      return;
+    }
+
+    setIsSendingToTeams(true);
+    try {
+      await api.post('/lost-leads/send-to-teams', {
+        report_data: reportData,
+        date_from: reportDateFrom || undefined,
+        date_to: reportDateTo || undefined
+      });
+      toast.success('Report sent to Teams successfully!');
+    } catch (error: any) {
+      console.error('Error sending to Teams:', error);
+      toast.error(error?.response?.data?.detail || 'Failed to send report to Teams');
+    } finally {
+      setIsSendingToTeams(false);
     }
   };
 
@@ -1382,18 +1406,40 @@ const LostLeadsPage: React.FC = () => {
           {/* Report Results */}
           {reportData && (
             <div className="space-y-6">
+              {/* Report Header with Send to Teams button */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900">Lost Leads Report</h2>
+                <button
+                  onClick={handleSendToTeams}
+                  disabled={isSendingToTeams}
+                  className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSendingToTeams ? (
+                    <>
+                      <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <PaperAirplaneIcon className="h-4 w-4" />
+                      Send to Teams
+                    </>
+                  )}
+                </button>
+              </div>
+
               {/* Summary Statistics */}
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Summary Statistics</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-red-50 rounded-lg p-4">
-                    <div className="text-sm font-medium text-red-600">Total Missed Value</div>
+                    <div className="text-sm font-medium text-red-600">Total Quotation Value Sent</div>
                     <div className="text-2xl font-bold text-red-900 mt-1">
                       AED {reportData.summary.total_missed_value.toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-blue-50 rounded-lg p-4">
-                    <div className="text-sm font-medium text-blue-600">Average Deal Size</div>
+                    <div className="text-sm font-medium text-blue-600">Average Quotation Value</div>
                     <div className="text-2xl font-bold text-blue-900 mt-1">
                       AED {reportData.summary.average_deal_value.toLocaleString()}
                     </div>
@@ -1545,10 +1591,65 @@ const LostLeadsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Pattern Analysis */}
+              {/* Full List of Lost Leads */}
+              {reportData.all_lost_leads && reportData.all_lost_leads.length > 0 && (
+                <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    All Lost Leads ({reportData.all_lost_leads.length})
+                  </h3>
+                  <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Value</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Salesperson</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lost Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {reportData.all_lost_leads.map((lead: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900">{lead.name}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{lead.partner_name || '-'}</td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {lead.expected_revenue ? `AED ${lead.expected_revenue.toLocaleString()}` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {lead.stage_id ? (Array.isArray(lead.stage_id) ? lead.stage_id[1] : lead.stage_id) : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {lead.lost_reason_id ? (Array.isArray(lead.lost_reason_id) ? lead.lost_reason_id[1] : lead.lost_reason_id) : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {lead.user_id ? (Array.isArray(lead.user_id) ? lead.user_id[1] : lead.user_id) : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                lead.type === 'opportunity' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {lead.type || 'lead'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {lead.write_date ? new Date(lead.write_date).toLocaleDateString() : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* AI Analysis */}
               {reportData.pattern_analysis && (
                 <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-6">LLM Pattern Analysis</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">AI Analysis</h3>
 
                   {reportData.pattern_analysis.error ? (
                     <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -1559,172 +1660,85 @@ const LostLeadsPage: React.FC = () => {
                   ) : (
                     <div className="space-y-6">
                       {/* Executive Summary */}
-                      <div className="bg-gradient-to-r from-primary-50 to-purple-50 rounded-xl p-5 border-2 border-primary-200">
-                        <div className="flex items-center gap-2 mb-4">
-                          <svg className="h-6 w-6 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                          </svg>
-                          <h4 className="text-lg font-bold text-gray-900">Key Findings</h4>
-                        </div>
-                        <div className="space-y-3">
-                          {/* Top Lost Reason */}
-                          {reportData.pattern_analysis.lost_reason_clustering?.clusters?.[0] && (
-                            <div className="flex items-start gap-3">
-                              <span className="flex-shrink-0 mt-1 text-xl">🔴</span>
-                              <div>
-                                <span className="font-semibold text-gray-900">
-                                  {reportData.pattern_analysis.lost_reason_clustering.clusters[0].percentage}% lost to {reportData.pattern_analysis.lost_reason_clustering.clusters[0].cluster_name}
-                                </span>
-                                <p className="text-sm text-gray-700 mt-1">{reportData.pattern_analysis.lost_reason_clustering.clusters[0].insight}</p>
-                              </div>
-                            </div>
-                          )}
-                          {/* Critical Stage */}
-                          {reportData.pattern_analysis.stage_analysis?.critical_stages?.[0] && (
-                            <div className="flex items-start gap-3">
-                              <span className="flex-shrink-0 mt-1 text-xl">🟡</span>
-                              <div>
-                                <span className="font-semibold text-gray-900">
-                                  {reportData.pattern_analysis.stage_analysis.critical_stages[0].percentage}% lost at {reportData.pattern_analysis.stage_analysis.critical_stages[0].stage} stage
-                                </span>
-                                <p className="text-sm text-gray-700 mt-1">{reportData.pattern_analysis.stage_analysis.critical_stages[0].insight}</p>
-                              </div>
-                            </div>
-                          )}
-                          {/* Deal Size Impact */}
-                          {reportData.pattern_analysis.deal_size_correlation?.segments?.[0] && (
-                            <div className="flex items-start gap-3">
-                              <span className="flex-shrink-0 mt-1 text-xl">🟢</span>
-                              <div>
-                                <span className="font-semibold text-gray-900">
-                                  {reportData.pattern_analysis.deal_size_correlation.segments[0].segment}: {reportData.pattern_analysis.deal_size_correlation.segments[0].count} deals ({reportData.pattern_analysis.deal_size_correlation.segments[0].loss_rate} loss rate)
-                                </span>
-                                <p className="text-sm text-gray-700 mt-1">{reportData.pattern_analysis.deal_size_correlation.segments[0].insight}</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {/* Lost Reason Clustering */}
-                      {reportData.pattern_analysis.lost_reason_clustering && !reportData.pattern_analysis.lost_reason_clustering.error && (
-                        <div>
-                          <h4 className="text-md font-semibold text-gray-800 mb-2">1. Lost Reason Clustering</h4>
-                          {reportData.pattern_analysis.lost_reason_clustering.key_insight && (
-                            <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.lost_reason_clustering.key_insight}</p>
-                          )}
-                          {reportData.pattern_analysis.lost_reason_clustering.clusters && reportData.pattern_analysis.lost_reason_clustering.clusters.length > 0 ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                              {reportData.pattern_analysis.lost_reason_clustering.clusters.map((cluster: any, idx: number) => (
-                                <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                                  <div className="font-medium text-gray-900">{cluster.cluster_name}</div>
-                                  <div className="text-xs text-gray-600 mt-1">Count: {cluster.count} ({cluster.percentage}%)</div>
-                                  <div className="text-sm text-gray-700 mt-2">{cluster.insight}</div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500 italic">No clustering data available</p>
-                          )}
+                      {reportData.pattern_analysis.executive_summary && (
+                        <div className="bg-gradient-to-r from-primary-50 to-purple-50 rounded-xl p-5 border-2 border-primary-200">
+                          <div className="flex items-center gap-2 mb-3">
+                            <SparklesIcon className="h-5 w-5 text-primary-600" />
+                            <h4 className="text-md font-bold text-gray-900">Executive Summary</h4>
+                          </div>
+                          <p className="text-gray-800">{reportData.pattern_analysis.executive_summary}</p>
                         </div>
                       )}
 
-                    {/* Customer Profile Patterns */}
-                    {reportData.pattern_analysis.customer_profile_patterns && (
-                      <div>
-                        <h4 className="text-md font-semibold text-gray-800 mb-2">2. Customer Profile Patterns</h4>
-                        <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.customer_profile_patterns.key_insight}</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {reportData.pattern_analysis.customer_profile_patterns.profiles?.map((profile: any, idx: number) => (
-                            <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                              <div className="font-medium text-gray-900">{profile.profile_name}</div>
-                              <div className="text-xs text-gray-600 mt-1">Loss Rate: {profile.loss_rate}</div>
-                              <div className="text-sm text-gray-700 mt-2">{profile.insight}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Stage Analysis */}
-                    {reportData.pattern_analysis.stage_analysis && (
-                      <div>
-                        <h4 className="text-md font-semibold text-gray-800 mb-2">3. Stage Analysis</h4>
-                        <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.stage_analysis.key_insight}</p>
-                        <div className="space-y-2">
-                          {reportData.pattern_analysis.stage_analysis.critical_stages?.map((stage: any, idx: number) => (
-                            <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                              <div className="flex justify-between items-start">
-                                <div className="font-medium text-gray-900">{stage.stage}</div>
-                                <div className="text-xs text-gray-600">{stage.loss_count} losses ({stage.percentage}%)</div>
+                      {/* Top Loss Reasons with Actions */}
+                      {reportData.pattern_analysis.top_loss_reasons && reportData.pattern_analysis.top_loss_reasons.length > 0 && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Top Loss Reasons</h4>
+                          <div className="space-y-3">
+                            {reportData.pattern_analysis.top_loss_reasons.map((reason: any, idx: number) => (
+                              <div key={idx} className="bg-gray-50 rounded-lg p-4 border-l-4 border-red-400">
+                                <div className="flex justify-between items-start mb-2">
+                                  <span className="font-medium text-gray-900">{reason.reason}</span>
+                                  <span className="text-sm text-gray-600">{reason.count} ({reason.percentage}%)</span>
+                                </div>
+                                <p className="text-sm text-green-700 flex items-start gap-2">
+                                  <span className="font-medium">Action:</span> {reason.action}
+                                </p>
                               </div>
-                              <div className="text-sm text-gray-700 mt-2">{stage.insight}</div>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Deal Size Correlation */}
-                    {reportData.pattern_analysis.deal_size_correlation && (
-                      <div>
-                        <h4 className="text-md font-semibold text-gray-800 mb-2">4. Deal Size Correlation</h4>
-                        <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.deal_size_correlation.key_insight}</p>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          {reportData.pattern_analysis.deal_size_correlation.segments?.map((segment: any, idx: number) => (
-                            <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                              <div className="font-medium text-gray-900">{segment.segment}</div>
-                              <div className="text-xs text-gray-600 mt-1">Count: {segment.count} | Loss Rate: {segment.loss_rate}</div>
-                              <div className="text-sm text-gray-700 mt-2">{segment.insight}</div>
-                            </div>
-                          ))}
+                      {/* Critical Stage */}
+                      {reportData.pattern_analysis.critical_stage && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Critical Pipeline Stage</h4>
+                          <div className="bg-yellow-50 rounded-lg p-4 border-l-4 border-yellow-400">
+                            <p className="font-medium text-gray-900 mb-1">
+                              Highest drop-off: {reportData.pattern_analysis.critical_stage.stage_name}
+                            </p>
+                            <p className="text-sm text-gray-700">{reportData.pattern_analysis.critical_stage.insight}</p>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Response Time Impact */}
-                    {reportData.pattern_analysis.response_time_impact && (
-                      <div>
-                        <h4 className="text-md font-semibold text-gray-800 mb-2">5. Response Time Impact</h4>
-                        <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.response_time_impact.key_insight}</p>
-                        <div className="space-y-2">
-                          {reportData.pattern_analysis.response_time_impact.findings?.map((finding: any, idx: number) => (
-                            <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                              <div className="flex justify-between items-start">
-                                <div className="text-sm text-gray-900">{finding.observation}</div>
-                                <span className={`text-xs px-2 py-1 rounded-full ${
-                                  finding.impact === 'high' ? 'bg-red-100 text-red-800' :
-                                  finding.impact === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {finding.impact}
-                                </span>
-                              </div>
-                              <div className="text-sm text-gray-700 mt-2">{finding.insight}</div>
-                            </div>
-                          ))}
+                      {/* Quick Wins */}
+                      {reportData.pattern_analysis.quick_wins && reportData.pattern_analysis.quick_wins.length > 0 && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Quick Wins - What You Can Do</h4>
+                          <div className="bg-green-50 rounded-lg p-4 border-l-4 border-green-400">
+                            <ul className="space-y-2">
+                              {reportData.pattern_analysis.quick_wins.map((win: string, idx: number) => (
+                                <li key={idx} className="flex items-start gap-2 text-sm text-gray-800">
+                                  <span className="text-green-600 mt-0.5">✓</span>
+                                  {win}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* Re-engagement Recommendations */}
-                    {reportData.pattern_analysis.re_engagement_recommendations && (
-                      <div>
-                        <h4 className="text-md font-semibold text-gray-800 mb-2">6. Re-engagement Recommendations</h4>
-                        <p className="text-sm text-gray-600 mb-3 italic">{reportData.pattern_analysis.re_engagement_recommendations.key_insight}</p>
-                        <div className="space-y-2">
-                          {reportData.pattern_analysis.re_engagement_recommendations.priorities?.map((priority: any, idx: number) => (
-                            <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                              <div className="flex justify-between items-start">
-                                <div className="font-medium text-gray-900">Priority: {priority.priority}</div>
-                                <div className="text-xs text-gray-600">{priority.count} opportunities</div>
-                              </div>
-                              <div className="text-sm text-gray-700 mt-2"><strong>Approach:</strong> {priority.approach}</div>
-                              <div className="text-sm text-gray-700 mt-1">{priority.insight}</div>
-                            </div>
-                          ))}
+                      {/* Re-engage Priority */}
+                      {reportData.pattern_analysis.re_engage_priority && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Re-engagement Opportunity</h4>
+                          <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-400">
+                            {reportData.pattern_analysis.re_engage_priority.high_value_recoverable > 0 && (
+                              <p className="font-medium text-blue-900 mb-2">
+                                {reportData.pattern_analysis.re_engage_priority.high_value_recoverable} high-value leads worth re-engaging
+                              </p>
+                            )}
+                            <p className="text-sm text-gray-700 mb-1">
+                              <strong>Criteria:</strong> {reportData.pattern_analysis.re_engage_priority.criteria}
+                            </p>
+                            <p className="text-sm text-gray-700">
+                              <strong>Approach:</strong> {reportData.pattern_analysis.re_engage_priority.suggested_approach}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
                     </div>
                   )}
                 </div>

@@ -1711,6 +1711,159 @@ def generate_lost_leads_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/lost-leads/send-to-teams")
+def send_lost_leads_report_to_teams(
+    report_data: Dict[str, Any] = Body(...),
+    date_from: Optional[str] = Body(default=None),
+    date_to: Optional[str] = Body(default=None),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Send lost leads report to Teams as a formatted message."""
+    from modules.teams_messenger import TeamsMessenger
+    from modules.outlook_client import OutlookClient
+
+    try:
+        # Build date range string
+        date_range = ""
+        if date_from and date_to:
+            date_range = f" ({date_from} to {date_to})"
+        elif date_from:
+            date_range = f" (from {date_from})"
+        elif date_to:
+            date_range = f" (until {date_to})"
+
+        summary = report_data.get("summary", {})
+        reasons = report_data.get("reasons_analysis", {}).get("by_frequency", [])[:5]
+        top_opps = report_data.get("top_opportunities", [])[:5]
+        pattern_analysis = report_data.get("pattern_analysis", {})
+
+        # Build HTML message
+        html_message = f"""
+<h2>📊 Lost Leads Report{date_range}</h2>
+<hr/>
+
+<h3>Summary</h3>
+<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse;'>
+<tr style='background-color: #f0f0f0;'>
+<td><strong>Total Lost Leads</strong></td>
+<td>{summary.get('total_count', 0)}</td>
+</tr>
+<tr>
+<td><strong>Total Quotation Value</strong></td>
+<td>AED {summary.get('total_missed_value', 0):,.0f}</td>
+</tr>
+<tr style='background-color: #f0f0f0;'>
+<td><strong>Average Quotation Value</strong></td>
+<td>AED {summary.get('average_deal_value', 0):,.0f}</td>
+</tr>
+<tr>
+<td><strong>Opportunities</strong></td>
+<td>{summary.get('opportunities_count', 0)}</td>
+</tr>
+<tr style='background-color: #f0f0f0;'>
+<td><strong>Leads</strong></td>
+<td>{summary.get('leads_count', 0)}</td>
+</tr>
+</table>
+"""
+
+        # Top Loss Reasons
+        if reasons:
+            html_message += """
+<h3>Top Loss Reasons</h3>
+<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%;'>
+<tr style='background-color: #f0f0f0;'>
+<th>Reason</th>
+<th>Count</th>
+<th>%</th>
+<th>Value</th>
+</tr>
+"""
+            for reason in reasons:
+                html_message += f"""
+<tr>
+<td>{reason.get('reason', 'Unknown')}</td>
+<td>{reason.get('count', 0)}</td>
+<td>{reason.get('percentage', 0)}%</td>
+<td>AED {reason.get('total_value', 0):,.0f}</td>
+</tr>
+"""
+            html_message += "</table>"
+
+        # Top Opportunities to Re-contact
+        if top_opps:
+            html_message += """
+<h3>Top Re-contact Opportunities</h3>
+<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%;'>
+<tr style='background-color: #f0f0f0;'>
+<th>Name</th>
+<th>Company</th>
+<th>Value</th>
+<th>Reason</th>
+</tr>
+"""
+            for opp in top_opps:
+                reason = opp.get('lost_reason', 'Unknown')
+                if isinstance(reason, list) and len(reason) > 1:
+                    reason = reason[1]
+                html_message += f"""
+<tr>
+<td>{opp.get('name', 'Unknown')}</td>
+<td>{opp.get('partner_name', '-')}</td>
+<td>AED {opp.get('expected_revenue', 0):,.0f}</td>
+<td>{reason}</td>
+</tr>
+"""
+            html_message += "</table>"
+
+        # AI Analysis Summary (if available)
+        if pattern_analysis and not pattern_analysis.get("error"):
+            if pattern_analysis.get("executive_summary"):
+                html_message += f"""
+<h3>AI Analysis</h3>
+<p><strong>Executive Summary:</strong> {pattern_analysis.get('executive_summary')}</p>
+"""
+            if pattern_analysis.get("quick_wins"):
+                html_message += "<p><strong>Quick Wins:</strong></p><ul>"
+                for win in pattern_analysis.get("quick_wins", [])[:3]:
+                    html_message += f"<li>{win}</li>"
+                html_message += "</ul>"
+
+        html_message += """
+<hr/>
+<p style='text-align: center; color: gray; font-size: 12px;'>
+🤖 Generated with PrezLab Lead Automation System
+</p>
+"""
+
+        # Send to Teams
+        outlook = OutlookClient()
+        teams = TeamsMessenger(outlook)
+
+        # Send to saba.dababneh@prezlab.com
+        result = teams.send_direct_message(
+            recipient_email="saba.dababneh@prezlab.com",
+            message=html_message,
+            content_type="html"
+        )
+
+        if isinstance(result, dict) and result.get("success") == False:
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to send message"))
+
+        logger.info(f"Lost leads report sent to Teams successfully")
+
+        return {
+            "success": True,
+            "message": "Report sent to Teams successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending lost leads report to Teams: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # PROPOSAL FOLLOW-UP ENDPOINTS
 # ============================================================================
