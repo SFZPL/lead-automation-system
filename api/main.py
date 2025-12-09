@@ -2458,28 +2458,34 @@ def generate_saved_report(
         )
         logger.info(f"Analysis completed. Found {result.get('summary', {}).get('total_count', 0)} follow-ups")
 
-        # Save as shared report
-        logger.info(f"Attempting to save report to database for user {user_id}")
-        report_id = db.save_report(
-            user_id=user_id,
-            analysis_type="proposal_followups",
-            report_type=request.report_type,
-            report_period=report_period,
-            result=result,
-            parameters={
-                "days_back": days_back,
-                "no_response_days": request.no_response_days,
-                "engage_email": request.engage_email
-            },
-            is_shared=True
-        )
-        logger.info(f"Report saved successfully with ID: {report_id}")
+        # Save as shared report (but don't fail if save fails)
+        report_id = None
+        try:
+            logger.info(f"Attempting to save report to database for user {user_id}")
+            report_id = db.save_report(
+                user_id=user_id,
+                analysis_type="proposal_followups",
+                report_type=request.report_type,
+                report_period=report_period,
+                result=result,
+                parameters={
+                    "days_back": days_back,
+                    "no_response_days": request.no_response_days,
+                    "engage_email": request.engage_email
+                },
+                is_shared=True
+            )
+            logger.info(f"Report saved successfully with ID: {report_id}")
+        except Exception as save_error:
+            logger.warning(f"Failed to save report to cache (report still generated): {save_error}")
+            # Continue without saving - the report was still generated successfully
 
         return {
             "success": True,
             "report_id": report_id,
             "report_type": request.report_type,
-            "report_period": report_period
+            "report_period": report_period,
+            "result": result  # Return the result directly so user gets it even if cache fails
         }
 
     except Exception as e:

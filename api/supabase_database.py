@@ -462,12 +462,16 @@ class SupabaseDatabase:
         try:
             logger.info(f"Preparing to save report: type={report_type}, period={report_period}, user={user_id}")
 
+            # Limit the size of the result to avoid timeout
+            # Keep only summary and truncate large lists
+            result_to_save = self._truncate_report_for_storage(result)
+
             data = {
                 "user_id": user_id,
                 "analysis_type": analysis_type,
                 "report_type": report_type,
                 "report_period": report_period,
-                "results": json.dumps(result),
+                "results": json.dumps(result_to_save),
                 "parameters": json.dumps(parameters or {}),
                 "is_shared": is_shared
             }
@@ -487,6 +491,35 @@ class SupabaseDatabase:
         except Exception as e:
             logger.error(f"Error saving report: {e}", exc_info=True)
             raise
+
+    def _truncate_report_for_storage(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Truncate large report data to avoid database timeouts."""
+        if not isinstance(result, dict):
+            return result
+
+        truncated = result.copy()
+
+        # Limit follow_ups list to first 50 items to reduce size
+        if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
+            original_count = len(truncated["follow_ups"])
+            if original_count > 50:
+                truncated["follow_ups"] = truncated["follow_ups"][:50]
+                truncated["_truncated"] = True
+                truncated["_original_count"] = original_count
+                logger.info(f"Truncated follow_ups from {original_count} to 50 for storage")
+
+        # Truncate long text fields in each follow-up
+        if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
+            for fu in truncated["follow_ups"]:
+                if isinstance(fu, dict):
+                    # Limit AI suggestions to 500 chars
+                    if "ai_suggestion" in fu and isinstance(fu["ai_suggestion"], str) and len(fu["ai_suggestion"]) > 500:
+                        fu["ai_suggestion"] = fu["ai_suggestion"][:500] + "..."
+                    # Limit notes to 300 chars
+                    if "notes" in fu and isinstance(fu["notes"], str) and len(fu["notes"]) > 300:
+                        fu["notes"] = fu["notes"][:300] + "..."
+
+        return truncated
 
     def get_saved_reports(
         self,
