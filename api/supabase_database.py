@@ -499,14 +499,15 @@ class SupabaseDatabase:
 
         truncated = result.copy()
 
-        # Limit follow_ups list to first 50 items to reduce size
+        # Limit follow_ups list to newest 50 items to reduce size
         if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
             original_count = len(truncated["follow_ups"])
             if original_count > 50:
-                truncated["follow_ups"] = truncated["follow_ups"][:50]
+                # Keep the last 50 (newest) items, drop oldest
+                truncated["follow_ups"] = truncated["follow_ups"][-50:]
                 truncated["_truncated"] = True
                 truncated["_original_count"] = original_count
-                logger.info(f"Truncated follow_ups from {original_count} to 50 for storage")
+                logger.info(f"Truncated follow_ups from {original_count} to newest 50 for storage")
 
         # Truncate long text fields in each follow-up
         if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
