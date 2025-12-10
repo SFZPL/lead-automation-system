@@ -4165,12 +4165,21 @@ async def ai_fill_pdf(
         if not entity:
             raise HTTPException(status_code=400, detail=f"Invalid entity: {entity_key}")
 
-        # Get document with original PDF
-        result = db.supabase.client.table("nda_documents")\
-            .select("id, file_name, original_pdf_base64, selected_entity, counterparty_name")\
-            .eq("id", document_id)\
-            .single()\
-            .execute()
+        # Get document with original PDF - handle missing column gracefully
+        try:
+            result = db.supabase.client.table("nda_documents")\
+                .select("id, file_name, original_pdf_base64, selected_entity, counterparty_name")\
+                .eq("id", document_id)\
+                .single()\
+                .execute()
+        except Exception as db_error:
+            error_msg = str(db_error)
+            if "original_pdf_base64 does not exist" in error_msg:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Database migration required. Please run: ALTER TABLE nda_documents ADD COLUMN IF NOT EXISTS original_pdf_base64 TEXT DEFAULT NULL;"
+                )
+            raise
 
         if not result.data:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -4181,7 +4190,7 @@ async def ai_fill_pdf(
         if not original_pdf_base64:
             raise HTTPException(
                 status_code=400,
-                detail="Original PDF not available. Only PDF files uploaded after this feature was enabled can be AI-filled."
+                detail="Original PDF not stored for this document. Please re-upload the PDF to enable AI filling. Only PDFs uploaded after the migration can be AI-filled."
             )
 
         # Decode original PDF
