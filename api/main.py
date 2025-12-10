@@ -4207,8 +4207,8 @@ async def ai_fill_pdf(
         llm = LLMClient()
         filler = get_ai_pdf_filler(llm.client)
 
-        # Fill the PDF
-        filled_pdf_bytes, fill_report = await filler.fill_pdf(
+        # Fill the PDF (sync method)
+        filled_pdf_bytes, fill_report = filler.fill_pdf(
             pdf_bytes=pdf_bytes,
             entity_key=entity_key,
             counterparty_name=cp_name,

@@ -125,7 +125,7 @@ class AIPDFFiller:
 
         return "\n".join(context_parts)
 
-    async def identify_fill_locations(
+    def identify_fill_locations(
         self,
         pdf_bytes: bytes,
         entity_key: str,
@@ -198,7 +198,7 @@ IMPORTANT:
 - Return ONLY the JSON array, no other text"""
 
         try:
-            response = await self.openai_client.chat.completions.create(
+            response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": "You are a document analysis expert. Return only valid JSON."},
@@ -362,7 +362,7 @@ IMPORTANT:
         output_buffer.seek(0)
         return output_buffer.getvalue()
 
-    async def fill_pdf(
+    def fill_pdf(
         self,
         pdf_bytes: bytes,
         entity_key: str,
@@ -383,7 +383,7 @@ IMPORTANT:
         text_blocks, page_info = self.extract_text_with_positions(pdf_bytes)
 
         # Step 2: Use AI to identify where to fill
-        fill_locations = await self.identify_fill_locations(
+        fill_locations = self.identify_fill_locations(
             pdf_bytes, entity_key, counterparty_name
         )
 
