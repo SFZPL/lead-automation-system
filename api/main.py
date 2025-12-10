@@ -3,6 +3,7 @@
 
 # Force reload
 import logging
+import base64
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Literal
 import io
