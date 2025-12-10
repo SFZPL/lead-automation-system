@@ -154,6 +154,10 @@ class AIPDFFiller:
         text_blocks, page_info = self.extract_text_with_positions(pdf_bytes)
         document_context = self.build_document_context(text_blocks, page_info)
 
+        # Log document context for debugging
+        logger.info(f"Document context length: {len(document_context)} chars, pages: {page_info['total_pages']}")
+        logger.debug(f"First 2000 chars of context:\n{document_context[:2000]}")
+
         # Build the prompt for the AI
         prompt = f"""You are analyzing an NDA/contract document to identify where company information should be filled in.
 
@@ -165,38 +169,42 @@ ENTITY INFORMATION TO FILL:
 
 DOCUMENT TEXT WITH POSITIONS:
 Each line shows [y=vertical_position, x=horizontal_position] followed by the text.
-Higher y values are at the top of the page.
+Higher y values are at the top of the page. PDF coordinates start from bottom-left (0,0).
 
 {document_context}
 
 TASK:
-Identify locations in this document where the entity information should be filled. Look for:
-1. Blank lines after labels like "Company Name:", "Party A:", "Address:", "Name:", "Signature:"
-2. Underscores or dotted lines (_____, ......) indicating fill areas
-3. Placeholder text like "[Company Name]", "[Address]", "PARTY A"
-4. Areas near "Disclosing Party", "Service Provider", "First Party" etc.
+Analyze this NDA/contract and identify ALL locations where party information should be filled in.
 
-For each fill location, provide:
-- page: Page number (0-indexed)
-- x: Horizontal position (use the x coordinate from nearby text as reference)
-- y: Vertical position (use y coordinate, but adjust DOWN by ~15 for blank lines below labels)
+Look for these patterns:
+1. Labels followed by blank space: "Company Name:", "Party A:", "Name:", "Address:", "Signature:"
+2. Fill indicators: underscores (____), dots (....), brackets ([...]), or blank lines
+3. Placeholders: "[COMPANY]", "[NAME]", "[ADDRESS]", "PARTY A", "PARTY B", "[Insert]"
+4. Section headers: "THE PARTIES", "BETWEEN", "AND", signature blocks at the end
+5. Arabic text sections with similar patterns (if bilingual document)
+
+For EACH fill location found, provide:
+- page: Page number (0-indexed, first page is 0)
+- x: Horizontal position (copy x coordinate from the label/marker on that line)
+- y: Vertical position (use the y coordinate, subtract ~12-15 for the fill line below a label)
 - field_type: One of "company_name", "company_address", "authorised_signatory", "counterparty_name", "date"
-- font_size: Recommended font size (usually 10-12)
+- font_size: Match surrounding text (usually 10-12)
 
-Return a JSON array of fill locations. Only include locations where you're confident text should be filled.
-If the document already has the company info filled in, return an empty array.
+Return a JSON array. If you find potential fill locations, include them even if you're not 100% certain.
+Only return an empty array [] if the document is CLEARLY already completely filled with actual company names/addresses.
 
 Example response:
 [
   {{"page": 0, "x": 72, "y": 650, "field_type": "company_name", "font_size": 11}},
-  {{"page": 0, "x": 72, "y": 620, "field_type": "company_address", "font_size": 10}}
+  {{"page": 0, "x": 72, "y": 620, "field_type": "company_address", "font_size": 10}},
+  {{"page": 1, "x": 100, "y": 300, "field_type": "authorised_signatory", "font_size": 10}}
 ]
 
 IMPORTANT:
-- Be conservative - only identify clear fill locations
-- The y coordinate in PDFs goes from bottom (0) to top
-- When you see a label like "Company Name:" at y=700, the fill area is typically at y=685 or so (below it)
-- Return ONLY the JSON array, no other text"""
+- PDF y-coordinates: higher y = higher on page (bottom is 0, top is ~800 for A4)
+- For a label at y=700, the fill area below it would be around y=685
+- Include signature block locations at the END of the document
+- Return ONLY the JSON array, no other text or explanation"""
 
         try:
             # Use config model (gpt-5-mini) with higher token limit
@@ -213,6 +221,7 @@ IMPORTANT:
             )
 
             response_text = response.choices[0].message.content.strip()
+            logger.info(f"AI response (first 500 chars): {response_text[:500]}")
 
             # Extract JSON from response (handle markdown code blocks)
             if "```json" in response_text:
@@ -221,6 +230,7 @@ IMPORTANT:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
             locations_data = json.loads(response_text)
+            logger.info(f"Parsed {len(locations_data)} locations from AI response")
 
             # Convert to FillLocation objects and add values
             fill_locations = []

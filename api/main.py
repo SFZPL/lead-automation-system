@@ -3411,11 +3411,9 @@ def download_filled_pdf(
             raise HTTPException(status_code=404, detail="Document not found")
 
         document = result.data
-        if document.get("approval_status") != "approved":
-            raise HTTPException(status_code=400, detail="Document has not been approved yet")
 
         if not document.get("filled_pdf_url"):
-            raise HTTPException(status_code=404, detail="No generated PDF found for this document")
+            raise HTTPException(status_code=404, detail="No generated PDF found for this document. Use AI Fill or get approval first.")
 
         # Decode the base64 PDF
         pdf_bytes = base64.b64decode(document["filled_pdf_url"])
