@@ -1745,18 +1745,18 @@ def send_lost_leads_report_to_teams(
 
         summary = report_data.get("summary", {})
         reasons = report_data.get("reasons_analysis", {}).get("by_frequency", [])[:5]
-        top_opps = report_data.get("top_opportunities", [])[:5]
+        all_opps = report_data.get("top_opportunities", [])  # Already sorted by reconnect_score
         pattern_analysis = report_data.get("pattern_analysis", {})
 
         # Build HTML message
         html_message = f"""
-<h2>📊 Lost Leads Report{date_range}</h2>
+<h2>📊 Lost Opportunities Report{date_range}</h2>
 <hr/>
 
 <h3>Summary</h3>
 <table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse;'>
 <tr style='background-color: #f0f0f0;'>
-<td><strong>Total Lost Leads</strong></td>
+<td><strong>Total Lost Opportunities</strong></td>
 <td>{summary.get('total_count', 0)}</td>
 </tr>
 <tr>
@@ -1766,14 +1766,6 @@ def send_lost_leads_report_to_teams(
 <tr style='background-color: #f0f0f0;'>
 <td><strong>Average Quotation Value</strong></td>
 <td>AED {summary.get('average_deal_value', 0):,.0f}</td>
-</tr>
-<tr>
-<td><strong>Opportunities</strong></td>
-<td>{summary.get('opportunities_count', 0)}</td>
-</tr>
-<tr style='background-color: #f0f0f0;'>
-<td><strong>Leads</strong></td>
-<td>{summary.get('leads_count', 0)}</td>
 </tr>
 </table>
 """
@@ -1801,26 +1793,36 @@ def send_lost_leads_report_to_teams(
 """
             html_message += "</table>"
 
-        # Top Opportunities to Re-contact
-        if top_opps:
+        # All Lost Opportunities (sorted by re-contact score)
+        if all_opps:
             html_message += """
-<h3>Top Re-contact Opportunities</h3>
+<h3>All Lost Opportunities (Ranked by Re-contact Score)</h3>
 <table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%;'>
 <tr style='background-color: #f0f0f0;'>
+<th>Score</th>
 <th>Name</th>
 <th>Company</th>
 <th>Value</th>
 <th>Reason</th>
 </tr>
 """
-            for opp in top_opps:
+            for opp in all_opps:
                 reason = opp.get('lost_reason', 'Unknown')
                 if isinstance(reason, list) and len(reason) > 1:
                     reason = reason[1]
+                score = opp.get('reconnect_score', 0)
+                # Color code the score
+                if score >= 70:
+                    score_color = '#22c55e'  # green
+                elif score >= 40:
+                    score_color = '#f59e0b'  # amber
+                else:
+                    score_color = '#ef4444'  # red
                 html_message += f"""
 <tr>
+<td style='text-align: center;'><strong style='color: {score_color};'>{score}</strong></td>
 <td>{opp.get('name', 'Unknown')}</td>
-<td>{opp.get('partner_name', '-')}</td>
+<td>{opp.get('partner_name', '-') or '-'}</td>
 <td>AED {opp.get('expected_revenue', 0):,.0f}</td>
 <td>{reason}</td>
 </tr>
