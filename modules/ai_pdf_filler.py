@@ -13,6 +13,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4, letter
 from reportlab.lib.units import inch
 
+from config import Config
 from modules.pdf_generator import PREZLAB_ENTITIES, get_entity_info
 
 logger = logging.getLogger(__name__)
@@ -198,14 +199,17 @@ IMPORTANT:
 - Return ONLY the JSON array, no other text"""
 
         try:
+            # Use config model (gpt-5-mini) with higher token limit
+            config = Config()
+            model = config.OPENAI_MODEL or "gpt-5-mini"
+
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model,
                 messages=[
                     {"role": "system", "content": "You are a document analysis expert. Return only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                max_tokens=2000,
+                max_completion_tokens=4000,
             )
 
             response_text = response.choices[0].message.content.strip()
