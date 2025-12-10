@@ -3306,12 +3306,19 @@ async def upload_nda(
             if save_to_database:
                 # Create NDA document record
                 user_id = str(current_user.get("id", "unknown"))
+
+                # Store original PDF for AI filling (only for PDF files)
+                original_pdf_base64 = None
+                if file.filename and file.filename.lower().endswith('.pdf'):
+                    original_pdf_base64 = base64.b64encode(file_content).decode('utf-8')
+
                 nda_id = db.create_nda_document(
                     user_id=user_id,
                     file_name=file.filename,
                     file_size=file_size,
                     file_content=nda_text,
-                    language=language
+                    language=language,
+                    original_pdf_base64=original_pdf_base64
                 )
 
                 if not nda_id:
@@ -4131,6 +4138,104 @@ def manual_approval(
         raise
     except Exception as e:
         logger.error(f"Error in manual approval: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/nda/ai-fill-pdf")
+async def ai_fill_pdf(
+    document_id: str = Body(...),
+    entity_key: str = Body(...),
+    counterparty_name: Optional[str] = Body(None),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    db: SupabaseDatabase = Depends(get_supabase_database)
+):
+    """
+    Use AI to identify and fill blank fields in the original PDF with entity information.
+
+    This analyzes the PDF structure, identifies where company info should go,
+    and creates an overlay with the filled text.
+    """
+    try:
+        from modules.ai_pdf_filler import get_ai_pdf_filler
+        from modules.pdf_generator import get_entity_info
+        from modules.llm_client import LLMClient
+
+        # Validate entity
+        entity = get_entity_info(entity_key)
+        if not entity:
+            raise HTTPException(status_code=400, detail=f"Invalid entity: {entity_key}")
+
+        # Get document with original PDF
+        result = db.supabase.client.table("nda_documents")\
+            .select("id, file_name, original_pdf_base64, selected_entity, counterparty_name")\
+            .eq("id", document_id)\
+            .single()\
+            .execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        document = result.data
+        original_pdf_base64 = document.get("original_pdf_base64")
+
+        if not original_pdf_base64:
+            raise HTTPException(
+                status_code=400,
+                detail="Original PDF not available. Only PDF files uploaded after this feature was enabled can be AI-filled."
+            )
+
+        # Decode original PDF
+        try:
+            pdf_bytes = base64.b64decode(original_pdf_base64)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to decode PDF: {e}")
+
+        # Get or use counterparty name
+        cp_name = counterparty_name or document.get("counterparty_name") or ""
+
+        # Initialize AI filler with OpenAI client
+        llm = LLMClient()
+        filler = get_ai_pdf_filler(llm.client)
+
+        # Fill the PDF
+        filled_pdf_bytes, fill_report = await filler.fill_pdf(
+            pdf_bytes=pdf_bytes,
+            entity_key=entity_key,
+            counterparty_name=cp_name,
+        )
+
+        # Store the filled PDF
+        filled_pdf_base64 = base64.b64encode(filled_pdf_bytes).decode('utf-8')
+
+        # Update document with entity selection and filled PDF
+        update_data = {
+            "selected_entity": entity_key,
+            "filled_pdf_url": filled_pdf_base64,
+            "filled_pdf_generated_at": "now()"
+        }
+        if counterparty_name:
+            update_data["counterparty_name"] = counterparty_name
+
+        db.supabase.client.table("nda_documents")\
+            .update(update_data)\
+            .eq("id", document_id)\
+            .execute()
+
+        logger.info(f"AI-filled PDF for document {document_id} with {len(fill_report)} fields")
+
+        return {
+            "success": True,
+            "message": f"PDF filled with {len(fill_report)} fields",
+            "document_id": document_id,
+            "entity": entity,
+            "fill_report": fill_report,
+            "fields_filled": len(fill_report)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in AI PDF fill: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

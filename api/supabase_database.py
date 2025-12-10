@@ -339,18 +339,22 @@ class SupabaseDatabase:
         file_name: str,
         file_size: int,
         file_content: str,
-        language: Optional[str] = None
+        language: Optional[str] = None,
+        original_pdf_base64: Optional[str] = None
     ) -> Optional[str]:
         """Create a new NDA document record."""
         try:
-            result = self.supabase.client.table("nda_documents").insert({
+            data = {
                 "user_id": user_id,
                 "file_name": file_name,
                 "file_size": file_size,
                 "file_content": file_content,
                 "language": language,
                 "status": "pending"
-            }).execute()
+            }
+            if original_pdf_base64:
+                data["original_pdf_base64"] = original_pdf_base64
+            result = self.supabase.client.table("nda_documents").insert(data).execute()
 
             if result.data and len(result.data) > 0:
                 return result.data[0]["id"]

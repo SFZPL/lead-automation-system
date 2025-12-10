@@ -67,6 +67,8 @@ const NDAAnalysisPage: React.FC = () => {
   const [selectedEntity, setSelectedEntity] = useState<string>('');
   const [counterpartyName, setCounterpartyName] = useState<string>('');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isAIFilling, setIsAIFilling] = useState(false);
+  const [aiFillReport, setAIFillReport] = useState<any>(null);
   const queryClient = useQueryClient();
 
   // Fetch NDA documents
@@ -203,6 +205,55 @@ ${doc.questionable_clauses.map((clause, i) => `
       toast.error(error?.response?.data?.detail || 'Failed to generate PDF');
     } finally {
       setIsGeneratingPDF(false);
+    }
+  };
+
+  const handleAIFillPDF = async () => {
+    if (!selectedDocument || !selectedEntity) return;
+
+    setIsAIFilling(true);
+    setAIFillReport(null);
+    try {
+      const response = await api.post('/nda/ai-fill-pdf', {
+        document_id: selectedDocument.id,
+        entity_key: selectedEntity,
+        counterparty_name: counterpartyName || undefined
+      });
+
+      if (response.data.success) {
+        setAIFillReport(response.data);
+        toast.success(`AI filled ${response.data.fields_filled} fields in the PDF!`);
+        queryClient.invalidateQueries('nda-documents');
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to AI-fill PDF');
+    } finally {
+      setIsAIFilling(false);
+    }
+  };
+
+  const handleDownloadFilledPDF = async () => {
+    if (!selectedDocument) return;
+
+    try {
+      const response = await api.get(`/nda/documents/${selectedDocument.id}/download-pdf`, {
+        responseType: 'blob'
+      });
+
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const fileName = selectedDocument.file_name.replace(/\.(pdf|docx?)$/i, '');
+      link.download = `${fileName}_filled.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success('Filled PDF downloaded!');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Failed to download filled PDF');
     }
   };
 
@@ -833,14 +884,15 @@ ${doc.questionable_clauses.map((clause, i) => `
       {/* Fill PDF Modal */}
       {showFillPDFModal && selectedDocument && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">Generate Contract Info PDF</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Fill PDF with Entity Info</h3>
               <button
                 onClick={() => {
                   setShowFillPDFModal(false);
                   setSelectedEntity('');
                   setCounterpartyName('');
+                  setAIFillReport(null);
                 }}
                 className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
               >
@@ -850,8 +902,7 @@ ${doc.questionable_clauses.map((clause, i) => `
 
             <div className="p-4 space-y-4">
               <p className="text-sm text-gray-600">
-                Generate a contract information sheet for <strong>{selectedDocument.file_name}</strong>.
-                Select the Prezlab entity to use.
+                Fill <strong>{selectedDocument.file_name}</strong> with Prezlab entity information.
               </p>
 
               {/* Entity Selection */}
@@ -876,7 +927,7 @@ ${doc.questionable_clauses.map((clause, i) => `
               {/* Show selected entity details */}
               {selectedEntity && entities[selectedEntity] && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-sm font-medium text-green-900 mb-2">Entity Details (will be filled in PDF):</p>
+                  <p className="text-sm font-medium text-green-900 mb-2">Entity Details:</p>
                   <div className="text-sm text-green-700 space-y-1">
                     <p><strong>Company:</strong> {entities[selectedEntity].company_name}</p>
                     <p><strong>Address:</strong> {entities[selectedEntity].company_address}</p>
@@ -898,27 +949,88 @@ ${doc.questionable_clauses.map((clause, i) => `
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
+
+              {/* AI Fill Report */}
+              {aiFillReport && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm font-medium text-blue-900 mb-2">
+                    AI Fill Complete - {aiFillReport.fields_filled} fields filled
+                  </p>
+                  {aiFillReport.fill_report && aiFillReport.fill_report.length > 0 && (
+                    <div className="text-sm text-blue-700 space-y-1 max-h-32 overflow-y-auto">
+                      {aiFillReport.fill_report.map((field: any, idx: number) => (
+                        <p key={idx}>
+                          <strong>Page {field.page}:</strong> {field.field} = "{field.value.substring(0, 40)}..."
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleDownloadFilledPDF}
+                    className="mt-3 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <DocumentTextIcon className="w-4 h-4" />
+                    Download Filled PDF
+                  </button>
+                </div>
+              )}
+
+              {/* Info about AI vs Info Sheet */}
+              {selectedDocument.file_name?.toLowerCase().endsWith('.pdf') && !aiFillReport && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-sm text-purple-800">
+                    <strong>AI Fill:</strong> Uses AI to identify blank fields in the original PDF and fills them with entity info.
+                  </p>
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-end gap-3 p-4 border-t bg-gray-50">
-              <button
-                onClick={() => {
-                  setShowFillPDFModal(false);
-                  setSelectedEntity('');
-                  setCounterpartyName('');
-                }}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleGenerateAndDownloadPDF}
-                disabled={!selectedEntity || isGeneratingPDF}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                <DocumentTextIcon className="w-4 h-4" />
-                {isGeneratingPDF ? 'Generating...' : 'Generate & Download PDF'}
-              </button>
+            <div className="flex flex-col gap-3 p-4 border-t bg-gray-50">
+              {/* AI Fill Button - only for PDFs */}
+              {selectedDocument.file_name?.toLowerCase().endsWith('.pdf') && (
+                <button
+                  onClick={handleAIFillPDF}
+                  disabled={!selectedEntity || isAIFilling || isGeneratingPDF}
+                  className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isAIFilling ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      AI Analyzing & Filling...
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-lg">AI</span>
+                      Fill Original PDF with AI
+                    </>
+                  )}
+                </button>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowFillPDFModal(false);
+                    setSelectedEntity('');
+                    setCounterpartyName('');
+                    setAIFillReport(null);
+                  }}
+                  className="flex-1 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors border border-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGenerateAndDownloadPDF}
+                  disabled={!selectedEntity || isGeneratingPDF || isAIFilling}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <DocumentTextIcon className="w-4 h-4" />
+                  {isGeneratingPDF ? 'Generating...' : 'Info Sheet'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
