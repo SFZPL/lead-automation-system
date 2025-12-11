@@ -386,10 +386,13 @@ class ToolImpactAnalyzer:
             Dict with response metrics
         """
         responses = self.get_responses_in_period(start_date, end_date)
+        period_days = max((end_date - start_date).days, 1)
 
         if not responses:
             return {
                 "total_responses": 0,
+                "responses_per_day": 0,
+                "period_days": period_days,
                 "avg_first_contact_hours": None,
                 "median_first_contact_hours": None,
                 "response_within_24h_pct": 0,
@@ -411,6 +414,8 @@ class ToolImpactAnalyzer:
 
         return {
             "total_responses": total_responses,
+            "responses_per_day": round(total_responses / period_days, 1),
+            "period_days": period_days,
             "avg_first_contact_hours": round(avg_response_time, 1) if avg_response_time is not None else None,
             "median_first_contact_hours": round(median_response_time, 1) if median_response_time is not None else None,
             "response_within_24h_pct": round(within_24h / total_responses * 100, 1) if total_responses > 0 else 0,
@@ -755,10 +760,10 @@ class ToolImpactAnalyzer:
             return round(((after_val - before_val) / before_val) * 100, 1)
 
         deltas = {
-            "response_volume": calc_delta(
-                after_response["total_responses"],
-                before_response["total_responses"]
-            ) if before_response["total_responses"] > 0 else None,
+            "responses_per_day": calc_delta(
+                after_response["responses_per_day"],
+                before_response["responses_per_day"]
+            ) if before_response["responses_per_day"] > 0 else None,
             "avg_first_contact_hours": calc_delta(
                 before_response["avg_first_contact_hours"],  # Lower is better, so inverted
                 after_response["avg_first_contact_hours"]

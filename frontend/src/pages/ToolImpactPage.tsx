@@ -14,6 +14,8 @@ import api from '../utils/api';
 
 interface ResponseMetrics {
   total_responses: number;
+  responses_per_day: number;
+  period_days: number;
   avg_first_contact_hours: number | null;
   median_first_contact_hours: number | null;
   response_within_24h_pct: number;
@@ -367,10 +369,10 @@ const ToolImpactPage: React.FC = () => {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
-            title="First Responses Sent"
-            beforeValue={response_metrics.before.total_responses}
-            afterValue={response_metrics.after.total_responses}
-            delta={summary.key_improvements.response_volume}
+            title="Responses per Day"
+            beforeValue={response_metrics.before.responses_per_day}
+            afterValue={response_metrics.after.responses_per_day}
+            delta={summary.key_improvements.responses_per_day}
           />
           <MetricCard
             title="Avg First Contact Time"
