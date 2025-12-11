@@ -5947,3 +5947,74 @@ async def send_teams_assignment_notification(
     except Exception as e:
         logger.error(f"Error sending Teams notification: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Tool Impact Analytics Endpoints
+# =============================================================================
+
+@app.get("/analytics/tool-impact")
+def get_tool_impact_report(
+    before_days: int = 90,
+    after_days: Optional[int] = None,
+    source_filter: Optional[str] = None,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Generate a comprehensive before/after impact report for the automation tool.
+
+    Compares metrics from before Nov 23, 2024 (tool deployment) to after.
+
+    Args:
+        before_days: Number of days before deployment to analyze (default: 90)
+        after_days: Number of days after deployment (None = until today)
+        source_filter: Optional lead source name to filter by
+
+    Returns:
+        Complete impact report with response metrics, stage conversions,
+        win/loss rates, and velocity metrics for both periods.
+    """
+    try:
+        from modules.tool_impact_analyzer import ToolImpactAnalyzer
+
+        analyzer = ToolImpactAnalyzer()
+        report = analyzer.generate_impact_report(
+            before_days=before_days,
+            after_days=after_days,
+            source_filter=source_filter,
+        )
+
+        return {
+            "success": True,
+            "report": report,
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating tool impact report: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analytics/lead-sources")
+def get_lead_sources(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Get list of available lead sources for filtering analytics.
+
+    Returns:
+        List of source names available in Odoo.
+    """
+    try:
+        from modules.tool_impact_analyzer import ToolImpactAnalyzer
+
+        analyzer = ToolImpactAnalyzer()
+        sources = analyzer.get_available_sources()
+
+        return {
+            "success": True,
+            "sources": sources,
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching lead sources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

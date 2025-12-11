@@ -17,6 +17,7 @@ import {
   HeartIcon,
   DocumentTextIcon,
   ChartBarIcon,
+  PresentationChartLineIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -41,6 +42,7 @@ const navigation: NavigationItem[] = [
       { name: 'Follow-ups Hub', href: '/followups', icon: EnvelopeIcon },
       { name: 'Pipeline Reports', href: '/pipeline-reports', icon: ClipboardDocumentListIcon },
       { name: 'Lost Lead Insights', href: '/lost-leads', icon: HeartIcon },
+      { name: 'Tool Impact', href: '/tool-impact', icon: PresentationChartLineIcon },
     ]
   },
   { name: 'Pre-discovery Call Flow', href: '/call-flow', icon: ClipboardDocumentListIcon },
