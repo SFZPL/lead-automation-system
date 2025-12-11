@@ -25,12 +25,11 @@ class SupabaseClient:
         self.key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # Use service role for backend
 
         if not self.url or not self.key:
-            logger.warning("Supabase credentials not found. Caching will be disabled.")
+            logger.warning(f"Supabase credentials not found. URL: {'set' if self.url else 'missing'}, Key: {'set' if self.key else 'missing'}")
             self.client: Optional[Client] = None
         else:
             try:
                 # Create client with extended timeout for large operations
-                # Default timeout is 5 seconds which can fail for large inserts
                 options = ClientOptions(
                     postgrest_client_timeout=30,  # 30 seconds for database operations
                 )
@@ -41,7 +40,7 @@ class SupabaseClient:
                 )
                 logger.info("✅ Supabase client initialized successfully (30s timeout)")
             except Exception as e:
-                logger.error(f"Failed to initialize Supabase client: {e}")
+                logger.error(f"Failed to initialize Supabase client: {e}", exc_info=True)
                 self.client = None
 
     def is_connected(self) -> bool:
