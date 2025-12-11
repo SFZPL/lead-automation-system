@@ -14,8 +14,8 @@ from modules.odoo_client import OdooClient
 
 logger = logging.getLogger(__name__)
 
-# Tool deployment date
-DEPLOYMENT_DATE = datetime(2024, 11, 23)
+# Tool deployment date (Nov 23, 2025)
+DEPLOYMENT_DATE = datetime(2025, 11, 23)
 
 # Stage progression order (for calculating average stage and velocity)
 STAGE_ORDER = {
