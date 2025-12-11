@@ -524,7 +524,7 @@ class SupabaseDatabase:
                 truncated["_original_count"] = original_count
                 logger.info(f"Truncated follow_ups from {original_count} to newest 100 for storage")
 
-        # Truncate long text fields in each follow-up
+        # Truncate long text fields in each follow-up (only if they exist and are too long)
         if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
             for fu in truncated["follow_ups"]:
                 if isinstance(fu, dict):
@@ -534,20 +534,12 @@ class SupabaseDatabase:
                     # Limit notes to 300 chars
                     if "notes" in fu and isinstance(fu["notes"], str) and len(fu["notes"]) > 300:
                         fu["notes"] = fu["notes"][:300] + "..."
-                    # Remove large fields that aren't needed for display
-                    fu.pop("conversation_history", None)
-                    fu.pop("full_email_body", None)
-                    fu.pop("raw_messages", None)
                     # Truncate subject if too long
                     if "subject" in fu and isinstance(fu["subject"], str) and len(fu["subject"]) > 200:
                         fu["subject"] = fu["subject"][:200] + "..."
                     # Truncate preview if exists
                     if "preview" in fu and isinstance(fu["preview"], str) and len(fu["preview"]) > 300:
                         fu["preview"] = fu["preview"][:300] + "..."
-
-        # Remove raw data that isn't needed for the saved report display
-        truncated.pop("raw_threads", None)
-        truncated.pop("debug_info", None)
 
         return truncated
 
