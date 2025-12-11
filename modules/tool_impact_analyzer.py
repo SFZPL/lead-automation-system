@@ -216,18 +216,19 @@ class ToolImpactAnalyzer:
         Fetch all outbound responses (first contact messages) sent within a date range.
 
         This measures response activity DURING a period, regardless of when leads were created.
+        Only counts actual emails, not system notifications.
 
         Returns:
             List of response records with lead info and response timing
         """
         self._ensure_odoo_connection()
 
-        # Fetch all messages sent in this period
+        # Fetch actual emails sent in this period (not notifications which are system-generated)
         domain = [
             ["model", "=", "crm.lead"],
             ["date", ">=", start_date.strftime("%Y-%m-%d 00:00:00")],
             ["date", "<=", end_date.strftime("%Y-%m-%d 23:59:59")],
-            ["message_type", "in", ["email", "comment", "notification"]],
+            ["message_type", "=", "email"],  # Only actual emails, not notifications
         ]
 
         fields = [
@@ -270,11 +271,11 @@ class ToolImpactAnalyzer:
 
             leads_dict = {l["id"]: l for l in leads}
 
-            # Also fetch ALL messages for these leads to determine first contact
+            # Also fetch ALL emails for these leads to determine first contact
             all_messages_domain = [
                 ["model", "=", "crm.lead"],
                 ["res_id", "in", lead_ids],
-                ["message_type", "in", ["email", "comment", "notification"]],
+                ["message_type", "=", "email"],  # Only actual emails
             ]
 
             all_messages = self.odoo._call_kw(
@@ -371,6 +372,130 @@ class ToolImpactAnalyzer:
             logger.error(f"Error fetching responses in period: {e}")
             return []
 
+    def get_email_reply_times_in_period(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[float]:
+        """
+        Calculate reply times for email conversations in a period.
+
+        Measures time between customer inbound email and our outbound reply.
+        Only includes reply pairs where our reply was sent during the period.
+
+        Returns:
+            List of reply times in hours
+        """
+        self._ensure_odoo_connection()
+
+        # Get all emails in this period
+        domain = [
+            ["model", "=", "crm.lead"],
+            ["date", ">=", start_date.strftime("%Y-%m-%d 00:00:00")],
+            ["date", "<=", end_date.strftime("%Y-%m-%d 23:59:59")],
+            ["message_type", "=", "email"],
+        ]
+
+        fields = ["id", "date", "email_from", "res_id"]
+
+        try:
+            period_messages = self.odoo._call_kw(
+                "mail.message",
+                "search_read",
+                [domain],
+                {"fields": fields, "order": "date asc"},
+            ) or []
+
+            if not period_messages:
+                return []
+
+            # Get lead IDs and their email addresses
+            lead_ids = list(set(m["res_id"] for m in period_messages if m.get("res_id")))
+            if not lead_ids:
+                return []
+
+            leads = self.odoo._call_kw(
+                "crm.lead",
+                "search_read",
+                [[["id", "in", lead_ids]]],
+                {"fields": ["id", "email_from"]},
+            ) or []
+
+            lead_emails = {l["id"]: l.get("email_from", "") for l in leads}
+
+            # Get ALL emails for these leads (to find inbound emails before our replies)
+            all_domain = [
+                ["model", "=", "crm.lead"],
+                ["res_id", "in", lead_ids],
+                ["message_type", "=", "email"],
+            ]
+
+            all_messages = self.odoo._call_kw(
+                "mail.message",
+                "search_read",
+                [all_domain],
+                {"fields": fields, "order": "date asc"},
+            ) or []
+
+            # Group by lead
+            messages_by_lead = {}
+            for msg in all_messages:
+                lead_id = msg.get("res_id")
+                if lead_id not in messages_by_lead:
+                    messages_by_lead[lead_id] = []
+                messages_by_lead[lead_id].append(msg)
+
+            reply_times = []
+
+            # For each lead, find inbound->outbound pairs
+            for lead_id, msgs in messages_by_lead.items():
+                lead_email = lead_emails.get(lead_id, "")
+                lead_domain = lead_email.split("@")[-1] if lead_email and "@" in lead_email else ""
+
+                sorted_msgs = sorted(msgs, key=lambda m: m.get("date", ""))
+
+                for i, msg in enumerate(sorted_msgs):
+                    msg_email = msg.get("email_from", "")
+                    msg_domain = msg_email.split("@")[-1] if msg_email and "@" in msg_email else ""
+
+                    # Is this an inbound message from the customer?
+                    is_inbound = lead_domain and msg_domain == lead_domain
+
+                    if is_inbound:
+                        # Find the next outbound message (our reply)
+                        for next_msg in sorted_msgs[i + 1:]:
+                            next_email = next_msg.get("email_from", "")
+                            next_domain = next_email.split("@")[-1] if next_email and "@" in next_email else ""
+                            is_outbound = not (lead_domain and next_domain == lead_domain)
+
+                            if is_outbound:
+                                # Check if our reply was in the target period
+                                try:
+                                    reply_date_str = next_msg.get("date", "")
+                                    reply_date = datetime.fromisoformat(reply_date_str.replace("Z", "+00:00"))
+                                    if reply_date.tzinfo:
+                                        reply_date = reply_date.replace(tzinfo=None)
+
+                                    if start_date <= reply_date <= end_date:
+                                        inbound_date_str = msg.get("date", "")
+                                        inbound_date = datetime.fromisoformat(inbound_date_str.replace("Z", "+00:00"))
+                                        if inbound_date.tzinfo:
+                                            inbound_date = inbound_date.replace(tzinfo=None)
+
+                                        hours = (reply_date - inbound_date).total_seconds() / 3600
+                                        if hours >= 0:
+                                            reply_times.append(hours)
+                                except Exception:
+                                    pass
+                                break  # Found reply, move to next inbound
+
+            logger.info(f"Found {len(reply_times)} email reply pairs in period")
+            return reply_times
+
+        except Exception as e:
+            logger.error(f"Error calculating reply times: {e}")
+            return []
+
     def calculate_response_metrics_by_period(
         self,
         start_date: datetime,
@@ -379,49 +504,53 @@ class ToolImpactAnalyzer:
         """
         Calculate response metrics based on responses SENT during a period.
 
-        This measures how fast we responded to leads during this time period,
-        regardless of when those leads were created.
+        This measures:
+        1. First contact time: Lead creation -> First outbound email
+        2. Email reply time: Customer email -> Our reply
 
         Returns:
             Dict with response metrics
         """
         responses = self.get_responses_in_period(start_date, end_date)
+        reply_times = self.get_email_reply_times_in_period(start_date, end_date)
         period_days = max((end_date - start_date).days, 1)
 
-        if not responses:
-            return {
-                "total_responses": 0,
-                "responses_per_day": 0,
-                "period_days": period_days,
-                "avg_first_contact_hours": None,
-                "median_first_contact_hours": None,
-                "response_within_24h_pct": 0,
-                "response_within_48h_pct": 0,
-                "response_within_72h_pct": 0,
-                "first_contact_times": [],
-            }
+        # Calculate first contact metrics
+        first_contact_times = [r["hours_to_response"] for r in responses] if responses else []
+        total_first_contacts = len(first_contact_times)
 
-        response_times = [r["hours_to_response"] for r in responses]
-        total_responses = len(response_times)
+        avg_first_contact = None
+        median_first_contact = None
+        if first_contact_times:
+            avg_first_contact = sum(first_contact_times) / total_first_contacts
+            sorted_fc = sorted(first_contact_times)
+            median_first_contact = sorted_fc[len(sorted_fc) // 2]
 
-        within_24h = sum(1 for t in response_times if t <= 24)
-        within_48h = sum(1 for t in response_times if t <= 48)
-        within_72h = sum(1 for t in response_times if t <= 72)
+        within_24h = sum(1 for t in first_contact_times if t <= 24) if first_contact_times else 0
+        within_48h = sum(1 for t in first_contact_times if t <= 48) if first_contact_times else 0
+        within_72h = sum(1 for t in first_contact_times if t <= 72) if first_contact_times else 0
 
-        avg_response_time = sum(response_times) / total_responses if total_responses else None
-        sorted_times = sorted(response_times)
-        median_response_time = sorted_times[len(sorted_times) // 2] if sorted_times else None
+        # Calculate email reply metrics
+        avg_reply_hours = None
+        median_reply_hours = None
+        if reply_times:
+            avg_reply_hours = sum(reply_times) / len(reply_times)
+            sorted_rt = sorted(reply_times)
+            median_reply_hours = sorted_rt[len(sorted_rt) // 2]
 
         return {
-            "total_responses": total_responses,
-            "responses_per_day": round(total_responses / period_days, 1),
+            "total_responses": total_first_contacts,
+            "responses_per_day": round(total_first_contacts / period_days, 1),
             "period_days": period_days,
-            "avg_first_contact_hours": round(avg_response_time, 1) if avg_response_time is not None else None,
-            "median_first_contact_hours": round(median_response_time, 1) if median_response_time is not None else None,
-            "response_within_24h_pct": round(within_24h / total_responses * 100, 1) if total_responses > 0 else 0,
-            "response_within_48h_pct": round(within_48h / total_responses * 100, 1) if total_responses > 0 else 0,
-            "response_within_72h_pct": round(within_72h / total_responses * 100, 1) if total_responses > 0 else 0,
-            "first_contact_times": response_times,
+            "avg_first_contact_hours": round(avg_first_contact, 1) if avg_first_contact is not None else None,
+            "median_first_contact_hours": round(median_first_contact, 1) if median_first_contact is not None else None,
+            "response_within_24h_pct": round(within_24h / total_first_contacts * 100, 1) if total_first_contacts > 0 else 0,
+            "response_within_48h_pct": round(within_48h / total_first_contacts * 100, 1) if total_first_contacts > 0 else 0,
+            "response_within_72h_pct": round(within_72h / total_first_contacts * 100, 1) if total_first_contacts > 0 else 0,
+            "avg_reply_hours": round(avg_reply_hours, 1) if avg_reply_hours is not None else None,
+            "median_reply_hours": round(median_reply_hours, 1) if median_reply_hours is not None else None,
+            "total_reply_pairs": len(reply_times),
+            "first_contact_times": first_contact_times,
         }
 
     def calculate_response_metrics(

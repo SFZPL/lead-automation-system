@@ -21,6 +21,9 @@ interface ResponseMetrics {
   response_within_24h_pct: number;
   response_within_48h_pct: number;
   response_within_72h_pct: number;
+  avg_reply_hours: number | null;
+  median_reply_hours: number | null;
+  total_reply_pairs: number;
 }
 
 interface StageMetrics {
@@ -363,36 +366,68 @@ const ToolImpactPage: React.FC = () => {
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <ClockIcon className="w-5 h-5 text-blue-600" />
           Response Metrics
-          <span className="text-xs font-normal text-gray-400 ml-2">
-            (First responses sent during each period)
-          </span>
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+        {/* First Contact Time - Lead creation to first email */}
+        <h3 className="text-sm font-medium text-gray-600 mb-2">
+          Time to First Contact
+          <span className="text-xs font-normal text-gray-400 ml-2">
+            (Lead created → First outbound email)
+          </span>
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <MetricCard
-            title="Responses per Day"
+            title="First Contacts per Day"
             beforeValue={response_metrics.before.responses_per_day}
             afterValue={response_metrics.after.responses_per_day}
             delta={summary.key_improvements.responses_per_day}
           />
           <MetricCard
-            title="Avg First Contact Time"
+            title="Avg Time to First Email"
             beforeValue={formatHours(response_metrics.before.avg_first_contact_hours)}
             afterValue={formatHours(response_metrics.after.avg_first_contact_hours)}
             delta={summary.key_improvements.avg_first_contact_hours}
             inverse={true}
           />
           <MetricCard
-            title="Response Within 24h"
+            title="First Contact Within 24h"
             beforeValue={response_metrics.before.response_within_24h_pct}
             afterValue={response_metrics.after.response_within_24h_pct}
             delta={summary.key_improvements.response_within_24h}
             unit="%"
           />
           <MetricCard
-            title="Response Within 48h"
+            title="First Contact Within 48h"
             beforeValue={response_metrics.before.response_within_48h_pct}
             afterValue={response_metrics.after.response_within_48h_pct}
             unit="%"
+          />
+        </div>
+
+        {/* Email Reply Time - Customer email to our reply */}
+        <h3 className="text-sm font-medium text-gray-600 mb-2">
+          Email Reply Speed
+          <span className="text-xs font-normal text-gray-400 ml-2">
+            (Customer email → Our reply)
+          </span>
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <MetricCard
+            title="Avg Reply Time"
+            beforeValue={formatHours(response_metrics.before.avg_reply_hours)}
+            afterValue={formatHours(response_metrics.after.avg_reply_hours)}
+            inverse={true}
+          />
+          <MetricCard
+            title="Median Reply Time"
+            beforeValue={formatHours(response_metrics.before.median_reply_hours)}
+            afterValue={formatHours(response_metrics.after.median_reply_hours)}
+            inverse={true}
+          />
+          <MetricCard
+            title="Email Conversations"
+            beforeValue={response_metrics.before.total_reply_pairs}
+            afterValue={response_metrics.after.total_reply_pairs}
           />
         </div>
       </div>
