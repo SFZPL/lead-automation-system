@@ -8,7 +8,9 @@ import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 from dotenv import load_dotenv
+import httpx
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -27,12 +29,17 @@ class SupabaseClient:
             self.client: Optional[Client] = None
         else:
             try:
-                # Create client with named parameters for better compatibility
+                # Create client with extended timeout for large operations
+                # Default timeout is 5 seconds which can fail for large inserts
+                options = ClientOptions(
+                    postgrest_client_timeout=30,  # 30 seconds for database operations
+                )
                 self.client = create_client(
                     supabase_url=self.url,
-                    supabase_key=self.key
+                    supabase_key=self.key,
+                    options=options
                 )
-                logger.info("✅ Supabase client initialized successfully")
+                logger.info("✅ Supabase client initialized successfully (30s timeout)")
             except Exception as e:
                 logger.error(f"Failed to initialize Supabase client: {e}")
                 self.client = None

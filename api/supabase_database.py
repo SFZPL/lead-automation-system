@@ -470,20 +470,29 @@ class SupabaseDatabase:
             # Keep only summary and truncate large lists
             result_to_save = self._truncate_report_for_storage(result)
 
+            # Serialize and check size
+            results_json = json.dumps(result_to_save)
+            params_json = json.dumps(parameters or {})
+            total_size_kb = (len(results_json) + len(params_json)) / 1024
+
+            logger.info(f"Report data size: {total_size_kb:.1f} KB (results: {len(results_json)/1024:.1f} KB)")
+
+            # Warn if still large (> 500 KB can be slow)
+            if total_size_kb > 500:
+                logger.warning(f"Report data is large ({total_size_kb:.1f} KB), may timeout on insert")
+
             data = {
                 "user_id": user_id,
                 "analysis_type": analysis_type,
                 "report_type": report_type,
                 "report_period": report_period,
-                "results": json.dumps(result_to_save),
-                "parameters": json.dumps(parameters or {}),
+                "results": results_json,
+                "parameters": params_json,
                 "is_shared": is_shared
             }
 
-            logger.info(f"Inserting report into analysis_cache table with data: {data.keys()}")
-            logger.info(f"Report type value: '{report_type}', Report period value: '{report_period}'")
+            logger.info(f"Inserting report into analysis_cache table")
             insert_result = self.supabase.client.table("analysis_cache").insert(data).execute()
-            logger.info(f"Insert result data: {insert_result.data}")
 
             if insert_result.data:
                 report_id = insert_result.data[0]["id"]
@@ -501,17 +510,19 @@ class SupabaseDatabase:
         if not isinstance(result, dict):
             return result
 
-        truncated = result.copy()
+        # Deep copy to avoid modifying the original
+        import copy
+        truncated = copy.deepcopy(result)
 
-        # Limit follow_ups list to newest 50 items to reduce size
+        # Limit follow_ups list to newest 100 items (previously worked with 110)
         if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
             original_count = len(truncated["follow_ups"])
-            if original_count > 50:
-                # Keep the last 50 (newest) items, drop oldest
-                truncated["follow_ups"] = truncated["follow_ups"][-50:]
+            if original_count > 100:
+                # Keep the last 100 (newest) items, drop oldest
+                truncated["follow_ups"] = truncated["follow_ups"][-100:]
                 truncated["_truncated"] = True
                 truncated["_original_count"] = original_count
-                logger.info(f"Truncated follow_ups from {original_count} to newest 50 for storage")
+                logger.info(f"Truncated follow_ups from {original_count} to newest 100 for storage")
 
         # Truncate long text fields in each follow-up
         if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
@@ -523,6 +534,20 @@ class SupabaseDatabase:
                     # Limit notes to 300 chars
                     if "notes" in fu and isinstance(fu["notes"], str) and len(fu["notes"]) > 300:
                         fu["notes"] = fu["notes"][:300] + "..."
+                    # Remove large fields that aren't needed for display
+                    fu.pop("conversation_history", None)
+                    fu.pop("full_email_body", None)
+                    fu.pop("raw_messages", None)
+                    # Truncate subject if too long
+                    if "subject" in fu and isinstance(fu["subject"], str) and len(fu["subject"]) > 200:
+                        fu["subject"] = fu["subject"][:200] + "..."
+                    # Truncate preview if exists
+                    if "preview" in fu and isinstance(fu["preview"], str) and len(fu["preview"]) > 300:
+                        fu["preview"] = fu["preview"][:300] + "..."
+
+        # Remove raw data that isn't needed for the saved report display
+        truncated.pop("raw_threads", None)
+        truncated.pop("debug_info", None)
 
         return truncated
 
