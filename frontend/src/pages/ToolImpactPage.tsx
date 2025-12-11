@@ -13,9 +13,7 @@ import {
 import api from '../utils/api';
 
 interface ResponseMetrics {
-  total_leads: number;
-  leads_with_contact: number;
-  response_rate_pct: number;
+  total_responses: number;
   avg_first_contact_hours: number | null;
   median_first_contact_hours: number | null;
   response_within_24h_pct: number;
@@ -243,7 +241,7 @@ const ToolImpactPage: React.FC = () => {
           Tool Impact Analysis
         </h1>
         <p className="text-gray-600 mt-1">
-          Comparing performance before and after tool deployment (Nov 23, 2024)
+          Comparing performance before and after tool deployment (Nov 23, 2025)
         </p>
       </div>
 
@@ -323,12 +321,12 @@ const ToolImpactPage: React.FC = () => {
       <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-6 mb-6">
         <h2 className="text-lg font-semibold text-green-900 mb-4">Key Improvements</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {summary.key_improvements.response_rate !== null && (
+          {summary.key_improvements.avg_first_contact_hours !== null && (
             <div className="text-center">
-              <p className={`text-2xl font-bold ${summary.key_improvements.response_rate > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {summary.key_improvements.response_rate > 0 ? '+' : ''}{summary.key_improvements.response_rate}%
+              <p className={`text-2xl font-bold ${summary.key_improvements.avg_first_contact_hours > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {summary.key_improvements.avg_first_contact_hours > 0 ? '+' : ''}{summary.key_improvements.avg_first_contact_hours}%
               </p>
-              <p className="text-sm text-gray-600">Response Rate</p>
+              <p className="text-sm text-gray-600">Response Speed</p>
             </div>
           )}
           {summary.key_improvements.response_within_24h !== null && (
@@ -363,14 +361,16 @@ const ToolImpactPage: React.FC = () => {
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
           <ClockIcon className="w-5 h-5 text-blue-600" />
           Response Metrics
+          <span className="text-xs font-normal text-gray-400 ml-2">
+            (First responses sent during each period)
+          </span>
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
-            title="Response Rate"
-            beforeValue={response_metrics.before.response_rate_pct}
-            afterValue={response_metrics.after.response_rate_pct}
-            delta={summary.key_improvements.response_rate}
-            unit="%"
+            title="First Responses Sent"
+            beforeValue={response_metrics.before.total_responses}
+            afterValue={response_metrics.after.total_responses}
+            delta={summary.key_improvements.response_volume}
           />
           <MetricCard
             title="Avg First Contact Time"

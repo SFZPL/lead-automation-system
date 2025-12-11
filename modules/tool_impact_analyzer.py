@@ -1,7 +1,7 @@
 """
 Tool Impact Analyzer - Measures the impact of the lead automation tool.
 
-Compares metrics before and after the tool deployment date (November 23, 2024).
+Compares metrics before and after the tool deployment date (November 23, 2025).
 """
 
 import logging
@@ -165,7 +165,8 @@ class ToolImpactAnalyzer:
             domain = [
                 ["model", "=", "crm.lead"],
                 ["res_id", "in", batch_ids],
-                ["message_type", "in", ["email", "comment"]],
+                # Include email, comment, and notification (Odoo logs most activities as notification)
+                ["message_type", "in", ["email", "comment", "notification"]],
             ]
 
             fields = [
@@ -206,13 +207,228 @@ class ToolImpactAnalyzer:
 
         return result
 
+    def get_responses_in_period(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch all outbound responses (first contact messages) sent within a date range.
+
+        This measures response activity DURING a period, regardless of when leads were created.
+
+        Returns:
+            List of response records with lead info and response timing
+        """
+        self._ensure_odoo_connection()
+
+        # Fetch all messages sent in this period
+        domain = [
+            ["model", "=", "crm.lead"],
+            ["date", ">=", start_date.strftime("%Y-%m-%d 00:00:00")],
+            ["date", "<=", end_date.strftime("%Y-%m-%d 23:59:59")],
+            ["message_type", "in", ["email", "comment", "notification"]],
+        ]
+
+        fields = [
+            "id",
+            "date",
+            "author_id",
+            "email_from",
+            "subject",
+            "message_type",
+            "res_id",
+        ]
+
+        try:
+            messages = self.odoo._call_kw(
+                "mail.message",
+                "search_read",
+                [domain],
+                {"fields": fields, "order": "date asc"},
+            ) or []
+
+            logger.info(f"Found {len(messages)} messages in period {start_date.date()} to {end_date.date()}")
+
+            if not messages:
+                return []
+
+            # Get unique lead IDs
+            lead_ids = list(set(m["res_id"] for m in messages if m.get("res_id")))
+
+            if not lead_ids:
+                return []
+
+            # Fetch lead info for these leads
+            lead_fields = ["id", "name", "create_date", "email_from", "user_id"]
+            leads = self.odoo._call_kw(
+                "crm.lead",
+                "search_read",
+                [[["id", "in", lead_ids]]],
+                {"fields": lead_fields},
+            ) or []
+
+            leads_dict = {l["id"]: l for l in leads}
+
+            # Also fetch ALL messages for these leads to determine first contact
+            all_messages_domain = [
+                ["model", "=", "crm.lead"],
+                ["res_id", "in", lead_ids],
+                ["message_type", "in", ["email", "comment", "notification"]],
+            ]
+
+            all_messages = self.odoo._call_kw(
+                "mail.message",
+                "search_read",
+                [all_messages_domain],
+                {"fields": fields, "order": "date asc"},
+            ) or []
+
+            # Group all messages by lead
+            messages_by_lead = {}
+            for msg in all_messages:
+                lead_id = msg.get("res_id")
+                if lead_id not in messages_by_lead:
+                    messages_by_lead[lead_id] = []
+                messages_by_lead[lead_id].append(msg)
+
+            # For each lead, find its first outbound message
+            first_responses = []
+            processed_leads = set()
+
+            for msg in messages:
+                lead_id = msg.get("res_id")
+                if not lead_id or lead_id in processed_leads:
+                    continue
+
+                lead = leads_dict.get(lead_id)
+                if not lead:
+                    continue
+
+                lead_email = lead.get("email_from", "")
+                lead_create_str = lead.get("create_date")
+
+                if not lead_create_str:
+                    continue
+
+                # Find first outbound message for this lead (from all time)
+                lead_messages = messages_by_lead.get(lead_id, [])
+                first_outbound = None
+
+                for lm in sorted(lead_messages, key=lambda m: m.get("date", "")):
+                    msg_email = lm.get("email_from", "")
+                    is_outbound = True
+
+                    if lead_email and msg_email:
+                        lead_domain = lead_email.split("@")[-1] if "@" in lead_email else ""
+                        msg_domain = msg_email.split("@")[-1] if "@" in msg_email else ""
+                        if lead_domain and msg_domain == lead_domain:
+                            is_outbound = False
+
+                    if is_outbound:
+                        first_outbound = lm
+                        break
+
+                if not first_outbound:
+                    continue
+
+                # Check if first outbound was in our target period
+                first_outbound_date_str = first_outbound.get("date", "")
+                try:
+                    first_outbound_date = datetime.fromisoformat(first_outbound_date_str.replace("Z", "+00:00"))
+                    if first_outbound_date.tzinfo:
+                        first_outbound_date = first_outbound_date.replace(tzinfo=None)
+
+                    # Only include if the first response was SENT in this period
+                    if not (start_date <= first_outbound_date <= end_date):
+                        processed_leads.add(lead_id)
+                        continue
+
+                    # Calculate time from lead creation to first response
+                    lead_create = datetime.fromisoformat(lead_create_str.replace("Z", "+00:00"))
+                    if lead_create.tzinfo:
+                        lead_create = lead_create.replace(tzinfo=None)
+
+                    hours_to_response = (first_outbound_date - lead_create).total_seconds() / 3600
+
+                    first_responses.append({
+                        "lead_id": lead_id,
+                        "lead_name": lead.get("name"),
+                        "lead_create_date": lead_create_str,
+                        "response_date": first_outbound_date_str,
+                        "hours_to_response": hours_to_response if hours_to_response >= 0 else 0,
+                    })
+
+                except Exception as e:
+                    logger.debug(f"Error processing message date: {e}")
+
+                processed_leads.add(lead_id)
+
+            logger.info(f"Found {len(first_responses)} first responses sent in period")
+            return first_responses
+
+        except Exception as e:
+            logger.error(f"Error fetching responses in period: {e}")
+            return []
+
+    def calculate_response_metrics_by_period(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> Dict[str, Any]:
+        """
+        Calculate response metrics based on responses SENT during a period.
+
+        This measures how fast we responded to leads during this time period,
+        regardless of when those leads were created.
+
+        Returns:
+            Dict with response metrics
+        """
+        responses = self.get_responses_in_period(start_date, end_date)
+
+        if not responses:
+            return {
+                "total_responses": 0,
+                "avg_first_contact_hours": None,
+                "median_first_contact_hours": None,
+                "response_within_24h_pct": 0,
+                "response_within_48h_pct": 0,
+                "response_within_72h_pct": 0,
+                "first_contact_times": [],
+            }
+
+        response_times = [r["hours_to_response"] for r in responses]
+        total_responses = len(response_times)
+
+        within_24h = sum(1 for t in response_times if t <= 24)
+        within_48h = sum(1 for t in response_times if t <= 48)
+        within_72h = sum(1 for t in response_times if t <= 72)
+
+        avg_response_time = sum(response_times) / total_responses if total_responses else None
+        sorted_times = sorted(response_times)
+        median_response_time = sorted_times[len(sorted_times) // 2] if sorted_times else None
+
+        return {
+            "total_responses": total_responses,
+            "avg_first_contact_hours": round(avg_response_time, 1) if avg_response_time is not None else None,
+            "median_first_contact_hours": round(median_response_time, 1) if median_response_time is not None else None,
+            "response_within_24h_pct": round(within_24h / total_responses * 100, 1) if total_responses > 0 else 0,
+            "response_within_48h_pct": round(within_48h / total_responses * 100, 1) if total_responses > 0 else 0,
+            "response_within_72h_pct": round(within_72h / total_responses * 100, 1) if total_responses > 0 else 0,
+            "first_contact_times": response_times,
+        }
+
     def calculate_response_metrics(
         self,
         leads: List[Dict[str, Any]],
         messages_by_lead: Dict[int, List[Dict[str, Any]]],
     ) -> Dict[str, Any]:
         """
-        Calculate response time metrics.
+        Calculate response time metrics for leads created in a period.
+
+        NOTE: This is the LEGACY method that measures by lead creation date.
+        For measuring responses SENT in a period, use calculate_response_metrics_by_period().
 
         Returns:
             Dict with response metrics including:
@@ -488,7 +704,7 @@ class ToolImpactAnalyzer:
             before_days: Number of days before deployment to analyze
             after_days: Number of days after deployment (None = until today)
             source_filter: Optional lead source filter
-            deployment_date: Custom deployment date (defaults to Nov 23, 2024)
+            deployment_date: Custom deployment date (defaults to Nov 23, 2025)
 
         Returns:
             Complete impact report with before/after comparisons
@@ -511,23 +727,15 @@ class ToolImpactAnalyzer:
         logger.info(f"Analyzing impact: BEFORE {before_start.date()} to {before_end.date()}")
         logger.info(f"Analyzing impact: AFTER {after_start.date()} to {after_end.date()}")
 
-        # Fetch leads for both periods
+        # Fetch leads for both periods (for stage/win-loss metrics)
         before_leads = self.get_leads_in_period(before_start, before_end, source_filter)
         after_leads = self.get_leads_in_period(after_start, after_end, source_filter)
 
-        # Fetch messages for response time analysis
-        before_lead_ids = [l["id"] for l in before_leads]
-        after_lead_ids = [l["id"] for l in after_leads]
-
-        logger.info(f"Fetching messages for {len(before_lead_ids)} before leads...")
-        before_messages = self.get_lead_messages_batch(before_lead_ids)
-
-        logger.info(f"Fetching messages for {len(after_lead_ids)} after leads...")
-        after_messages = self.get_lead_messages_batch(after_lead_ids)
-
-        # Calculate all metrics for both periods
-        before_response = self.calculate_response_metrics(before_leads, before_messages)
-        after_response = self.calculate_response_metrics(after_leads, after_messages)
+        # Calculate response metrics based on responses SENT in each period
+        # This measures "how fast were we responding during this time period"
+        logger.info("Calculating response metrics by period (responses SENT)...")
+        before_response = self.calculate_response_metrics_by_period(before_start, before_end)
+        after_response = self.calculate_response_metrics_by_period(after_start, after_end)
 
         before_stages = self.calculate_stage_metrics(before_leads)
         after_stages = self.calculate_stage_metrics(after_leads)
@@ -547,10 +755,10 @@ class ToolImpactAnalyzer:
             return round(((after_val - before_val) / before_val) * 100, 1)
 
         deltas = {
-            "response_rate": calc_delta(
-                after_response["response_rate_pct"],
-                before_response["response_rate_pct"]
-            ),
+            "response_volume": calc_delta(
+                after_response["total_responses"],
+                before_response["total_responses"]
+            ) if before_response["total_responses"] > 0 else None,
             "avg_first_contact_hours": calc_delta(
                 before_response["avg_first_contact_hours"],  # Lower is better, so inverted
                 after_response["avg_first_contact_hours"]
