@@ -8,9 +8,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions
 from dotenv import load_dotenv
-import httpx
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -25,22 +23,18 @@ class SupabaseClient:
         self.key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # Use service role for backend
 
         if not self.url or not self.key:
-            logger.warning(f"Supabase credentials not found. URL: {'set' if self.url else 'missing'}, Key: {'set' if self.key else 'missing'}")
+            logger.warning("Supabase credentials not found. Caching will be disabled.")
             self.client: Optional[Client] = None
         else:
             try:
-                # Create client with extended timeout for large operations
-                options = ClientOptions(
-                    postgrest_client_timeout=30,  # 30 seconds for database operations
-                )
+                # Create client with named parameters for better compatibility
                 self.client = create_client(
                     supabase_url=self.url,
-                    supabase_key=self.key,
-                    options=options
+                    supabase_key=self.key
                 )
-                logger.info("✅ Supabase client initialized successfully (30s timeout)")
+                logger.info("✅ Supabase client initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize Supabase client: {e}", exc_info=True)
+                logger.error(f"Failed to initialize Supabase client: {e}")
                 self.client = None
 
     def is_connected(self) -> bool:
