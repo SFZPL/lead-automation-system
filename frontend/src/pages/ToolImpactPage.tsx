@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 import {
   ChartBarIcon,
   ArrowTrendingUpIcon,
@@ -9,6 +9,9 @@ import {
   XCircleIcon,
   ArrowPathIcon,
   FunnelIcon,
+  DocumentArrowDownIcon,
+  FolderOpenIcon,
+  PlayIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 
@@ -90,6 +93,15 @@ interface ImpactReport {
   };
 }
 
+interface SavedReport {
+  id: string;
+  name: string;
+  created_at: string;
+  before_days: number;
+  source_filter: string | null;
+  report: ImpactReport;
+}
+
 const MetricCard: React.FC<{
   title: string;
   beforeValue: string | number;
@@ -146,8 +158,15 @@ const MetricCard: React.FC<{
 const ToolImpactPage: React.FC = () => {
   const [beforeDays, setBeforeDays] = useState(90);
   const [sourceFilter, setSourceFilter] = useState<string>('');
+  const [report, setReport] = useState<ImpactReport | null>(null);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  const [reportName, setReportName] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const { data: reportData, isLoading, error, refetch } = useQuery(
+  // Fetch report on demand only (enabled: false)
+  const { isLoading, error, refetch } = useQuery(
     ['tool-impact', beforeDays, sourceFilter],
     async () => {
       const params = new URLSearchParams();
@@ -158,8 +177,11 @@ const ToolImpactPage: React.FC = () => {
       return response.data;
     },
     {
+      enabled: false, // Don't fetch automatically
       refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      onSuccess: (data) => {
+        setReport(data?.report || null);
+      },
     }
   );
 
@@ -172,8 +194,75 @@ const ToolImpactPage: React.FC = () => {
     { staleTime: Infinity }
   );
 
-  const report: ImpactReport | undefined = reportData?.report;
+  // Fetch saved reports list
+  const { data: savedReportsData, refetch: refetchSavedReports } = useQuery(
+    'saved-impact-reports',
+    async () => {
+      const response = await api.get('/analytics/tool-impact/saved');
+      return response.data;
+    },
+    {
+      staleTime: 30000,
+      enabled: showLoadModal, // Only fetch when modal is open
+    }
+  );
+
+  // Save report mutation
+  const saveReportMutation = useMutation(
+    async (name: string) => {
+      const response = await api.post('/analytics/tool-impact/save', {
+        name,
+        before_days: beforeDays,
+        source_filter: sourceFilter || null,
+        report,
+      });
+      return response.data;
+    },
+    {
+      onSuccess: () => {
+        setShowSaveModal(false);
+        setReportName('');
+        setSaveSuccess('Report saved successfully!');
+        setTimeout(() => setSaveSuccess(null), 3000);
+        queryClient.invalidateQueries('saved-impact-reports');
+      },
+    }
+  );
+
+  // Load report mutation
+  const loadReportMutation = useMutation(
+    async (reportId: string) => {
+      const response = await api.get(`/analytics/tool-impact/saved/${reportId}`);
+      return response.data;
+    },
+    {
+      onSuccess: (data) => {
+        setReport(data.report.report);
+        setBeforeDays(data.report.before_days);
+        setSourceFilter(data.report.source_filter || '');
+        setShowLoadModal(false);
+      },
+    }
+  );
+
+  // Delete report mutation
+  const deleteReportMutation = useMutation(
+    async (reportId: string) => {
+      await api.delete(`/analytics/tool-impact/saved/${reportId}`);
+    },
+    {
+      onSuccess: () => {
+        refetchSavedReports();
+      },
+    }
+  );
+
+  const handleGenerateReport = () => {
+    refetch();
+  };
+
   const sources: string[] = sourcesData?.sources || [];
+  const savedReports: SavedReport[] = savedReportsData?.reports || [];
 
   const formatDate = (isoString: string) => {
     return new Date(isoString).toLocaleDateString('en-US', {
@@ -199,13 +288,114 @@ const ToolImpactPage: React.FC = () => {
     }).format(value);
   };
 
+  // Show initial state when no report is loaded
+  if (!report && !isLoading) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <ChartBarIcon className="w-7 h-7 text-green-600" />
+            Tool Impact Analysis
+          </h1>
+          <p className="text-gray-600 mt-1">
+            Compare performance before and after tool deployment (Nov 23, 2025)
+          </p>
+        </div>
+
+        {/* Configuration Panel */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Configure Report</h2>
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Before Period (days)
+              </label>
+              <select
+                value={beforeDays}
+                onChange={(e) => setBeforeDays(Number(e.target.value))}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value={30}>30 days</option>
+                <option value={60}>60 days</option>
+                <option value={90}>90 days</option>
+                <option value={180}>180 days</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <FunnelIcon className="w-4 h-4 inline mr-1" />
+                Lead Source Filter
+              </label>
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">All Sources</option>
+                {sources.map((source) => (
+                  <option key={source} value={source}>
+                    {source}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={handleGenerateReport}
+              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"
+            >
+              <PlayIcon className="w-5 h-5" />
+              Generate Report
+            </button>
+
+            <button
+              onClick={() => {
+                setShowLoadModal(true);
+                refetchSavedReports();
+              }}
+              className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2"
+            >
+              <FolderOpenIcon className="w-5 h-5" />
+              Load Saved Report
+            </button>
+          </div>
+        </div>
+
+        {/* Info Card */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h3 className="font-medium text-blue-900 mb-2">About Tool Impact Analysis</h3>
+          <p className="text-sm text-blue-800">
+            This report compares lead performance metrics before and after the automation tool
+            deployment on November 23, 2025. It analyzes response times, conversion rates,
+            win/loss ratios, and lead velocity to measure the tool's impact.
+          </p>
+        </div>
+
+        {/* Load Modal */}
+        {showLoadModal && (
+          <LoadReportModal
+            savedReports={savedReports}
+            onClose={() => setShowLoadModal(false)}
+            onLoad={(id) => loadReportMutation.mutate(id)}
+            onDelete={(id) => deleteReportMutation.mutate(id)}
+            isLoading={loadReportMutation.isLoading}
+          />
+        )}
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-4">
           <ArrowPathIcon className="w-8 h-8 text-green-600 animate-spin" />
           <p className="text-gray-600">Analyzing tool impact...</p>
-          <p className="text-sm text-gray-400">This may take a minute as we fetch data from Odoo</p>
+          <p className="text-sm text-gray-400">This may take a minute as we fetch data from Odoo and Outlook</p>
         </div>
       </div>
     );
@@ -227,12 +417,9 @@ const ToolImpactPage: React.FC = () => {
     );
   }
 
+  // At this point, report is guaranteed to be non-null
   if (!report) {
-    return (
-      <div className="p-6">
-        <p className="text-gray-600">No report data available</p>
-      </div>
-    );
+    return null;
   }
 
   const { response_metrics, stage_metrics, win_loss_metrics, velocity_metrics, summary } = report;
@@ -250,52 +437,90 @@ const ToolImpactPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Filters */}
+      {/* Filters and Actions */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="flex flex-wrap gap-4 items-end">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Before Period (days)
-            </label>
-            <select
-              value={beforeDays}
-              onChange={(e) => setBeforeDays(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+        <div className="flex flex-wrap gap-4 items-end justify-between">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Before Period (days)
+              </label>
+              <select
+                value={beforeDays}
+                onChange={(e) => setBeforeDays(Number(e.target.value))}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value={30}>30 days</option>
+                <option value={60}>60 days</option>
+                <option value={90}>90 days</option>
+                <option value={180}>180 days</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <FunnelIcon className="w-4 h-4 inline mr-1" />
+                Lead Source Filter
+              </label>
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">All Sources</option>
+                {sources.map((source) => (
+                  <option key={source} value={source}>
+                    {source}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={handleGenerateReport}
+              disabled={isLoading}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:opacity-50"
             >
-              <option value={30}>30 days</option>
-              <option value={60}>60 days</option>
-              <option value={90}>90 days</option>
-              <option value={180}>180 days</option>
-            </select>
+              <ArrowPathIcon className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              Regenerate
+            </button>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              <FunnelIcon className="w-4 h-4 inline mr-1" />
-              Lead Source Filter
-            </label>
-            <select
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowSaveModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
             >
-              <option value="">All Sources</option>
-              {sources.map((source) => (
-                <option key={source} value={source}>
-                  {source}
-                </option>
-              ))}
-            </select>
-          </div>
+              <DocumentArrowDownIcon className="w-4 h-4" />
+              Save Report
+            </button>
 
-          <button
-            onClick={() => refetch()}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
-          >
-            <ArrowPathIcon className="w-4 h-4" />
-            Refresh
-          </button>
+            <button
+              onClick={() => {
+                setShowLoadModal(true);
+                refetchSavedReports();
+              }}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-2"
+            >
+              <FolderOpenIcon className="w-4 h-4" />
+              Load
+            </button>
+
+            <button
+              onClick={() => setReport(null)}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+            >
+              New
+            </button>
+          </div>
         </div>
+
+        {/* Success message */}
+        {saveSuccess && (
+          <div className="mt-3 p-2 bg-green-50 text-green-700 rounded text-sm">
+            {saveSuccess}
+          </div>
+        )}
       </div>
 
       {/* Period Info */}
@@ -601,6 +826,120 @@ const ToolImpactPage: React.FC = () => {
       {/* Footer */}
       <div className="text-center text-sm text-gray-400">
         Report generated at {new Date(report.generated_at).toLocaleString()}
+      </div>
+
+      {/* Save Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Save Report</h3>
+            <input
+              type="text"
+              placeholder="Report name (e.g., 'Q4 2025 Analysis')"
+              value={reportName}
+              onChange={(e) => setReportName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-4"
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowSaveModal(false);
+                  setReportName('');
+                }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => saveReportMutation.mutate(reportName)}
+                disabled={!reportName.trim() || saveReportMutation.isLoading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saveReportMutation.isLoading ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Modal */}
+      {showLoadModal && (
+        <LoadReportModal
+          savedReports={savedReports}
+          onClose={() => setShowLoadModal(false)}
+          onLoad={(id) => loadReportMutation.mutate(id)}
+          onDelete={(id) => deleteReportMutation.mutate(id)}
+          isLoading={loadReportMutation.isLoading}
+        />
+      )}
+    </div>
+  );
+};
+
+// Load Report Modal Component
+const LoadReportModal: React.FC<{
+  savedReports: SavedReport[];
+  onClose: () => void;
+  onLoad: (id: string) => void;
+  onDelete: (id: string) => void;
+  isLoading: boolean;
+}> = ({ savedReports, onClose, onLoad, onDelete, isLoading }) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Load Saved Report</h3>
+
+        {savedReports.length === 0 ? (
+          <div className="py-8 text-center text-gray-500">
+            No saved reports found
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto space-y-2">
+            {savedReports.map((report) => (
+              <div
+                key={report.id}
+                className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
+              >
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{report.name}</p>
+                  <p className="text-sm text-gray-500">
+                    {new Date(report.created_at).toLocaleDateString()} - {report.before_days} days
+                    {report.source_filter && ` - ${report.source_filter}`}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onLoad(report.id)}
+                    disabled={isLoading}
+                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
+                  >
+                    Load
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Delete this report?')) {
+                        onDelete(report.id);
+                      }
+                    }}
+                    className="px-3 py-1 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 pt-4 border-t">
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );

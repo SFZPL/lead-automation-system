@@ -6018,3 +6018,148 @@ def get_lead_sources(
     except Exception as e:
         logger.error(f"Error fetching lead sources: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analytics/tool-impact/saved")
+def get_saved_impact_reports(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Get list of saved tool impact reports for the current user.
+    """
+    try:
+        from api.supabase_client import get_supabase_client
+
+        supabase = get_supabase_client()
+        if not supabase.is_connected():
+            return {"success": True, "reports": []}
+
+        user_id = current_user.get("id")
+        result = (
+            supabase.client.table("tool_impact_reports")
+            .select("id, name, created_at, before_days, source_filter")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+
+        return {
+            "success": True,
+            "reports": result.data or [],
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching saved reports: {e}")
+        return {"success": True, "reports": []}
+
+
+@app.post("/analytics/tool-impact/save")
+def save_impact_report(
+    request: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Save a tool impact report for the current user.
+    """
+    try:
+        from api.supabase_client import get_supabase_client
+
+        supabase = get_supabase_client()
+        if not supabase.is_connected():
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        user_id = current_user.get("id")
+        data = {
+            "user_id": user_id,
+            "name": request.get("name"),
+            "before_days": request.get("before_days"),
+            "source_filter": request.get("source_filter"),
+            "report": request.get("report"),
+        }
+
+        result = supabase.client.table("tool_impact_reports").insert(data).execute()
+
+        if result.data:
+            return {
+                "success": True,
+                "report_id": result.data[0].get("id"),
+            }
+
+        raise HTTPException(status_code=500, detail="Failed to save report")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analytics/tool-impact/saved/{report_id}")
+def get_saved_impact_report(
+    report_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Get a specific saved tool impact report.
+    """
+    try:
+        from api.supabase_client import get_supabase_client
+
+        supabase = get_supabase_client()
+        if not supabase.is_connected():
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        user_id = current_user.get("id")
+        result = (
+            supabase.client.table("tool_impact_reports")
+            .select("*")
+            .eq("id", report_id)
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        return {
+            "success": True,
+            "report": result.data,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/analytics/tool-impact/saved/{report_id}")
+def delete_saved_impact_report(
+    report_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Delete a saved tool impact report.
+    """
+    try:
+        from api.supabase_client import get_supabase_client
+
+        supabase = get_supabase_client()
+        if not supabase.is_connected():
+            raise HTTPException(status_code=503, detail="Database not available")
+
+        user_id = current_user.get("id")
+        result = (
+            supabase.client.table("tool_impact_reports")
+            .delete()
+            .eq("id", report_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"Error deleting report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
