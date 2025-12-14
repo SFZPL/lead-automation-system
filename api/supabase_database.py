@@ -514,20 +514,31 @@ class SupabaseDatabase:
         import copy
         truncated = copy.deepcopy(result)
 
-        # Limit follow_ups list to newest 100 items (previously worked with 110)
+        # Limit follow_ups list to newest 50 items
         if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
             original_count = len(truncated["follow_ups"])
-            if original_count > 100:
-                # Keep the last 100 (newest) items, drop oldest
-                truncated["follow_ups"] = truncated["follow_ups"][-100:]
+            if original_count > 50:
+                truncated["follow_ups"] = truncated["follow_ups"][-50:]
                 truncated["_truncated"] = True
                 truncated["_original_count"] = original_count
-                logger.info(f"Truncated follow_ups from {original_count} to newest 100 for storage")
+                logger.info(f"Truncated follow_ups from {original_count} to newest 50 for storage")
 
-        # Truncate long text fields in each follow-up (only if they exist and are too long)
+        # Remove heavy data from each follow-up
         if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
             for fu in truncated["follow_ups"]:
                 if isinstance(fu, dict):
+                    # CRITICAL: Remove full thread data (can be 100KB+ per thread)
+                    if "thread" in fu:
+                        del fu["thread"]
+                    # Remove full last_email body (keep only essential fields)
+                    if "last_email" in fu and isinstance(fu["last_email"], dict):
+                        last_email = fu["last_email"]
+                        # Keep only essential fields
+                        fu["last_email"] = {
+                            "subject": last_email.get("subject", "")[:200],
+                            "receivedDateTime": last_email.get("receivedDateTime"),
+                            "from": last_email.get("from"),
+                        }
                     # Limit AI suggestions to 500 chars
                     if "ai_suggestion" in fu and isinstance(fu["ai_suggestion"], str) and len(fu["ai_suggestion"]) > 500:
                         fu["ai_suggestion"] = fu["ai_suggestion"][:500] + "..."
