@@ -12,7 +12,7 @@ from collections import defaultdict
 from config import Config
 from modules.odoo_client import OdooClient
 from modules.outlook_client import OutlookClient
-from api.email_token_store import EmailTokenStore
+from modules.email_token_store import EmailTokenStore
 
 logger = logging.getLogger(__name__)
 
