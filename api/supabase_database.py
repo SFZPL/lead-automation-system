@@ -514,45 +514,51 @@ class SupabaseDatabase:
         import copy
         truncated = copy.deepcopy(result)
 
-        # Limit follow_ups list to newest 50 items
-        if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
-            original_count = len(truncated["follow_ups"])
-            if original_count > 50:
-                truncated["follow_ups"] = truncated["follow_ups"][-50:]
-                truncated["_truncated"] = True
-                truncated["_original_count"] = original_count
-                logger.info(f"Truncated follow_ups from {original_count} to newest 50 for storage")
+        # Keys that contain thread lists (proposal followup reports use these)
+        thread_list_keys = ["follow_ups", "unanswered", "pending_proposals", "filtered"]
 
-        # Remove heavy data from each follow-up
-        if "follow_ups" in truncated and isinstance(truncated["follow_ups"], list):
-            for fu in truncated["follow_ups"]:
-                if isinstance(fu, dict):
-                    # CRITICAL: Remove full thread data (can be 100KB+ per thread)
-                    if "thread" in fu:
-                        del fu["thread"]
-                    # Remove full last_email body (keep only essential fields)
-                    if "last_email" in fu and isinstance(fu["last_email"], dict):
-                        last_email = fu["last_email"]
-                        # Keep only essential fields
-                        fu["last_email"] = {
-                            "subject": last_email.get("subject", "")[:200],
-                            "receivedDateTime": last_email.get("receivedDateTime"),
-                            "from": last_email.get("from"),
-                        }
-                    # Limit AI suggestions to 500 chars
-                    if "ai_suggestion" in fu and isinstance(fu["ai_suggestion"], str) and len(fu["ai_suggestion"]) > 500:
-                        fu["ai_suggestion"] = fu["ai_suggestion"][:500] + "..."
-                    # Limit notes to 300 chars
-                    if "notes" in fu and isinstance(fu["notes"], str) and len(fu["notes"]) > 300:
-                        fu["notes"] = fu["notes"][:300] + "..."
-                    # Truncate subject if too long
-                    if "subject" in fu and isinstance(fu["subject"], str) and len(fu["subject"]) > 200:
-                        fu["subject"] = fu["subject"][:200] + "..."
-                    # Truncate preview if exists
-                    if "preview" in fu and isinstance(fu["preview"], str) and len(fu["preview"]) > 300:
-                        fu["preview"] = fu["preview"][:300] + "..."
+        for key in thread_list_keys:
+            if key in truncated and isinstance(truncated[key], list):
+                # Limit to 50 items per list
+                original_count = len(truncated[key])
+                if original_count > 50:
+                    truncated[key] = truncated[key][-50:]
+                    truncated["_truncated"] = True
+                    truncated[f"_original_{key}_count"] = original_count
+                    logger.info(f"Truncated {key} from {original_count} to 50 for storage")
+
+                # Remove heavy data from each item
+                for item in truncated[key]:
+                    if isinstance(item, dict):
+                        self._truncate_thread_item(item)
 
         return truncated
+
+    def _truncate_thread_item(self, item: Dict[str, Any]) -> None:
+        """Remove heavy data from a single thread/follow-up item (modifies in place)."""
+        # CRITICAL: Remove full thread data (can be 100KB+ per thread with email bodies)
+        if "thread" in item:
+            del item["thread"]
+
+        # Remove full last_email body (keep only essential fields)
+        if "last_email" in item and isinstance(item["last_email"], dict):
+            last_email = item["last_email"]
+            item["last_email"] = {
+                "subject": (last_email.get("subject", "") or "")[:200],
+                "receivedDateTime": last_email.get("receivedDateTime"),
+                "from": last_email.get("from"),
+            }
+
+        # Truncate long text fields
+        text_limits = {
+            "ai_suggestion": 500,
+            "notes": 300,
+            "subject": 200,
+            "preview": 300,
+        }
+        for field, limit in text_limits.items():
+            if field in item and isinstance(item[field], str) and len(item[field]) > limit:
+                item[field] = item[field][:limit] + "..."
 
     def get_saved_reports(
         self,
