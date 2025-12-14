@@ -5,14 +5,19 @@ Compares metrics before and after the tool deployment date (November 23, 2025).
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
 
 from config import Config
 from modules.odoo_client import OdooClient
+from modules.outlook_client import OutlookClient
+from api.email_token_store import EmailTokenStore
 
 logger = logging.getLogger(__name__)
+
+# System email identifier for engage inbox access
+SYSTEM_EMAIL_IDENTIFIER = "SYSTEM_automated.response@prezlab.com"
 
 # Tool deployment date (Nov 23, 2025)
 DEPLOYMENT_DATE = datetime(2025, 11, 23)
@@ -38,12 +43,76 @@ class ToolImpactAnalyzer:
     ) -> None:
         self.config = config or Config()
         self.odoo = odoo_client or OdooClient(self.config)
+        self.token_store = EmailTokenStore()
+        self._outlook_client: Optional[OutlookClient] = None
+        self._engage_group_id: Optional[str] = None
 
     def _ensure_odoo_connection(self) -> None:
         """Ensure Odoo connection is established."""
         if not hasattr(self.odoo, "uid") or self.odoo.uid is None:
             if not self.odoo.connect():
                 raise RuntimeError("Failed to connect to Odoo")
+
+    def _get_outlook_access_token(self) -> Optional[str]:
+        """Get valid access token for engage inbox."""
+        tokens = self.token_store.get_tokens(SYSTEM_EMAIL_IDENTIFIER)
+        if not tokens:
+            logger.warning(f"No tokens found for {SYSTEM_EMAIL_IDENTIFIER}")
+            return None
+
+        outlook = OutlookClient(self.config)
+
+        # Check if token is expired and refresh if needed
+        if self.token_store.is_token_expired(SYSTEM_EMAIL_IDENTIFIER):
+            logger.info(f"Access token expired for {SYSTEM_EMAIL_IDENTIFIER}, refreshing...")
+            try:
+                refresh_token = tokens.get("refresh_token")
+                if not refresh_token:
+                    logger.error(f"No refresh token available for {SYSTEM_EMAIL_IDENTIFIER}")
+                    return None
+
+                token_response = outlook.refresh_access_token(refresh_token)
+                access_token = token_response.get("access_token")
+
+                self.token_store.update_access_token(
+                    SYSTEM_EMAIL_IDENTIFIER,
+                    access_token,
+                    token_response.get("expires_in", 3600)
+                )
+
+                tokens = self.token_store.get_tokens(SYSTEM_EMAIL_IDENTIFIER)
+                logger.info(f"Successfully refreshed token for {SYSTEM_EMAIL_IDENTIFIER}")
+            except Exception as e:
+                logger.error(f"Failed to refresh token: {e}")
+                return None
+
+        return tokens.get("access_token")
+
+    def _get_engage_group_id(self, access_token: str) -> Optional[str]:
+        """Get the engage group ID."""
+        if self._engage_group_id:
+            return self._engage_group_id
+
+        outlook = OutlookClient(self.config)
+        groups = outlook.get_user_groups(access_token)
+
+        for group in groups:
+            display_name = (group.get("displayName") or "").lower()
+            mail = (group.get("mail") or "").lower()
+
+            if "engage" in display_name or "engage" in mail:
+                self._engage_group_id = group.get("id")
+                logger.info(f"Found engage group: {group.get('displayName')} (ID: {self._engage_group_id})")
+                return self._engage_group_id
+
+        logger.warning(f"Could not find engage group. Available: {[g.get('displayName') for g in groups]}")
+        return None
+
+    def _is_internal_email(self, email: str) -> bool:
+        """Check if email is from prezlab domain."""
+        if not email:
+            return False
+        return email.lower().endswith("@prezlab.com")
 
     def _get_stage_order(self, stage_name: str) -> int:
         """Get numeric order for a stage name."""
@@ -207,170 +276,161 @@ class ToolImpactAnalyzer:
 
         return result
 
+    def _get_engage_emails_in_period(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch emails from engage inbox within a date range.
+
+        Returns:
+            List of email messages grouped by conversation
+        """
+        access_token = self._get_outlook_access_token()
+        if not access_token:
+            logger.warning("Cannot fetch engage emails - no valid access token")
+            return []
+
+        group_id = self._get_engage_group_id(access_token)
+        if not group_id:
+            logger.warning("Cannot fetch engage emails - engage group not found")
+            return []
+
+        # Calculate days back from today to start_date
+        days_back = (datetime.now() - start_date).days + 1
+
+        outlook = OutlookClient(self.config)
+        try:
+            emails = outlook.get_group_conversations(
+                access_token=access_token,
+                group_email="engage@prezlab.com",
+                days_back=days_back,
+                limit=5000
+            )
+
+            # Filter to only emails within our date range
+            filtered_emails = []
+            for email in emails:
+                received_str = email.get("receivedDateTime", "")
+                if not received_str:
+                    continue
+
+                try:
+                    received_dt = datetime.fromisoformat(received_str.replace("Z", "+00:00"))
+                    if received_dt.tzinfo:
+                        received_dt = received_dt.replace(tzinfo=None)
+
+                    if start_date <= received_dt <= end_date:
+                        filtered_emails.append(email)
+                except Exception:
+                    continue
+
+            logger.info(f"Found {len(filtered_emails)} engage emails in period {start_date.date()} to {end_date.date()}")
+            return filtered_emails
+
+        except Exception as e:
+            logger.error(f"Error fetching engage emails: {e}")
+            return []
+
+    def _extract_email_address(self, email_data: Dict[str, Any]) -> str:
+        """Extract email address from email data structure."""
+        from_data = email_data.get("from", {})
+        if isinstance(from_data, dict):
+            email_addr = from_data.get("emailAddress", {})
+            if isinstance(email_addr, dict):
+                return email_addr.get("address", "").lower()
+        return ""
+
     def get_responses_in_period(
         self,
         start_date: datetime,
         end_date: datetime,
     ) -> List[Dict[str, Any]]:
         """
-        Fetch all outbound responses (first contact messages) sent within a date range.
+        Fetch first contact response times from engage inbox.
 
-        This measures response activity DURING a period, regardless of when leads were created.
-        Only counts actual emails, not system notifications.
+        Measures time from thread creation to first internal response.
 
         Returns:
-            List of response records with lead info and response timing
+            List of response records with timing info
         """
-        self._ensure_odoo_connection()
-
-        # Fetch actual emails sent in this period (not notifications which are system-generated)
-        domain = [
-            ["model", "=", "crm.lead"],
-            ["date", ">=", start_date.strftime("%Y-%m-%d 00:00:00")],
-            ["date", "<=", end_date.strftime("%Y-%m-%d 23:59:59")],
-            ["message_type", "=", "email"],  # Only actual emails, not notifications
-        ]
-
-        fields = [
-            "id",
-            "date",
-            "author_id",
-            "email_from",
-            "subject",
-            "message_type",
-            "res_id",
-        ]
-
-        try:
-            messages = self.odoo._call_kw(
-                "mail.message",
-                "search_read",
-                [domain],
-                {"fields": fields, "order": "date asc"},
-            ) or []
-
-            logger.info(f"Found {len(messages)} messages in period {start_date.date()} to {end_date.date()}")
-
-            if not messages:
-                return []
-
-            # Get unique lead IDs
-            lead_ids = list(set(m["res_id"] for m in messages if m.get("res_id")))
-
-            if not lead_ids:
-                return []
-
-            # Fetch lead info for these leads
-            lead_fields = ["id", "name", "create_date", "email_from", "user_id"]
-            leads = self.odoo._call_kw(
-                "crm.lead",
-                "search_read",
-                [[["id", "in", lead_ids]]],
-                {"fields": lead_fields},
-            ) or []
-
-            leads_dict = {l["id"]: l for l in leads}
-
-            # Also fetch ALL emails for these leads to determine first contact
-            all_messages_domain = [
-                ["model", "=", "crm.lead"],
-                ["res_id", "in", lead_ids],
-                ["message_type", "=", "email"],  # Only actual emails
-            ]
-
-            all_messages = self.odoo._call_kw(
-                "mail.message",
-                "search_read",
-                [all_messages_domain],
-                {"fields": fields, "order": "date asc"},
-            ) or []
-
-            # Group all messages by lead
-            messages_by_lead = {}
-            for msg in all_messages:
-                lead_id = msg.get("res_id")
-                if lead_id not in messages_by_lead:
-                    messages_by_lead[lead_id] = []
-                messages_by_lead[lead_id].append(msg)
-
-            # For each lead, find its first outbound message
-            first_responses = []
-            processed_leads = set()
-
-            for msg in messages:
-                lead_id = msg.get("res_id")
-                if not lead_id or lead_id in processed_leads:
-                    continue
-
-                lead = leads_dict.get(lead_id)
-                if not lead:
-                    continue
-
-                lead_email = lead.get("email_from", "")
-                lead_create_str = lead.get("create_date")
-
-                if not lead_create_str:
-                    continue
-
-                # Find first outbound message for this lead (from all time)
-                lead_messages = messages_by_lead.get(lead_id, [])
-                first_outbound = None
-
-                for lm in sorted(lead_messages, key=lambda m: m.get("date", "")):
-                    msg_email = lm.get("email_from", "")
-                    is_outbound = True
-
-                    if lead_email and msg_email:
-                        lead_domain = lead_email.split("@")[-1] if "@" in lead_email else ""
-                        msg_domain = msg_email.split("@")[-1] if "@" in msg_email else ""
-                        if lead_domain and msg_domain == lead_domain:
-                            is_outbound = False
-
-                    if is_outbound:
-                        first_outbound = lm
-                        break
-
-                if not first_outbound:
-                    continue
-
-                # Check if first outbound was in our target period
-                first_outbound_date_str = first_outbound.get("date", "")
-                try:
-                    first_outbound_date = datetime.fromisoformat(first_outbound_date_str.replace("Z", "+00:00"))
-                    if first_outbound_date.tzinfo:
-                        first_outbound_date = first_outbound_date.replace(tzinfo=None)
-
-                    # Only include if the first response was SENT in this period
-                    if not (start_date <= first_outbound_date <= end_date):
-                        processed_leads.add(lead_id)
-                        continue
-
-                    # Calculate time from lead creation to first response
-                    lead_create = datetime.fromisoformat(lead_create_str.replace("Z", "+00:00"))
-                    if lead_create.tzinfo:
-                        lead_create = lead_create.replace(tzinfo=None)
-
-                    hours_to_response = (first_outbound_date - lead_create).total_seconds() / 3600
-
-                    first_responses.append({
-                        "lead_id": lead_id,
-                        "lead_name": lead.get("name"),
-                        "lead_create_date": lead_create_str,
-                        "response_date": first_outbound_date_str,
-                        "hours_to_response": hours_to_response if hours_to_response >= 0 else 0,
-                    })
-
-                except Exception as e:
-                    logger.debug(f"Error processing message date: {e}")
-
-                processed_leads.add(lead_id)
-
-            logger.info(f"Found {len(first_responses)} first responses sent in period")
-            return first_responses
-
-        except Exception as e:
-            logger.error(f"Error fetching responses in period: {e}")
+        emails = self._get_engage_emails_in_period(start_date, end_date)
+        if not emails:
             return []
+
+        # Group emails by conversation ID
+        conversations: Dict[str, List[Dict[str, Any]]] = {}
+        for email in emails:
+            conv_id = email.get("conversationId", "")
+            if conv_id:
+                if conv_id not in conversations:
+                    conversations[conv_id] = []
+                conversations[conv_id].append(email)
+
+        first_responses = []
+
+        for conv_id, thread in conversations.items():
+            if len(thread) < 2:
+                continue
+
+            # Sort by received date
+            sorted_thread = sorted(
+                thread,
+                key=lambda e: e.get("receivedDateTime", "")
+            )
+
+            # Find first message and first internal response
+            first_msg = sorted_thread[0]
+            first_msg_sender = self._extract_email_address(first_msg)
+
+            # Skip if first message is from prezlab (we initiated)
+            if self._is_internal_email(first_msg_sender):
+                continue
+
+            # Find first internal reply
+            first_internal_reply = None
+            for msg in sorted_thread[1:]:
+                sender = self._extract_email_address(msg)
+                if self._is_internal_email(sender):
+                    first_internal_reply = msg
+                    break
+
+            if not first_internal_reply:
+                continue
+
+            # Check if reply is in our target period
+            try:
+                reply_date_str = first_internal_reply.get("receivedDateTime", "")
+                reply_dt = datetime.fromisoformat(reply_date_str.replace("Z", "+00:00"))
+                if reply_dt.tzinfo:
+                    reply_dt = reply_dt.replace(tzinfo=None)
+
+                if not (start_date <= reply_dt <= end_date):
+                    continue
+
+                first_msg_date_str = first_msg.get("receivedDateTime", "")
+                first_msg_dt = datetime.fromisoformat(first_msg_date_str.replace("Z", "+00:00"))
+                if first_msg_dt.tzinfo:
+                    first_msg_dt = first_msg_dt.replace(tzinfo=None)
+
+                hours_to_response = (reply_dt - first_msg_dt).total_seconds() / 3600
+
+                first_responses.append({
+                    "conversation_id": conv_id,
+                    "subject": first_msg.get("subject", ""),
+                    "external_email": first_msg_sender,
+                    "first_msg_date": first_msg_date_str,
+                    "response_date": reply_date_str,
+                    "hours_to_response": hours_to_response if hours_to_response >= 0 else 0,
+                })
+
+            except Exception as e:
+                logger.debug(f"Error processing conversation: {e}")
+                continue
+
+        logger.info(f"Found {len(first_responses)} first responses in period")
+        return first_responses
 
     def get_email_reply_times_in_period(
         self,
@@ -378,7 +438,7 @@ class ToolImpactAnalyzer:
         end_date: datetime,
     ) -> List[float]:
         """
-        Calculate reply times for email conversations in a period.
+        Calculate reply times for email conversations from engage inbox.
 
         Measures time between customer inbound email and our outbound reply.
         Only includes reply pairs where our reply was sent during the period.
@@ -386,115 +446,66 @@ class ToolImpactAnalyzer:
         Returns:
             List of reply times in hours
         """
-        self._ensure_odoo_connection()
-
-        # Get all emails in this period
-        domain = [
-            ["model", "=", "crm.lead"],
-            ["date", ">=", start_date.strftime("%Y-%m-%d 00:00:00")],
-            ["date", "<=", end_date.strftime("%Y-%m-%d 23:59:59")],
-            ["message_type", "=", "email"],
-        ]
-
-        fields = ["id", "date", "email_from", "res_id"]
-
-        try:
-            period_messages = self.odoo._call_kw(
-                "mail.message",
-                "search_read",
-                [domain],
-                {"fields": fields, "order": "date asc"},
-            ) or []
-
-            if not period_messages:
-                return []
-
-            # Get lead IDs and their email addresses
-            lead_ids = list(set(m["res_id"] for m in period_messages if m.get("res_id")))
-            if not lead_ids:
-                return []
-
-            leads = self.odoo._call_kw(
-                "crm.lead",
-                "search_read",
-                [[["id", "in", lead_ids]]],
-                {"fields": ["id", "email_from"]},
-            ) or []
-
-            lead_emails = {l["id"]: l.get("email_from", "") for l in leads}
-
-            # Get ALL emails for these leads (to find inbound emails before our replies)
-            all_domain = [
-                ["model", "=", "crm.lead"],
-                ["res_id", "in", lead_ids],
-                ["message_type", "=", "email"],
-            ]
-
-            all_messages = self.odoo._call_kw(
-                "mail.message",
-                "search_read",
-                [all_domain],
-                {"fields": fields, "order": "date asc"},
-            ) or []
-
-            # Group by lead
-            messages_by_lead = {}
-            for msg in all_messages:
-                lead_id = msg.get("res_id")
-                if lead_id not in messages_by_lead:
-                    messages_by_lead[lead_id] = []
-                messages_by_lead[lead_id].append(msg)
-
-            reply_times = []
-
-            # For each lead, find inbound->outbound pairs
-            for lead_id, msgs in messages_by_lead.items():
-                lead_email = lead_emails.get(lead_id, "")
-                lead_domain = lead_email.split("@")[-1] if lead_email and "@" in lead_email else ""
-
-                sorted_msgs = sorted(msgs, key=lambda m: m.get("date", ""))
-
-                for i, msg in enumerate(sorted_msgs):
-                    msg_email = msg.get("email_from", "")
-                    msg_domain = msg_email.split("@")[-1] if msg_email and "@" in msg_email else ""
-
-                    # Is this an inbound message from the customer?
-                    is_inbound = lead_domain and msg_domain == lead_domain
-
-                    if is_inbound:
-                        # Find the next outbound message (our reply)
-                        for next_msg in sorted_msgs[i + 1:]:
-                            next_email = next_msg.get("email_from", "")
-                            next_domain = next_email.split("@")[-1] if next_email and "@" in next_email else ""
-                            is_outbound = not (lead_domain and next_domain == lead_domain)
-
-                            if is_outbound:
-                                # Check if our reply was in the target period
-                                try:
-                                    reply_date_str = next_msg.get("date", "")
-                                    reply_date = datetime.fromisoformat(reply_date_str.replace("Z", "+00:00"))
-                                    if reply_date.tzinfo:
-                                        reply_date = reply_date.replace(tzinfo=None)
-
-                                    if start_date <= reply_date <= end_date:
-                                        inbound_date_str = msg.get("date", "")
-                                        inbound_date = datetime.fromisoformat(inbound_date_str.replace("Z", "+00:00"))
-                                        if inbound_date.tzinfo:
-                                            inbound_date = inbound_date.replace(tzinfo=None)
-
-                                        hours = (reply_date - inbound_date).total_seconds() / 3600
-                                        if hours >= 0:
-                                            reply_times.append(hours)
-                                except Exception:
-                                    pass
-                                break  # Found reply, move to next inbound
-
-            logger.info(f"Found {len(reply_times)} email reply pairs in period")
-            return reply_times
-
-        except Exception as e:
-            logger.error(f"Error calculating reply times: {e}")
+        emails = self._get_engage_emails_in_period(start_date, end_date)
+        if not emails:
             return []
+
+        # Group emails by conversation ID
+        conversations: Dict[str, List[Dict[str, Any]]] = {}
+        for email in emails:
+            conv_id = email.get("conversationId", "")
+            if conv_id:
+                if conv_id not in conversations:
+                    conversations[conv_id] = []
+                conversations[conv_id].append(email)
+
+        reply_times = []
+
+        for conv_id, thread in conversations.items():
+            if len(thread) < 2:
+                continue
+
+            # Sort by received date
+            sorted_thread = sorted(
+                thread,
+                key=lambda e: e.get("receivedDateTime", "")
+            )
+
+            # Find inbound -> outbound pairs
+            for i, msg in enumerate(sorted_thread):
+                sender = self._extract_email_address(msg)
+
+                # Is this an inbound (external) message?
+                if self._is_internal_email(sender):
+                    continue
+
+                # Find next internal reply
+                for next_msg in sorted_thread[i + 1:]:
+                    next_sender = self._extract_email_address(next_msg)
+
+                    if self._is_internal_email(next_sender):
+                        # Check if reply is in our target period
+                        try:
+                            reply_date_str = next_msg.get("receivedDateTime", "")
+                            reply_dt = datetime.fromisoformat(reply_date_str.replace("Z", "+00:00"))
+                            if reply_dt.tzinfo:
+                                reply_dt = reply_dt.replace(tzinfo=None)
+
+                            if start_date <= reply_dt <= end_date:
+                                inbound_date_str = msg.get("receivedDateTime", "")
+                                inbound_dt = datetime.fromisoformat(inbound_date_str.replace("Z", "+00:00"))
+                                if inbound_dt.tzinfo:
+                                    inbound_dt = inbound_dt.replace(tzinfo=None)
+
+                                hours = (reply_dt - inbound_dt).total_seconds() / 3600
+                                if hours >= 0:
+                                    reply_times.append(hours)
+                        except Exception:
+                            pass
+                        break  # Found reply, move to next inbound
+
+        logger.info(f"Found {len(reply_times)} email reply pairs in period")
+        return reply_times
 
     def calculate_response_metrics_by_period(
         self,
