@@ -47,7 +47,8 @@
       "Bash(npm run build:*)",
       "Bash(git reset:*)",
       "Bash(awk:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": []

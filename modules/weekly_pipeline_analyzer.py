@@ -95,23 +95,53 @@ class WeeklyPipelineAnalyzer:
                 ['create_date', '>=', f'{week_start} 00:00:00'],
                 ['create_date', '<=', f'{week_end} 23:59:59']
             ]
-            new_leads = self.odoo._call_kw(
-                'crm.lead', 'search_count', [new_leads_domain]
+            new_leads_data = self.odoo._call_kw(
+                'crm.lead', 'search_read',
+                [new_leads_domain],
+                {'fields': ['id', 'name', 'partner_name', 'expected_revenue', 'user_id', 'stage_id', 'type']}
             )
+            new_leads = len(new_leads_data)
+            new_leads_list = [
+                {
+                    'id': lead.get('id'),
+                    'name': lead.get('name') or lead.get('partner_name') or 'Unknown',
+                    'company': lead.get('partner_name') or '',
+                    'value': lead.get('expected_revenue') or 0,
+                    'owner': lead.get('user_id')[1] if isinstance(lead.get('user_id'), (list, tuple)) else 'Unassigned',
+                    'stage': lead.get('stage_id')[1] if isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown',
+                    'type': lead.get('type', 'lead')
+                }
+                for lead in new_leads_data
+            ]
 
-            # Qualified leads (not in "New" stage)
+            # Qualified leads (opportunities - type='opportunity')
             qualified_domain = base_domain + [
                 ['create_date', '>=', f'{week_start} 00:00:00'],
                 ['create_date', '<=', f'{week_end} 23:59:59'],
-                ['stage_id.name', '!=', 'New']
+                ['type', '=', 'opportunity']
             ]
-            qualified_leads = self.odoo._call_kw(
-                'crm.lead', 'search_count', [qualified_domain]
+            qualified_leads_data = self.odoo._call_kw(
+                'crm.lead', 'search_read',
+                [qualified_domain],
+                {'fields': ['id', 'name', 'partner_name', 'expected_revenue', 'user_id', 'stage_id']}
             )
+            qualified_leads = len(qualified_leads_data)
+            qualified_leads_list = [
+                {
+                    'id': lead.get('id'),
+                    'name': lead.get('name') or lead.get('partner_name') or 'Unknown',
+                    'company': lead.get('partner_name') or '',
+                    'value': lead.get('expected_revenue') or 0,
+                    'owner': lead.get('user_id')[1] if isinstance(lead.get('user_id'), (list, tuple)) else 'Unassigned',
+                    'stage': lead.get('stage_id')[1] if isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown'
+                }
+                for lead in qualified_leads_data
+            ]
 
             # Proposals sent - count leads that entered Proposal/Proposition stage during this week
             # We use mail.tracking.value to find all leads where stage changed TO a proposal stage
             # This captures leads even if they've since moved to another stage
+            proposals_list = []
             try:
                 # First, get the stage ID(s) for Proposal/Proposition stages
                 proposal_stages = self.odoo._call_kw(
@@ -144,8 +174,27 @@ class WeeklyPipelineAnalyzer:
                                 [[['id', 'in', message_ids], ['model', '=', 'crm.lead']]],
                                 {'fields': ['res_id']}
                             )
-                            unique_lead_ids = set(m['res_id'] for m in messages)
+                            unique_lead_ids = list(set(m['res_id'] for m in messages))
                             proposals_sent = len(unique_lead_ids)
+
+                            # Fetch lead details for proposals
+                            if unique_lead_ids:
+                                proposals_data = self.odoo._call_kw(
+                                    'crm.lead', 'search_read',
+                                    [[['id', 'in', unique_lead_ids]]],
+                                    {'fields': ['id', 'name', 'partner_name', 'expected_revenue', 'user_id', 'stage_id']}
+                                )
+                                proposals_list = [
+                                    {
+                                        'id': lead.get('id'),
+                                        'name': lead.get('name') or lead.get('partner_name') or 'Unknown',
+                                        'company': lead.get('partner_name') or '',
+                                        'value': lead.get('expected_revenue') or 0,
+                                        'owner': lead.get('user_id')[1] if isinstance(lead.get('user_id'), (list, tuple)) else 'Unassigned',
+                                        'stage': lead.get('stage_id')[1] if isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown'
+                                    }
+                                    for lead in proposals_data
+                                ]
                         else:
                             proposals_sent = 0
                     else:
@@ -161,9 +210,23 @@ class WeeklyPipelineAnalyzer:
                     ['date_last_stage_update', '>=', f'{week_start} 00:00:00'],
                     ['date_last_stage_update', '<=', f'{week_end} 23:59:59']
                 ]
-                proposals_sent = self.odoo._call_kw(
-                    'crm.lead', 'search_count', [proposals_domain]
+                proposals_data = self.odoo._call_kw(
+                    'crm.lead', 'search_read',
+                    [proposals_domain],
+                    {'fields': ['id', 'name', 'partner_name', 'expected_revenue', 'user_id', 'stage_id']}
                 )
+                proposals_sent = len(proposals_data)
+                proposals_list = [
+                    {
+                        'id': lead.get('id'),
+                        'name': lead.get('name') or lead.get('partner_name') or 'Unknown',
+                        'company': lead.get('partner_name') or '',
+                        'value': lead.get('expected_revenue') or 0,
+                        'owner': lead.get('user_id')[1] if isinstance(lead.get('user_id'), (list, tuple)) else 'Unassigned',
+                        'stage': lead.get('stage_id')[1] if isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown'
+                    }
+                    for lead in proposals_data
+                ]
 
             # Deals closed this week (using is_won boolean field)
             closed_domain = base_domain + [
@@ -174,10 +237,21 @@ class WeeklyPipelineAnalyzer:
             closed_leads = self.odoo._call_kw(
                 'crm.lead', 'search_read',
                 [closed_domain],
-                {'fields': ['expected_revenue']}
+                {'fields': ['id', 'name', 'partner_name', 'expected_revenue', 'user_id', 'stage_id']}
             )
             deals_closed = len(closed_leads)
             closed_value = sum((lead.get('expected_revenue') or 0) for lead in closed_leads)
+            closed_leads_list = [
+                {
+                    'id': lead.get('id'),
+                    'name': lead.get('name') or lead.get('partner_name') or 'Unknown',
+                    'company': lead.get('partner_name') or '',
+                    'value': lead.get('expected_revenue') or 0,
+                    'owner': lead.get('user_id')[1] if isinstance(lead.get('user_id'), (list, tuple)) else 'Unassigned',
+                    'stage': lead.get('stage_id')[1] if isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown'
+                }
+                for lead in closed_leads
+            ]
 
             # Deals lost this week
             lost_domain = base_domain + [
@@ -189,9 +263,21 @@ class WeeklyPipelineAnalyzer:
             lost_leads = self.odoo._call_kw(
                 'crm.lead', 'search_read',
                 [lost_domain],
-                {'fields': ['lost_reason_id']}
+                {'fields': ['id', 'name', 'partner_name', 'expected_revenue', 'user_id', 'stage_id', 'lost_reason_id']}
             )
             deals_lost = len(lost_leads)
+            lost_leads_list = [
+                {
+                    'id': lead.get('id'),
+                    'name': lead.get('name') or lead.get('partner_name') or 'Unknown',
+                    'company': lead.get('partner_name') or '',
+                    'value': lead.get('expected_revenue') or 0,
+                    'owner': lead.get('user_id')[1] if isinstance(lead.get('user_id'), (list, tuple)) else 'Unassigned',
+                    'stage': lead.get('stage_id')[1] if isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown',
+                    'lost_reason': lead.get('lost_reason_id')[1] if isinstance(lead.get('lost_reason_id'), (list, tuple)) else 'Unknown'
+                }
+                for lead in lost_leads
+            ]
 
             # Group lost reasons
             lost_reasons = {}
@@ -205,11 +291,16 @@ class WeeklyPipelineAnalyzer:
 
             return {
                 "new_leads": new_leads,
+                "new_leads_list": new_leads_list,
                 "qualified_leads": qualified_leads,
+                "qualified_leads_list": qualified_leads_list,
                 "proposals_sent": proposals_sent,
+                "proposals_list": proposals_list,
                 "deals_closed": deals_closed,
                 "closed_value": closed_value,
+                "closed_leads_list": closed_leads_list,
                 "deals_lost": deals_lost,
+                "lost_leads_list": lost_leads_list,
                 "lost_reasons": lost_reasons
             }
 

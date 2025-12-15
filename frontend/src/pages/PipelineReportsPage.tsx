@@ -8,16 +8,33 @@ import {
   UserGroupIcon,
   ExclamationTriangleIcon,
   TrophyIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 
+interface LeadDetail {
+  id: number;
+  name: string;
+  company: string;
+  value: number;
+  owner: string;
+  stage: string;
+  type?: string;
+  lost_reason?: string;
+}
+
 interface WeekOverview {
   new_leads: number;
+  new_leads_list: LeadDetail[];
   qualified_leads: number;
+  qualified_leads_list: LeadDetail[];
   proposals_sent: number;
+  proposals_list: LeadDetail[];
   deals_closed: number;
   closed_value: number;
+  closed_leads_list: LeadDetail[];
   deals_lost: number;
+  lost_leads_list: LeadDetail[];
   lost_reasons: Record<string, number>;
 }
 
@@ -69,6 +86,14 @@ const PipelineReportsPage: React.FC = () => {
     weekEnd: string;
     salespersonFilter: string;
   } | null>(null);
+
+  // Modal state for viewing lead details
+  const [modalData, setModalData] = useState<{
+    isOpen: boolean;
+    title: string;
+    leads: LeadDetail[];
+    showLostReason?: boolean;
+  }>({ isOpen: false, title: '', leads: [] });
 
   React.useEffect(() => {
     const today = new Date();
@@ -260,25 +285,53 @@ const PipelineReportsPage: React.FC = () => {
             </div>
             <div className="p-6">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                <div className="bg-blue-50 rounded-lg p-4">
+                <button
+                  onClick={() => setModalData({
+                    isOpen: true,
+                    title: 'New Leads',
+                    leads: reportQuery.data?.overview.new_leads_list || []
+                  })}
+                  className="bg-blue-50 rounded-lg p-4 text-left hover:bg-blue-100 transition-colors cursor-pointer"
+                >
                   <p className="text-sm text-gray-600">New Leads</p>
                   <p className="text-2xl font-bold text-blue-600">
                     {reportQuery.data.overview.new_leads}
                   </p>
-                </div>
-                <div className="bg-green-50 rounded-lg p-4">
+                </button>
+                <button
+                  onClick={() => setModalData({
+                    isOpen: true,
+                    title: 'Qualified (Opportunities)',
+                    leads: reportQuery.data?.overview.qualified_leads_list || []
+                  })}
+                  className="bg-green-50 rounded-lg p-4 text-left hover:bg-green-100 transition-colors cursor-pointer"
+                >
                   <p className="text-sm text-gray-600">Qualified</p>
                   <p className="text-2xl font-bold text-green-600">
                     {reportQuery.data.overview.qualified_leads}
                   </p>
-                </div>
-                <div className="bg-purple-50 rounded-lg p-4">
+                </button>
+                <button
+                  onClick={() => setModalData({
+                    isOpen: true,
+                    title: 'Proposals Sent',
+                    leads: reportQuery.data?.overview.proposals_list || []
+                  })}
+                  className="bg-purple-50 rounded-lg p-4 text-left hover:bg-purple-100 transition-colors cursor-pointer"
+                >
                   <p className="text-sm text-gray-600">Proposals</p>
                   <p className="text-2xl font-bold text-purple-600">
                     {reportQuery.data.overview.proposals_sent}
                   </p>
-                </div>
-                <div className="bg-emerald-50 rounded-lg p-4">
+                </button>
+                <button
+                  onClick={() => setModalData({
+                    isOpen: true,
+                    title: 'Closed Deals',
+                    leads: reportQuery.data?.overview.closed_leads_list || []
+                  })}
+                  className="bg-emerald-50 rounded-lg p-4 text-left hover:bg-emerald-100 transition-colors cursor-pointer"
+                >
                   <p className="text-sm text-gray-600">Closed</p>
                   <p className="text-2xl font-bold text-emerald-600">
                     {reportQuery.data.overview.deals_closed}
@@ -286,13 +339,21 @@ const PipelineReportsPage: React.FC = () => {
                   <p className="text-xs text-gray-500 mt-1">
                     {formatCurrency(reportQuery.data.overview.closed_value)}
                   </p>
-                </div>
-                <div className="bg-red-50 rounded-lg p-4">
+                </button>
+                <button
+                  onClick={() => setModalData({
+                    isOpen: true,
+                    title: 'Lost Deals',
+                    leads: reportQuery.data?.overview.lost_leads_list || [],
+                    showLostReason: true
+                  })}
+                  className="bg-red-50 rounded-lg p-4 text-left hover:bg-red-100 transition-colors cursor-pointer"
+                >
                   <p className="text-sm text-gray-600">Lost</p>
                   <p className="text-2xl font-bold text-red-600">
                     {reportQuery.data.overview.deals_lost}
                   </p>
-                </div>
+                </button>
               </div>
 
               {Object.keys(reportQuery.data.overview.lost_reasons).length > 0 && (
@@ -450,6 +511,76 @@ const PipelineReportsPage: React.FC = () => {
 
           <div className="text-center text-xs text-gray-500">
             Report generated at {new Date(reportQuery.data.generated_at).toLocaleString()}
+          </div>
+        </div>
+      )}
+
+      {/* Lead Details Modal */}
+      {modalData.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {modalData.title} ({modalData.leads.length})
+              </h3>
+              <button
+                onClick={() => setModalData({ isOpen: false, title: '', leads: [] })}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {modalData.leads.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">No leads found</p>
+              ) : (
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Lead / Company
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Stage
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Owner
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Value
+                      </th>
+                      {modalData.showLostReason && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Lost Reason
+                        </th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {modalData.leads.map((lead, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-gray-900">{lead.name}</p>
+                          {lead.company && lead.company !== lead.name && (
+                            <p className="text-xs text-gray-500">{lead.company}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{lead.stage}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{lead.owner}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600 text-right">
+                          {formatCurrency(lead.value)}
+                        </td>
+                        {modalData.showLostReason && (
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {lead.lost_reason || 'Unknown'}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}
