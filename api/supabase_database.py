@@ -514,23 +514,58 @@ class SupabaseDatabase:
         import copy
         truncated = copy.deepcopy(result)
 
+        # Get completed thread IDs to filter them out BEFORE truncating
+        # This ensures we keep non-completed items in the truncated list
+        completed_ids = set()
+        try:
+            completed_threads = self.get_completed_followups_with_timestamps()
+            completed_ids = set(completed_threads.keys())
+            if completed_ids:
+                logger.info(f"Filtering out {len(completed_ids)} completed threads before truncation")
+        except Exception as e:
+            logger.warning(f"Could not fetch completed threads for filtering: {e}")
+
         # Keys that contain thread lists (proposal followup reports use these)
         thread_list_keys = ["follow_ups", "unanswered", "pending_proposals", "filtered"]
 
         for key in thread_list_keys:
             if key in truncated and isinstance(truncated[key], list):
-                # Limit to 50 items per list
                 original_count = len(truncated[key])
-                if original_count > 50:
+
+                # Filter out completed items first (for unanswered and pending_proposals)
+                if key in ["unanswered", "pending_proposals"] and completed_ids:
+                    filtered_list = [
+                        item for item in truncated[key]
+                        if item.get("conversation_id") not in completed_ids
+                    ]
+                    filtered_count = original_count - len(filtered_list)
+                    if filtered_count > 0:
+                        logger.info(f"Filtered out {filtered_count} completed items from {key}")
+                    truncated[key] = filtered_list
+
+                # Now truncate to 50 items (keep most recent)
+                current_count = len(truncated[key])
+                if current_count > 50:
                     truncated[key] = truncated[key][-50:]
                     truncated["_truncated"] = True
                     truncated[f"_original_{key}_count"] = original_count
-                    logger.info(f"Truncated {key} from {original_count} to 50 for storage")
+                    logger.info(f"Truncated {key} from {current_count} to 50 for storage")
 
                 # Remove heavy data from each item
                 for item in truncated[key]:
                     if isinstance(item, dict):
                         self._truncate_thread_item(item)
+
+        # Update summary counts to reflect filtered values
+        if "summary" in truncated:
+            if "unanswered" in truncated:
+                truncated["summary"]["unanswered_count"] = len(truncated["unanswered"])
+            if "pending_proposals" in truncated:
+                truncated["summary"]["pending_proposals_count"] = len(truncated["pending_proposals"])
+            # Update total count
+            unanswered_count = truncated["summary"].get("unanswered_count", 0)
+            pending_count = truncated["summary"].get("pending_proposals_count", 0)
+            truncated["summary"]["total_count"] = unanswered_count + pending_count
 
         return truncated
 
