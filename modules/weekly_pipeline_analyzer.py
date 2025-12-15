@@ -68,8 +68,7 @@ class WeeklyPipelineAnalyzer:
         # Generate each section
         overview = self._get_week_overview(week_start, week_end, domain)
         pipeline_stages = self._get_pipeline_by_stage(domain)
-        top_opportunities = self._get_top_opportunities(domain, limit=5)
-        at_risk_leads = self._get_at_risk_leads(domain)
+        activity_metrics = self._get_activity_metrics(week_start, week_end, domain)
 
         return {
             "week_start": week_start,
@@ -77,8 +76,7 @@ class WeeklyPipelineAnalyzer:
             "salesperson_filter": salesperson_filter,
             "overview": overview,
             "pipeline_stages": pipeline_stages,
-            "top_opportunities": top_opportunities,
-            "at_risk_leads": at_risk_leads,
+            "activity_metrics": activity_metrics,
             "generated_at": datetime.now().isoformat()
         }
 
@@ -391,114 +389,174 @@ class WeeklyPipelineAnalyzer:
             logger.error(f"Error getting pipeline by stage: {e}")
             return []
 
-    def _get_top_opportunities(self, base_domain: List[Any], limit: int = 5) -> List[Dict[str, Any]]:
-        """Get top opportunities by expected revenue."""
+    def _get_activity_metrics(
+        self,
+        week_start: str,
+        week_end: str,
+        base_domain: List[Any]
+    ) -> Dict[str, Any]:
+        """Get activity metrics for the week: emails sent, calls, meetings, follow-ups."""
         try:
-            domain = base_domain + [
-                ['active', '=', True],
-                ['probability', '>', 0],
-                ['probability', '<', 100],
-                ['expected_revenue', '>', 0]
-            ]
+            # Get user_id from base_domain if filtering by salesperson
+            user_id = None
+            for condition in base_domain:
+                if condition[0] == 'user_id' and condition[1] == '=':
+                    user_id = condition[2]
+                    break
 
-            opportunities = self.odoo._call_kw(
-                'crm.lead', 'search_read',
-                [domain],
-                {
-                    'fields': ['name', 'partner_name', 'stage_id', 'expected_revenue', 'user_id', 'write_date'],
-                    'order': 'expected_revenue desc',
-                    'limit': limit
-                }
+            # Build date domain for activities
+            date_start = f'{week_start} 00:00:00'
+            date_end = f'{week_end} 23:59:59'
+
+            # 1. Count emails sent (mail.message with message_type = 'email' on crm.lead)
+            email_domain = [
+                ['model', '=', 'crm.lead'],
+                ['message_type', '=', 'email'],
+                ['date', '>=', date_start],
+                ['date', '<=', date_end]
+            ]
+            if user_id:
+                email_domain.append(['author_id.user_ids', 'in', [user_id]])
+
+            emails_sent = self.odoo._call_kw(
+                'mail.message', 'search_count', [email_domain]
             )
 
-            result = []
-            for opp in opportunities:
-                stage = opp.get('stage_id')
-                stage_name = stage[1] if isinstance(stage, (list, tuple)) and len(stage) == 2 else 'Unknown'
-
-                owner = opp.get('user_id')
-                owner_name = owner[1] if isinstance(owner, (list, tuple)) and len(owner) == 2 else 'Unassigned'
-
-                # Calculate days since last activity
-                last_activity_str = opp.get('write_date')
-                days_since_activity = 0
-                if last_activity_str:
-                    try:
-                        last_activity = datetime.fromisoformat(last_activity_str.replace('Z', '+00:00'))
-                        days_since_activity = (datetime.now(last_activity.tzinfo) - last_activity).days
-                    except:
-                        pass
-
-                opp_name = opp.get('name')
-                partner_name = opp.get('partner_name')
-                result.append({
-                    "opportunity_name": opp_name if opp_name else (partner_name if partner_name else 'Unknown'),
-                    "company": partner_name if partner_name else '',
-                    "stage": stage_name,
-                    "potential_value": opp.get('expected_revenue', 0) or 0,
-                    "owner": owner_name,
-                    "days_since_last_activity": days_since_activity
-                })
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Error getting top opportunities: {e}")
-            return []
-
-    def _get_at_risk_leads(self, base_domain: List[Any]) -> List[Dict[str, Any]]:
-        """Get leads at risk (no activity for 10+ days)."""
-        try:
-            # Calculate 10 days ago
-            ten_days_ago = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d %H:%M:%S')
-
-            domain = base_domain + [
-                ['active', '=', True],
-                ['probability', '>', 0],
-                ['probability', '<', 100],
-                ['write_date', '<', ten_days_ago]
+            # 2. Count logged calls/notes (mail.message with message_type = 'comment' and subtype for notes)
+            # In Odoo, logged activities often appear as comments
+            notes_domain = [
+                ['model', '=', 'crm.lead'],
+                ['message_type', '=', 'comment'],
+                ['date', '>=', date_start],
+                ['date', '<=', date_end]
             ]
+            if user_id:
+                notes_domain.append(['author_id.user_ids', 'in', [user_id]])
 
-            at_risk = self.odoo._call_kw(
-                'crm.lead', 'search_read',
-                [domain],
-                {'fields': ['name', 'partner_name', 'stage_id', 'user_id', 'expected_revenue', 'write_date']}
+            notes_logged = self.odoo._call_kw(
+                'mail.message', 'search_count', [notes_domain]
             )
 
-            result = []
-            for lead in at_risk:
-                stage = lead.get('stage_id')
-                stage_name = stage[1] if isinstance(stage, (list, tuple)) and len(stage) == 2 else 'Unknown'
+            # 3. Count scheduled activities completed (mail.activity - done activities)
+            # We look for activities that were completed during this week
+            try:
+                # Get activity types first
+                activity_types = self.odoo._call_kw(
+                    'mail.activity.type', 'search_read',
+                    [[]],
+                    {'fields': ['id', 'name']}
+                )
+                activity_type_map = {at['id']: at['name'] for at in activity_types}
 
-                owner = lead.get('user_id')
-                owner_name = owner[1] if isinstance(owner, (list, tuple)) and len(owner) == 2 else 'Unassigned'
+                # Get completed activities from mail.message where tracking shows activity done
+                # Activities create messages when marked as done
+                activity_done_domain = [
+                    ['model', '=', 'crm.lead'],
+                    ['subtype_id.name', '=', 'Activities'],
+                    ['date', '>=', date_start],
+                    ['date', '<=', date_end]
+                ]
+                if user_id:
+                    activity_done_domain.append(['author_id.user_ids', 'in', [user_id]])
 
-                # Calculate days of inactivity
-                last_activity_str = lead.get('write_date')
-                days_inactive = 0
-                if last_activity_str:
-                    try:
-                        last_activity = datetime.fromisoformat(last_activity_str.replace('Z', '+00:00'))
-                        days_inactive = (datetime.now(last_activity.tzinfo) - last_activity).days
-                    except:
-                        pass
+                activities_completed = self.odoo._call_kw(
+                    'mail.message', 'search_count', [activity_done_domain]
+                )
+            except Exception as e:
+                logger.warning(f"Could not fetch activity completions: {e}")
+                activities_completed = 0
 
-                lead_name = lead.get('name')
-                partner_name = lead.get('partner_name')
-                result.append({
-                    "lead_name": lead_name if lead_name else (partner_name if partner_name else 'Unknown'),
-                    "company": partner_name if partner_name else '',
-                    "stage": stage_name,
-                    "owner": owner_name,
-                    "value": lead.get('expected_revenue', 0) or 0,
-                    "days_inactive": days_inactive
-                })
+            # 4. Count meetings/calls scheduled (calendar.event linked to CRM leads)
+            try:
+                meeting_domain = [
+                    ['res_model', '=', 'crm.lead'],
+                    ['start', '>=', date_start],
+                    ['start', '<=', date_end]
+                ]
+                if user_id:
+                    meeting_domain.append(['user_id', '=', user_id])
 
-            # Sort by days inactive (most at risk first)
-            result.sort(key=lambda x: x["days_inactive"], reverse=True)
+                meetings_data = self.odoo._call_kw(
+                    'calendar.event', 'search_read',
+                    [meeting_domain],
+                    {'fields': ['id', 'name', 'start', 'res_id', 'user_id']}
+                )
+                meetings_scheduled = len(meetings_data)
+                meetings_list = [
+                    {
+                        'id': m.get('id'),
+                        'name': m.get('name') or 'Meeting',
+                        'date': m.get('start', '')[:10] if m.get('start') else '',
+                        'owner': m.get('user_id')[1] if isinstance(m.get('user_id'), (list, tuple)) else 'Unknown'
+                    }
+                    for m in meetings_data
+                ]
+            except Exception as e:
+                logger.warning(f"Could not fetch calendar events: {e}")
+                meetings_scheduled = 0
+                meetings_list = []
 
-            return result
+            # 5. Get breakdown by salesperson
+            try:
+                # Get all messages for the period grouped by author
+                messages_domain = [
+                    ['model', '=', 'crm.lead'],
+                    ['message_type', 'in', ['email', 'comment']],
+                    ['date', '>=', date_start],
+                    ['date', '<=', date_end]
+                ]
+
+                all_messages = self.odoo._call_kw(
+                    'mail.message', 'search_read',
+                    [messages_domain],
+                    {'fields': ['author_id', 'message_type']}
+                )
+
+                # Group by author
+                by_salesperson = {}
+                for msg in all_messages:
+                    author = msg.get('author_id')
+                    if isinstance(author, (list, tuple)) and len(author) == 2:
+                        author_name = author[1]
+                    else:
+                        author_name = 'Unknown'
+
+                    if author_name not in by_salesperson:
+                        by_salesperson[author_name] = {'emails': 0, 'notes': 0, 'total': 0}
+
+                    if msg.get('message_type') == 'email':
+                        by_salesperson[author_name]['emails'] += 1
+                    else:
+                        by_salesperson[author_name]['notes'] += 1
+                    by_salesperson[author_name]['total'] += 1
+
+                # Convert to sorted list
+                salesperson_breakdown = [
+                    {'name': name, **counts}
+                    for name, counts in sorted(by_salesperson.items(), key=lambda x: x[1]['total'], reverse=True)
+                ][:10]  # Top 10
+            except Exception as e:
+                logger.warning(f"Could not fetch salesperson breakdown: {e}")
+                salesperson_breakdown = []
+
+            return {
+                "emails_sent": emails_sent,
+                "notes_logged": notes_logged,
+                "activities_completed": activities_completed,
+                "meetings_scheduled": meetings_scheduled,
+                "meetings_list": meetings_list,
+                "by_salesperson": salesperson_breakdown,
+                "total_activities": emails_sent + notes_logged + activities_completed + meetings_scheduled
+            }
 
         except Exception as e:
-            logger.error(f"Error getting at-risk leads: {e}")
-            return []
+            logger.error(f"Error getting activity metrics: {e}")
+            return {
+                "emails_sent": 0,
+                "notes_logged": 0,
+                "activities_completed": 0,
+                "meetings_scheduled": 0,
+                "meetings_list": [],
+                "by_salesperson": [],
+                "total_activities": 0
+            }

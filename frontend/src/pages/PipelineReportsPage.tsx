@@ -6,9 +6,10 @@ import {
   CalendarIcon,
   ChatBubbleLeftRightIcon,
   UserGroupIcon,
-  ExclamationTriangleIcon,
-  TrophyIcon,
   XMarkIcon,
+  EnvelopeIcon,
+  PhoneIcon,
+  ClipboardDocumentCheckIcon,
 } from '@heroicons/react/24/outline';
 import api from '../utils/api';
 
@@ -46,22 +47,28 @@ interface PipelineStage {
   top_clients: string[];
 }
 
-interface Opportunity {
-  opportunity_name: string;
-  company: string;
-  stage: string;
-  potential_value: number;
+interface Meeting {
+  id: number;
+  name: string;
+  date: string;
   owner: string;
-  days_since_last_activity: number;
 }
 
-interface AtRiskLead {
-  lead_name: string;
-  company: string;
-  stage: string;
-  owner: string;
-  value: number;
-  days_inactive: number;
+interface SalespersonActivity {
+  name: string;
+  emails: number;
+  notes: number;
+  total: number;
+}
+
+interface ActivityMetrics {
+  emails_sent: number;
+  notes_logged: number;
+  activities_completed: number;
+  meetings_scheduled: number;
+  meetings_list: Meeting[];
+  by_salesperson: SalespersonActivity[];
+  total_activities: number;
 }
 
 interface PipelineReport {
@@ -70,8 +77,7 @@ interface PipelineReport {
   salesperson_filter?: string;
   overview: WeekOverview;
   pipeline_stages: PipelineStage[];
-  top_opportunities: Opportunity[];
-  at_risk_leads: AtRiskLead[];
+  activity_metrics: ActivityMetrics;
   generated_at: string;
 }
 
@@ -427,83 +433,108 @@ const PipelineReportsPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Activity Metrics Section */}
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <TrophyIcon className="h-5 w-5 text-yellow-500" />
-                Top 5 Opportunities
+                <ClipboardDocumentCheckIcon className="h-5 w-5 text-indigo-500" />
+                Activity This Week
               </h2>
             </div>
             <div className="p-6">
-              {reportQuery.data.top_opportunities.length === 0 ? (
-                <p className="text-gray-500 text-sm italic">No active opportunities found.</p>
-              ) : (
-                <div className="space-y-3">
-                  {reportQuery.data.top_opportunities.map((opp, idx) => (
-                    <div key={idx} className="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <p className="font-semibold text-gray-900">{opp.opportunity_name}</p>
-                          {opp.company && opp.company !== opp.opportunity_name && (
-                            <p className="text-sm text-gray-600">{opp.company}</p>
-                          )}
-                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500">
-                            <span>Stage: <span className="font-medium">{opp.stage}</span></span>
-                            <span>Owner: <span className="font-medium">{opp.owner}</span></span>
-                            <span>Last activity: <span className="font-medium">{opp.days_since_last_activity} days ago</span></span>
-                          </div>
-                        </div>
-                        <div className="ml-4 text-right flex-shrink-0">
-                          <p className="text-lg font-bold text-primary-600">
-                            {formatCurrency(opp.potential_value)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-indigo-50 rounded-lg p-4 text-center">
+                  <EnvelopeIcon className="h-8 w-8 text-indigo-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-indigo-600">
+                    {reportQuery.data.activity_metrics?.emails_sent || 0}
+                  </p>
+                  <p className="text-sm text-gray-600">Emails Sent</p>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-4 text-center">
+                  <PhoneIcon className="h-8 w-8 text-amber-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-amber-600">
+                    {reportQuery.data.activity_metrics?.notes_logged || 0}
+                  </p>
+                  <p className="text-sm text-gray-600">Notes Logged</p>
+                </div>
+                <div className="bg-teal-50 rounded-lg p-4 text-center">
+                  <ClipboardDocumentCheckIcon className="h-8 w-8 text-teal-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-teal-600">
+                    {reportQuery.data.activity_metrics?.activities_completed || 0}
+                  </p>
+                  <p className="text-sm text-gray-600">Activities Done</p>
+                </div>
+                <div className="bg-pink-50 rounded-lg p-4 text-center">
+                  <CalendarIcon className="h-8 w-8 text-pink-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-pink-600">
+                    {reportQuery.data.activity_metrics?.meetings_scheduled || 0}
+                  </p>
+                  <p className="text-sm text-gray-600">Meetings</p>
+                </div>
+              </div>
+
+              {/* Activity by Salesperson */}
+              {reportQuery.data.activity_metrics?.by_salesperson &&
+               reportQuery.data.activity_metrics.by_salesperson.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <h3 className="text-sm font-medium text-gray-700 mb-4">Activity by Team Member</h3>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                            Name
+                          </th>
+                          <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                            Emails
+                          </th>
+                          <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                            Notes
+                          </th>
+                          <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                            Total
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {reportQuery.data.activity_metrics.by_salesperson.map((person, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50">
+                            <td className="px-4 py-2 text-sm font-medium text-gray-900">
+                              {person.name}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-600 text-center">
+                              {person.emails}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-600 text-center">
+                              {person.notes}
+                            </td>
+                            <td className="px-4 py-2 text-sm font-semibold text-gray-900 text-center">
+                              {person.total}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <ExclamationTriangleIcon className="h-5 w-5 text-red-500" />
-                At Risk Leads (10+ Days No Activity)
-              </h2>
-            </div>
-            <div className="p-6">
-              {reportQuery.data.at_risk_leads.length === 0 ? (
-                <p className="text-green-600 text-sm flex items-center gap-2">
-                  ✅ No leads at risk - great job staying on top of follow-ups!
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-gray-600 mb-4">
-                    <strong>{reportQuery.data.at_risk_leads.length}</strong> leads at risk
-                  </p>
-                  {reportQuery.data.at_risk_leads.slice(0, 10).map((lead, idx) => (
-                    <div key={idx} className="border border-red-200 rounded-lg p-4 bg-red-50">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <p className="font-semibold text-gray-900">{lead.lead_name}</p>
-                          <p className="text-sm text-gray-600">
-                            {lead.stage} {lead.company && `• ${lead.company}`}
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
-                            <span>Owner: <span className="font-medium">{lead.owner}</span></span>
-                            <span className="text-red-600 font-medium">Inactive: {lead.days_inactive} days</span>
-                          </div>
+              {/* Meetings List */}
+              {reportQuery.data.activity_metrics?.meetings_list &&
+               reportQuery.data.activity_metrics.meetings_list.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <h3 className="text-sm font-medium text-gray-700 mb-4">Scheduled Meetings</h3>
+                  <div className="space-y-2">
+                    {reportQuery.data.activity_metrics.meetings_list.map((meeting, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{meeting.name}</p>
+                          <p className="text-xs text-gray-500">{meeting.owner}</p>
                         </div>
-                        <div className="ml-4 text-right flex-shrink-0">
-                          <p className="text-sm font-semibold text-gray-700">
-                            {formatCurrency(lead.value)}
-                          </p>
-                        </div>
+                        <span className="text-sm text-gray-600">{meeting.date}</span>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
