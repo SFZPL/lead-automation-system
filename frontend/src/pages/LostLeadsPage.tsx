@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from 'react-query';
 import toast from 'react-hot-toast';
+import html2pdf from 'html2pdf.js';
 import {
   SparklesIcon,
   ArrowPathIcon,
@@ -19,6 +20,7 @@ import {
   XCircleIcon,
   ChartBarIcon,
   PaperAirplaneIcon,
+  DocumentArrowDownIcon,
 } from '@heroicons/react/24/outline';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import api from '../utils/api';
@@ -212,6 +214,56 @@ const LostLeadsPage: React.FC = () => {
       sessionStorage.removeItem('lostLeads_reportData');
     }
   }, [reportData]);
+
+  // Ref for PDF export
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+
+  // Export report to PDF
+  const exportToPdf = async () => {
+    if (!reportRef.current || !reportData) {
+      toast.error('No report to export');
+      return;
+    }
+
+    setIsExportingPdf(true);
+    toast.loading('Generating PDF...', { id: 'pdf-export' });
+
+    try {
+      const element = reportRef.current;
+      const currentDate = new Date().toISOString().split('T')[0];
+      const dateRange = reportDateFrom && reportDateTo
+        ? `${reportDateFrom}-to-${reportDateTo}`
+        : currentDate;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const opt: any = {
+        margin: [10, 10, 10, 10],
+        filename: `lost-leads-report-${dateRange}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          letterRendering: true
+        },
+        jsPDF: {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait'
+        },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      };
+
+      await html2pdf().set(opt).from(element).save();
+      toast.success('PDF exported successfully', { id: 'pdf-export' });
+    } catch (error) {
+      console.error('PDF export error:', error);
+      toast.error('Failed to export PDF', { id: 'pdf-export' });
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   // Loading steps for multi-step indicator
   const loadingSteps = [
@@ -1406,27 +1458,159 @@ const LostLeadsPage: React.FC = () => {
           {/* Report Results */}
           {reportData && (
             <div className="space-y-6">
-              {/* Report Header with Send to Teams button */}
+              {/* Report Header with Export/Send buttons */}
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-900">Lost Leads Report</h2>
-                <button
-                  onClick={handleSendToTeams}
-                  disabled={isSendingToTeams}
-                  className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSendingToTeams ? (
-                    <>
-                      <ArrowPathIcon className="h-4 w-4 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <PaperAirplaneIcon className="h-4 w-4" />
-                      Send to Teams
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={exportToPdf}
+                    disabled={isExportingPdf}
+                    className="inline-flex items-center gap-2 rounded-lg bg-gray-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isExportingPdf ? (
+                      <>
+                        <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <DocumentArrowDownIcon className="h-4 w-4" />
+                        Export PDF
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleSendToTeams}
+                    disabled={isSendingToTeams}
+                    className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSendingToTeams ? (
+                      <>
+                        <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <PaperAirplaneIcon className="h-4 w-4" />
+                        Send to Teams
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
+
+              {/* PDF Export Container */}
+              <div ref={reportRef} className="pdf-export-content">
+
+              {/* Pipeline Performance (Funnel Metrics with MoM Comparison) */}
+              {reportData.funnel_metrics && (
+                <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    Pipeline Performance
+                    <span className="text-sm font-normal text-gray-500 ml-2">
+                      ({reportData.funnel_metrics.current_period?.label} vs {reportData.funnel_metrics.previous_period?.label})
+                    </span>
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    {/* Leads In */}
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-blue-600">Leads In</div>
+                      <div className="text-2xl font-bold text-blue-900 mt-1">
+                        {reportData.funnel_metrics.current_period?.leads_in || 0}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        vs {reportData.funnel_metrics.previous_period?.leads_in || 0} prev
+                        {reportData.funnel_metrics.changes?.leads_in !== null && (
+                          <span className={`ml-1 font-medium ${reportData.funnel_metrics.changes.leads_in >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ({reportData.funnel_metrics.changes.leads_in >= 0 ? '+' : ''}{reportData.funnel_metrics.changes.leads_in}%)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Qualified */}
+                    <div className="bg-indigo-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-indigo-600">Qualified (Opportunities)</div>
+                      <div className="text-2xl font-bold text-indigo-900 mt-1">
+                        {reportData.funnel_metrics.current_period?.qualified || 0}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        vs {reportData.funnel_metrics.previous_period?.qualified || 0} prev
+                        {reportData.funnel_metrics.changes?.qualified !== null && (
+                          <span className={`ml-1 font-medium ${reportData.funnel_metrics.changes.qualified >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ({reportData.funnel_metrics.changes.qualified >= 0 ? '+' : ''}{reportData.funnel_metrics.changes.qualified}%)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Won */}
+                    <div className="bg-green-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-green-600">Won</div>
+                      <div className="text-2xl font-bold text-green-900 mt-1">
+                        {reportData.funnel_metrics.current_period?.won_count || 0}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        vs {reportData.funnel_metrics.previous_period?.won_count || 0} prev
+                        {reportData.funnel_metrics.changes?.won_count !== null && (
+                          <span className={`ml-1 font-medium ${reportData.funnel_metrics.changes.won_count >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ({reportData.funnel_metrics.changes.won_count >= 0 ? '+' : ''}{reportData.funnel_metrics.changes.won_count}%)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Value Won */}
+                    <div className="bg-emerald-50 rounded-lg p-4">
+                      <div className="text-sm font-medium text-emerald-600">Value Won</div>
+                      <div className="text-2xl font-bold text-emerald-900 mt-1">
+                        AED {(reportData.funnel_metrics.current_period?.won_value || 0).toLocaleString()}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        vs AED {(reportData.funnel_metrics.previous_period?.won_value || 0).toLocaleString()} prev
+                        {reportData.funnel_metrics.changes?.won_value !== null && (
+                          <span className={`ml-1 font-medium ${reportData.funnel_metrics.changes.won_value >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ({reportData.funnel_metrics.changes.won_value >= 0 ? '+' : ''}{reportData.funnel_metrics.changes.won_value}%)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Conversion Rates */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
+                    <div className="text-center">
+                      <div className="text-sm text-gray-500">Lead → Qualified Rate</div>
+                      <div className="text-xl font-bold text-gray-900">
+                        {reportData.funnel_metrics.current_period?.lead_to_qualified_rate || 0}%
+                      </div>
+                      {reportData.funnel_metrics.changes?.lead_to_qualified_rate !== null && (
+                        <div className={`text-xs ${reportData.funnel_metrics.changes.lead_to_qualified_rate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {reportData.funnel_metrics.changes.lead_to_qualified_rate >= 0 ? '↑' : '↓'} {Math.abs(reportData.funnel_metrics.changes.lead_to_qualified_rate)}% vs prev
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm text-gray-500">Qualified → Won Rate</div>
+                      <div className="text-xl font-bold text-gray-900">
+                        {reportData.funnel_metrics.current_period?.qualified_to_won_rate || 0}%
+                      </div>
+                      {reportData.funnel_metrics.changes?.qualified_to_won_rate !== null && (
+                        <div className={`text-xs ${reportData.funnel_metrics.changes.qualified_to_won_rate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {reportData.funnel_metrics.changes.qualified_to_won_rate >= 0 ? '↑' : '↓'} {Math.abs(reportData.funnel_metrics.changes.qualified_to_won_rate)}% vs prev
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-center">
+                      <div className="text-sm text-gray-500">Overall Win Rate</div>
+                      <div className="text-xl font-bold text-gray-900">
+                        {reportData.funnel_metrics.current_period?.overall_win_rate || 0}%
+                      </div>
+                      {reportData.funnel_metrics.changes?.overall_win_rate !== null && (
+                        <div className={`text-xs ${reportData.funnel_metrics.changes.overall_win_rate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {reportData.funnel_metrics.changes.overall_win_rate >= 0 ? '↑' : '↓'} {Math.abs(reportData.funnel_metrics.changes.overall_win_rate)}% vs prev
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Summary Statistics */}
               <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -1558,6 +1742,7 @@ const LostLeadsPage: React.FC = () => {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Why Re-contact?</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -1582,6 +1767,11 @@ const LostLeadsPage: React.FC = () => {
                               opp.type === 'opportunity' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
                             }`}>
                               {opp.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
+                            <span className="text-xs italic text-gray-500">
+                              {opp.reconnect_reason || 'Worth re-evaluating'}
                             </span>
                           </td>
                         </tr>
@@ -1670,8 +1860,218 @@ const LostLeadsPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Top Loss Reasons with Actions */}
-                      {reportData.pattern_analysis.top_loss_reasons && reportData.pattern_analysis.top_loss_reasons.length > 0 && (
+                      {/* Root Cause Analysis */}
+                      {reportData.pattern_analysis.root_cause_analysis && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Root Cause Analysis</h4>
+                          <div className="space-y-3">
+                            {reportData.pattern_analysis.root_cause_analysis.primary_causes?.map((cause: any, idx: number) => (
+                              <div key={idx} className="bg-red-50 rounded-lg p-4 border-l-4 border-red-400">
+                                <div className="flex justify-between items-start mb-2">
+                                  <span className="font-medium text-gray-900">{cause.cause}</span>
+                                  <span className={`text-xs px-2 py-1 rounded-full ${
+                                    cause.impact === 'high' ? 'bg-red-200 text-red-800' :
+                                    cause.impact === 'medium' ? 'bg-yellow-200 text-yellow-800' :
+                                    'bg-gray-200 text-gray-800'
+                                  }`}>
+                                    {cause.impact} impact
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-700">{cause.explanation}</p>
+                              </div>
+                            ))}
+                            {reportData.pattern_analysis.root_cause_analysis.contributing_factors?.length > 0 && (
+                              <div className="bg-gray-50 rounded-lg p-4">
+                                <p className="text-sm font-medium text-gray-700 mb-2">Contributing Factors:</p>
+                                <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                                  {reportData.pattern_analysis.root_cause_analysis.contributing_factors.map((factor: string, idx: number) => (
+                                    <li key={idx}>{factor}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Customer Segment Insights */}
+                      {reportData.pattern_analysis.customer_segment_insights && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Customer Segment Insights</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {reportData.pattern_analysis.customer_segment_insights.high_risk_profiles?.map((profile: any, idx: number) => (
+                              <div key={idx} className="bg-orange-50 rounded-lg p-4 border-l-4 border-orange-400">
+                                <p className="font-medium text-gray-900 mb-1">{profile.profile}</p>
+                                <p className="text-xs text-orange-700 mb-2">Loss Rate: {profile.loss_rate_indicator}</p>
+                                <p className="text-sm text-gray-700">{profile.recommendation}</p>
+                              </div>
+                            ))}
+                            {reportData.pattern_analysis.customer_segment_insights.best_fit_customers && (
+                              <div className="bg-green-50 rounded-lg p-4 border-l-4 border-green-400">
+                                <p className="font-medium text-gray-900 mb-1">Best Fit Customers</p>
+                                <p className="text-sm text-gray-700">{reportData.pattern_analysis.customer_segment_insights.best_fit_customers}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Stage Breakdown */}
+                      {reportData.pattern_analysis.stage_breakdown && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Pipeline Stage Analysis</h4>
+                          <div className="bg-yellow-50 rounded-lg p-4 border-l-4 border-yellow-400 mb-3">
+                            <p className="font-medium text-gray-900 mb-1">
+                              Critical Stage: {reportData.pattern_analysis.stage_breakdown.critical_stage}
+                            </p>
+                            <p className="text-sm text-gray-700 mb-2">{reportData.pattern_analysis.stage_breakdown.bottleneck_analysis}</p>
+                            {reportData.pattern_analysis.stage_breakdown.time_insight && (
+                              <p className="text-sm text-gray-600 italic">{reportData.pattern_analysis.stage_breakdown.time_insight}</p>
+                            )}
+                          </div>
+                          {reportData.pattern_analysis.stage_breakdown.stage_recommendations?.length > 0 && (
+                            <div className="space-y-2">
+                              {reportData.pattern_analysis.stage_breakdown.stage_recommendations.map((rec: any, idx: number) => (
+                                <div key={idx} className="bg-gray-50 rounded-lg p-3 text-sm">
+                                  <span className="font-medium text-gray-900">{rec.stage}:</span>
+                                  <span className="text-gray-600 ml-1">{rec.issue}</span>
+                                  <span className="text-green-700 ml-1">→ {rec.fix}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Deal Size Insights */}
+                      {reportData.pattern_analysis.deal_size_insights && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Deal Size Analysis</h4>
+                          <div className="bg-indigo-50 rounded-lg p-4 border-l-4 border-indigo-400">
+                            <p className="font-medium text-gray-900 mb-1">
+                              Most at Risk: {reportData.pattern_analysis.deal_size_insights.most_at_risk_segment}
+                            </p>
+                            <p className="text-sm text-gray-700 mb-2">{reportData.pattern_analysis.deal_size_insights.trend}</p>
+                            {reportData.pattern_analysis.deal_size_insights.pricing_recommendation && (
+                              <p className="text-sm text-indigo-700">
+                                <strong>Pricing Insight:</strong> {reportData.pattern_analysis.deal_size_insights.pricing_recommendation}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Competitor Insights */}
+                      {reportData.pattern_analysis.competitor_insights && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Competitor Analysis</h4>
+                          <div className="bg-purple-50 rounded-lg p-4 border-l-4 border-purple-400">
+                            {reportData.pattern_analysis.competitor_insights.estimated_competitor_wins > 0 && (
+                              <p className="font-medium text-purple-900 mb-2">
+                                {reportData.pattern_analysis.competitor_insights.estimated_competitor_wins} deals lost to competitors
+                              </p>
+                            )}
+                            {reportData.pattern_analysis.competitor_insights.common_patterns && (
+                              <p className="text-sm text-gray-700 mb-2">{reportData.pattern_analysis.competitor_insights.common_patterns}</p>
+                            )}
+                            {reportData.pattern_analysis.competitor_insights.differentiation_gaps?.length > 0 && (
+                              <div className="mb-2">
+                                <p className="text-sm font-medium text-gray-700">Differentiation Gaps:</p>
+                                <ul className="list-disc list-inside text-sm text-gray-600">
+                                  {reportData.pattern_analysis.competitor_insights.differentiation_gaps.map((gap: string, idx: number) => (
+                                    <li key={idx}>{gap}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {reportData.pattern_analysis.competitor_insights.counter_strategy && (
+                              <p className="text-sm text-purple-700">
+                                <strong>Counter Strategy:</strong> {reportData.pattern_analysis.competitor_insights.counter_strategy}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Plan */}
+                      {reportData.pattern_analysis.action_plan && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Action Plan</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {reportData.pattern_analysis.action_plan.immediate_actions?.length > 0 && (
+                              <div className="bg-green-50 rounded-lg p-4 border-l-4 border-green-400">
+                                <p className="font-medium text-green-900 mb-2">Immediate Actions</p>
+                                <ul className="space-y-1">
+                                  {reportData.pattern_analysis.action_plan.immediate_actions.map((action: string, idx: number) => (
+                                    <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                                      <span className="text-green-600 mt-0.5">✓</span>
+                                      {action}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {reportData.pattern_analysis.action_plan.process_improvements?.length > 0 && (
+                              <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-400">
+                                <p className="font-medium text-blue-900 mb-2">Process Improvements</p>
+                                <ul className="space-y-1">
+                                  {reportData.pattern_analysis.action_plan.process_improvements.map((improvement: string, idx: number) => (
+                                    <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                                      <span className="text-blue-600 mt-0.5">→</span>
+                                      {improvement}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {reportData.pattern_analysis.action_plan.team_training_needs?.length > 0 && (
+                              <div className="bg-amber-50 rounded-lg p-4 border-l-4 border-amber-400">
+                                <p className="font-medium text-amber-900 mb-2">Training Needs</p>
+                                <ul className="space-y-1">
+                                  {reportData.pattern_analysis.action_plan.team_training_needs.map((need: string, idx: number) => (
+                                    <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
+                                      <span className="text-amber-600 mt-0.5">📚</span>
+                                      {need}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Re-engagement Strategy */}
+                      {reportData.pattern_analysis.re_engagement_strategy && (
+                        <div>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Re-engagement Strategy</h4>
+                          <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-400">
+                            {reportData.pattern_analysis.re_engagement_strategy.high_value_recoverable > 0 && (
+                              <p className="font-medium text-blue-900 mb-2">
+                                {reportData.pattern_analysis.re_engagement_strategy.high_value_recoverable} high-value leads worth re-engaging
+                              </p>
+                            )}
+                            {reportData.pattern_analysis.re_engagement_strategy.best_timing && (
+                              <p className="text-sm text-gray-700 mb-2">
+                                <strong>Best Timing:</strong> {reportData.pattern_analysis.re_engagement_strategy.best_timing}
+                              </p>
+                            )}
+                            {reportData.pattern_analysis.re_engagement_strategy.approach_by_reason?.length > 0 && (
+                              <div className="mt-3 space-y-2">
+                                {reportData.pattern_analysis.re_engagement_strategy.approach_by_reason.map((approach: any, idx: number) => (
+                                  <div key={idx} className="bg-white rounded p-2 text-sm">
+                                    <span className="font-medium text-gray-900">{approach.lost_reason}:</span>
+                                    <span className="text-gray-700 ml-1">{approach.re_engagement_approach}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fallback for old format - Top Loss Reasons */}
+                      {!reportData.pattern_analysis.root_cause_analysis && reportData.pattern_analysis.top_loss_reasons?.length > 0 && (
                         <div>
                           <h4 className="text-md font-semibold text-gray-800 mb-3">Top Loss Reasons</h4>
                           <div className="space-y-3">
@@ -1690,23 +2090,10 @@ const LostLeadsPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Critical Stage */}
-                      {reportData.pattern_analysis.critical_stage && (
+                      {/* Fallback for old format - Quick Wins */}
+                      {!reportData.pattern_analysis.action_plan && reportData.pattern_analysis.quick_wins?.length > 0 && (
                         <div>
-                          <h4 className="text-md font-semibold text-gray-800 mb-3">Critical Pipeline Stage</h4>
-                          <div className="bg-yellow-50 rounded-lg p-4 border-l-4 border-yellow-400">
-                            <p className="font-medium text-gray-900 mb-1">
-                              Highest drop-off: {reportData.pattern_analysis.critical_stage.stage_name}
-                            </p>
-                            <p className="text-sm text-gray-700">{reportData.pattern_analysis.critical_stage.insight}</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Quick Wins */}
-                      {reportData.pattern_analysis.quick_wins && reportData.pattern_analysis.quick_wins.length > 0 && (
-                        <div>
-                          <h4 className="text-md font-semibold text-gray-800 mb-3">Quick Wins - What You Can Do</h4>
+                          <h4 className="text-md font-semibold text-gray-800 mb-3">Quick Wins</h4>
                           <div className="bg-green-50 rounded-lg p-4 border-l-4 border-green-400">
                             <ul className="space-y-2">
                               {reportData.pattern_analysis.quick_wins.map((win: string, idx: number) => (
@@ -1720,8 +2107,8 @@ const LostLeadsPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Re-engage Priority */}
-                      {reportData.pattern_analysis.re_engage_priority && (
+                      {/* Fallback for old format - Re-engage Priority */}
+                      {!reportData.pattern_analysis.re_engagement_strategy && reportData.pattern_analysis.re_engage_priority && (
                         <div>
                           <h4 className="text-md font-semibold text-gray-800 mb-3">Re-engagement Opportunity</h4>
                           <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-400">
@@ -1743,6 +2130,7 @@ const LostLeadsPage: React.FC = () => {
                   )}
                 </div>
               )}
+              </div>{/* End PDF Export Container */}
             </div>
           )}
         </div>

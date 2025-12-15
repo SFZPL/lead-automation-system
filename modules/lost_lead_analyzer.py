@@ -519,6 +519,13 @@ class LostLeadAnalyzer:
         # Analyze month-by-month trends
         monthly_trends = self._analyze_monthly_trends(lost_leads)
 
+        # Get funnel/pipeline metrics with MoM comparison
+        funnel_metrics = self._get_funnel_metrics_with_comparison(
+            date_from=date_from,
+            date_to=date_to,
+            salesperson_name=salesperson_name
+        )
+
         return {
             "summary": {
                 "total_count": len(lost_leads),
@@ -528,11 +535,135 @@ class LostLeadAnalyzer:
                 "opportunities_count": opportunities_count,
                 "report_generated_at": datetime.now().isoformat()
             },
+            "funnel_metrics": funnel_metrics,
             "reasons_analysis": reasons_analysis,
             "stage_analysis": stage_analysis,
             "monthly_trends": monthly_trends,
             "top_opportunities": top_opportunities[:10],  # Top 10
             "all_lost_leads": lost_leads  # Full list for reference
+        }
+
+    def _get_funnel_metrics_with_comparison(
+        self,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        salesperson_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get funnel metrics for the selected period with month-over-month comparison.
+
+        Returns metrics for current month and previous month for comparison.
+        """
+        from datetime import datetime, timedelta
+        from calendar import monthrange
+
+        # Determine current and previous month based on date_to or current date
+        if date_to:
+            try:
+                end_date = datetime.strptime(date_to, '%Y-%m-%d')
+            except ValueError:
+                end_date = datetime.now()
+        else:
+            end_date = datetime.now()
+
+        # Current month boundaries
+        current_month_start = end_date.replace(day=1)
+        current_month_end = end_date
+
+        # Previous month boundaries
+        prev_month_end = current_month_start - timedelta(days=1)
+        prev_month_start = prev_month_end.replace(day=1)
+
+        # Format dates
+        current_from = current_month_start.strftime('%Y-%m-%d')
+        current_to = current_month_end.strftime('%Y-%m-%d')
+        prev_from = prev_month_start.strftime('%Y-%m-%d')
+        prev_to = prev_month_end.strftime('%Y-%m-%d')
+
+        # Get metrics for both periods
+        current_metrics = self.odoo.get_pipeline_metrics(
+            date_from=current_from,
+            date_to=current_to,
+            salesperson_name=salesperson_name
+        )
+
+        previous_metrics = self.odoo.get_pipeline_metrics(
+            date_from=prev_from,
+            date_to=prev_to,
+            salesperson_name=salesperson_name
+        )
+
+        def calc_change(current: float, previous: float) -> Optional[float]:
+            """Calculate percentage change, None if previous is 0"""
+            if previous == 0:
+                return None if current == 0 else 100.0
+            return round(((current - previous) / previous) * 100, 1)
+
+        def calc_rate(numerator: int, denominator: int) -> float:
+            """Calculate rate as percentage"""
+            if denominator == 0:
+                return 0.0
+            return round((numerator / denominator) * 100, 1)
+
+        # Calculate conversion rates for current period
+        current_lead_to_qualified_rate = calc_rate(
+            current_metrics['qualified'], current_metrics['leads_in']
+        )
+        current_qualified_to_won_rate = calc_rate(
+            current_metrics['won_count'], current_metrics['qualified']
+        )
+        current_overall_win_rate = calc_rate(
+            current_metrics['won_count'], current_metrics['leads_in']
+        )
+
+        # Calculate conversion rates for previous period
+        prev_lead_to_qualified_rate = calc_rate(
+            previous_metrics['qualified'], previous_metrics['leads_in']
+        )
+        prev_qualified_to_won_rate = calc_rate(
+            previous_metrics['won_count'], previous_metrics['qualified']
+        )
+        prev_overall_win_rate = calc_rate(
+            previous_metrics['won_count'], previous_metrics['leads_in']
+        )
+
+        return {
+            "current_period": {
+                "label": current_month_start.strftime('%B %Y'),
+                "date_from": current_from,
+                "date_to": current_to,
+                "leads_in": current_metrics['leads_in'],
+                "qualified": current_metrics['qualified'],
+                "won_count": current_metrics['won_count'],
+                "won_value": current_metrics['won_value'],
+                "lost_count": current_metrics['lost_count'],
+                "lead_to_qualified_rate": current_lead_to_qualified_rate,
+                "qualified_to_won_rate": current_qualified_to_won_rate,
+                "overall_win_rate": current_overall_win_rate,
+            },
+            "previous_period": {
+                "label": prev_month_start.strftime('%B %Y'),
+                "date_from": prev_from,
+                "date_to": prev_to,
+                "leads_in": previous_metrics['leads_in'],
+                "qualified": previous_metrics['qualified'],
+                "won_count": previous_metrics['won_count'],
+                "won_value": previous_metrics['won_value'],
+                "lost_count": previous_metrics['lost_count'],
+                "lead_to_qualified_rate": prev_lead_to_qualified_rate,
+                "qualified_to_won_rate": prev_qualified_to_won_rate,
+                "overall_win_rate": prev_overall_win_rate,
+            },
+            "changes": {
+                "leads_in": calc_change(current_metrics['leads_in'], previous_metrics['leads_in']),
+                "qualified": calc_change(current_metrics['qualified'], previous_metrics['qualified']),
+                "won_count": calc_change(current_metrics['won_count'], previous_metrics['won_count']),
+                "won_value": calc_change(current_metrics['won_value'], previous_metrics['won_value']),
+                "lost_count": calc_change(current_metrics['lost_count'], previous_metrics['lost_count']),
+                "lead_to_qualified_rate": calc_change(current_lead_to_qualified_rate, prev_lead_to_qualified_rate),
+                "qualified_to_won_rate": calc_change(current_qualified_to_won_rate, prev_qualified_to_won_rate),
+                "overall_win_rate": calc_change(current_overall_win_rate, prev_overall_win_rate),
+            }
         }
 
     def _analyze_lost_reasons(self, lost_leads: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -689,6 +820,8 @@ class LostLeadAnalyzer:
         - Recency (more recent losses are better)
         - Lost reason (some reasons are better for re-contact than others)
         - Opportunity type (opportunities usually better than leads)
+
+        Also generates a 1-2 line explanation for why each lead is worth re-contacting.
         """
         reconnect_worthy_reasons = [
             "price too high",
@@ -698,42 +831,64 @@ class LostLeadAnalyzer:
             "deferred",
             "postponed",
             "evaluating alternatives",
-            "went with competitor"
+            "went with competitor",
+            "no budget"
         ]
 
         scored_leads = []
         for lead in lost_leads:
             score = 0
+            explanation_parts = []
 
             # Deal value score (0-40 points)
             value = lead.get("expected_revenue", 0) or 0
             if value > 0:
                 score += min(40, value / 1000)  # $1k = 1 point, capped at 40
+                if value >= 50000:
+                    explanation_parts.append(f"High-value deal (AED {value:,.0f})")
+                elif value >= 20000:
+                    explanation_parts.append(f"Significant deal value (AED {value:,.0f})")
 
             # Recency score (0-30 points)
             write_date = lead.get("write_date")
+            days_ago = None
             if write_date:
                 try:
                     date_obj = datetime.fromisoformat(write_date.replace("Z", "+00:00"))
                     days_ago = (datetime.now() - date_obj.replace(tzinfo=None)).days
                     # More recent = higher score
                     score += max(0, 30 - (days_ago / 10))  # Lose 1 point per 10 days
+                    if days_ago <= 14:
+                        explanation_parts.append("Recently lost - still top of mind")
+                    elif days_ago <= 30:
+                        explanation_parts.append("Lost within last month")
                 except Exception:
                     pass
 
             # Lost reason score (0-20 points)
             reason = lead.get("lost_reason_id")
+            reason_name = ""
             if reason:
                 reason_name = (reason[1] if isinstance(reason, list) and len(reason) > 1 else str(reason)).lower()
                 if any(worthy in reason_name for worthy in reconnect_worthy_reasons):
                     score += 20
+                    # Map reasons to explanations
+                    if "budget" in reason_name or "price" in reason_name:
+                        explanation_parts.append("Budget/price issue may have resolved")
+                    elif "timing" in reason_name or "not ready" in reason_name or "deferred" in reason_name or "postponed" in reason_name:
+                        explanation_parts.append("Timing issue - may be ready now")
+                    elif "competitor" in reason_name or "another vendor" in reason_name:
+                        explanation_parts.append("May be dissatisfied with competitor")
+                    elif "evaluating" in reason_name:
+                        explanation_parts.append("Was actively evaluating - worth following up")
 
             # Type score (0-10 points)
             if lead.get("type") == "opportunity":
                 score += 10
+                if not explanation_parts:  # Only add if no other explanations yet
+                    explanation_parts.append("Was already qualified as opportunity")
 
             # Extract stage name from stage_id
-            # Odoo returns stage_id as [id, "Stage Name"] tuple or False if not set
             stage = lead.get("stage_id")
             if isinstance(stage, (list, tuple)) and len(stage) > 1:
                 stage_name = stage[1]
@@ -741,6 +896,13 @@ class LostLeadAnalyzer:
                 stage_name = str(stage)
             else:
                 stage_name = "Unknown"
+
+            # Add stage-based explanation for advanced stages
+            if stage_name.lower() in ["proposal", "demo", "proposition"]:
+                explanation_parts.append(f"Progressed to {stage_name} stage before loss")
+
+            # Build final explanation (max 2 most relevant reasons)
+            reconnect_reason = " | ".join(explanation_parts[:2]) if explanation_parts else "Worth re-evaluating"
 
             scored_leads.append({
                 "lead_id": lead.get("id"),
@@ -754,7 +916,8 @@ class LostLeadAnalyzer:
                 "stage_name": stage_name,
                 "type": lead.get("type"),
                 "write_date": lead.get("write_date"),
-                "reconnect_score": round(score, 2)
+                "reconnect_score": round(score, 2),
+                "reconnect_reason": reconnect_reason
             })
 
         # Sort by score descending
@@ -768,14 +931,14 @@ class LostLeadAnalyzer:
         limit: int = 100
     ) -> Dict[str, Any]:
         """
-        Generate simplified AI analysis of lost leads with actionable insights.
+        Generate comprehensive AI analysis of lost leads with deep insights.
 
         Args:
             lost_leads: List of lost lead/opportunity data
             limit: Maximum leads to analyze
 
         Returns:
-            Dict with summary, top reasons, and recommendations
+            Dict with comprehensive analysis including root causes, segments, competitor insights
         """
         self._ensure_llm()
 
@@ -785,8 +948,13 @@ class LostLeadAnalyzer:
         # Limit the analysis to prevent overwhelming the LLM
         leads_to_analyze = lost_leads[:limit]
 
-        # Prepare summarized data for LLM
+        # Prepare enriched data for LLM
         leads_summary = []
+        value_buckets = {"small": 0, "medium": 0, "large": 0, "enterprise": 0}
+        reason_counts = {}
+        stage_counts = {}
+        competitor_losses = []
+
         for lead in leads_to_analyze:
             reason = lead.get("lost_reason_id")
             reason_name = reason[1] if isinstance(reason, list) and len(reason) > 1 else (str(reason) if reason else "Unknown")
@@ -794,52 +962,144 @@ class LostLeadAnalyzer:
             stage = lead.get("stage_id")
             stage_name = stage[1] if isinstance(stage, list) and len(stage) > 1 else (str(stage) if stage else "Unknown")
 
+            value = lead.get("expected_revenue", 0) or 0
+
+            # Track value buckets
+            if value < 10000:
+                value_buckets["small"] += 1
+            elif value < 50000:
+                value_buckets["medium"] += 1
+            elif value < 200000:
+                value_buckets["large"] += 1
+            else:
+                value_buckets["enterprise"] += 1
+
+            # Track reason counts
+            reason_counts[reason_name] = reason_counts.get(reason_name, 0) + 1
+
+            # Track stage counts
+            stage_counts[stage_name] = stage_counts.get(stage_name, 0) + 1
+
+            # Track competitor losses
+            if "competitor" in reason_name.lower() or "another vendor" in reason_name.lower():
+                competitor_losses.append({
+                    "name": lead.get("name"),
+                    "value": value,
+                    "stage": stage_name
+                })
+
+            # Calculate days in pipeline
+            days_in_pipeline = None
+            create_date = lead.get("create_date")
+            write_date = lead.get("write_date")
+            if create_date and write_date:
+                try:
+                    created = datetime.fromisoformat(create_date.replace("Z", "+00:00").replace(" ", "T"))
+                    lost = datetime.fromisoformat(write_date.replace("Z", "+00:00").replace(" ", "T"))
+                    days_in_pipeline = (lost.replace(tzinfo=None) - created.replace(tzinfo=None)).days
+                except Exception:
+                    pass
+
             leads_summary.append({
                 "id": lead.get("id"),
                 "name": lead.get("name"),
                 "type": lead.get("type"),
                 "partner_name": lead.get("partner_name"),
-                "expected_revenue": lead.get("expected_revenue", 0) or 0,
+                "expected_revenue": value,
                 "lost_reason": reason_name,
                 "stage": stage_name,
                 "lost_date": lead.get("write_date"),
+                "days_in_pipeline": days_in_pipeline,
             })
 
         # Calculate totals for context
         total_value = sum(l.get("expected_revenue", 0) or 0 for l in leads_summary)
+        avg_value = total_value / len(leads_summary) if leads_summary else 0
+        avg_days = sum(l.get("days_in_pipeline", 0) or 0 for l in leads_summary if l.get("days_in_pipeline")) / max(1, len([l for l in leads_summary if l.get("days_in_pipeline")]))
 
-        # Build simplified prompt
-        prompt = f"""Analyze these {len(leads_summary)} lost leads/opportunities (total value: AED {total_value:,.0f}).
+        # Build comprehensive prompt
+        prompt = f"""Analyze these {len(leads_summary)} lost leads/opportunities for a presentation design agency.
 
-DATA:
+SUMMARY STATISTICS:
+- Total Value Lost: AED {total_value:,.0f}
+- Average Deal Size: AED {avg_value:,.0f}
+- Average Days in Pipeline: {avg_days:.0f} days
+- Deal Size Distribution: Small (<10K): {value_buckets['small']}, Medium (10-50K): {value_buckets['medium']}, Large (50-200K): {value_buckets['large']}, Enterprise (>200K): {value_buckets['enterprise']}
+- Top Lost Reasons: {', '.join([f"{k}: {v}" for k, v in sorted(reason_counts.items(), key=lambda x: x[1], reverse=True)[:5]])}
+- Stage Distribution: {', '.join([f"{k}: {v}" for k, v in sorted(stage_counts.items(), key=lambda x: x[1], reverse=True)])}
+- Competitor Losses: {len(competitor_losses)} deals worth AED {sum(c['value'] for c in competitor_losses):,.0f}
+
+DETAILED DATA:
 {self._format_leads_for_llm(leads_summary)}
 
-Provide a concise analysis in this JSON format:
+Provide a comprehensive analysis in this JSON format:
 {{
-  "executive_summary": "2-3 sentences summarizing the key patterns and main issues",
-  "top_loss_reasons": [
-    {{"reason": "...", "count": 0, "percentage": 0, "action": "specific action to address this"}}
-  ],
-  "critical_stage": {{
-    "stage_name": "which pipeline stage has highest drop-off",
-    "insight": "why deals are dying at this stage"
+  "executive_summary": "3-4 sentences summarizing key patterns, main issues, and overall health of the pipeline",
+
+  "root_cause_analysis": {{
+    "primary_causes": [
+      {{"cause": "...", "percentage": 0, "impact": "high/medium/low", "explanation": "why this is happening"}}
+    ],
+    "contributing_factors": ["list of secondary factors making losses worse"]
   }},
-  "quick_wins": [
-    "3-5 specific, actionable recommendations to reduce losses"
-  ],
-  "re_engage_priority": {{
+
+  "customer_segment_insights": {{
+    "high_risk_profiles": [
+      {{"profile": "description of customer type", "loss_rate_indicator": "high/medium", "recommendation": "how to handle these leads"}}
+    ],
+    "best_fit_customers": "description of ideal customer profile based on wins vs losses"
+  }},
+
+  "stage_breakdown": {{
+    "critical_stage": "stage with highest drop-off",
+    "bottleneck_analysis": "why deals are dying at this stage",
+    "time_insight": "are deals spending too long or too short in stages",
+    "stage_recommendations": [
+      {{"stage": "...", "issue": "...", "fix": "..."}}
+    ]
+  }},
+
+  "deal_size_insights": {{
+    "most_at_risk_segment": "which deal size bracket has worst conversion",
+    "trend": "are you losing more small or large deals",
+    "pricing_recommendation": "any pricing strategy insights"
+  }},
+
+  "competitor_insights": {{
+    "estimated_competitor_wins": {len(competitor_losses)},
+    "common_patterns": "what stage/deal size competitors tend to win",
+    "differentiation_gaps": ["areas where competitors may have an edge"],
+    "counter_strategy": "how to compete better"
+  }},
+
+  "action_plan": {{
+    "immediate_actions": ["3 things to do this week"],
+    "process_improvements": ["2-3 process changes to reduce losses"],
+    "team_training_needs": ["skills or knowledge gaps to address"]
+  }},
+
+  "re_engagement_strategy": {{
     "high_value_recoverable": 0,
-    "criteria": "what makes a lost lead worth re-engaging",
-    "suggested_approach": "how to approach re-engagement"
+    "best_timing": "when to re-engage (e.g., after X days/months)",
+    "approach_by_reason": [
+      {{"lost_reason": "...", "re_engagement_approach": "..."}}
+    ]
   }}
 }}
 
-Be direct and actionable. Focus on what the sales team can DO differently."""
+Be specific, data-driven, and actionable. Reference actual numbers from the data. Focus on insights a sales manager can act on immediately."""
 
         messages = [
             {
                 "role": "system",
-                "content": "You are a sales coach. Give practical, specific advice based on the data. No fluff."
+                "content": """You are an expert sales analytics consultant specializing in B2B services.
+Analyze the lost leads data with a focus on:
+1. Root cause identification - don't just report what happened, explain WHY
+2. Customer segmentation - identify patterns in who you're losing
+3. Competitive intelligence - extract insights about competitor behavior
+4. Actionable recommendations - every insight should have a clear action
+
+Be direct, specific, and data-driven. Use actual numbers from the data provided."""
             },
             {"role": "user", "content": prompt}
         ]
@@ -847,7 +1107,7 @@ Be direct and actionable. Focus on what the sales team can DO differently."""
         try:
             analysis = self.llm.chat_completion_json(
                 messages,
-                max_tokens=2000
+                max_tokens=4000
             )
             logger.info(f"Pattern analysis returned with keys: {list(analysis.keys()) if isinstance(analysis, dict) else 'not a dict'}")
             return analysis
@@ -859,17 +1119,21 @@ Be direct and actionable. Focus on what the sales team can DO differently."""
         """Format leads data in a concise way for LLM analysis."""
         lines = []
         for lead in leads:
+            name = lead.get('name', 'Unknown')[:50] if lead.get('name') else 'Unknown'
             line_parts = [
-                f"ID:{lead['id']}",
-                f"Name:{lead['name'][:50]}",
-                f"Type:{lead['type']}",
-                f"Value:AED{lead['expected_revenue']}",
-                f"Reason:{lead['lost_reason']}",
-                f"Stage:{lead['stage']}",
-                f"Country:{lead['country']}",
-                f"Service:{lead['service']}",
-                f"Quality:{lead['quality_score']}"
+                f"ID:{lead.get('id', 'N/A')}",
+                f"Name:{name}",
+                f"Type:{lead.get('type', 'N/A')}",
+                f"Value:AED{lead.get('expected_revenue', 0)}",
+                f"Reason:{lead.get('lost_reason', 'Unknown')}",
+                f"Stage:{lead.get('stage', 'Unknown')}",
             ]
+            # Add days in pipeline if available
+            if lead.get('days_in_pipeline') is not None:
+                line_parts.append(f"Days:{lead['days_in_pipeline']}")
+            # Add partner name if available
+            if lead.get('partner_name'):
+                line_parts.append(f"Company:{lead['partner_name'][:30]}")
             lines.append(" | ".join(line_parts))
         return "\n".join(lines)
 

@@ -1001,6 +1001,102 @@ class OdooClient:
 
         return records
 
+    def get_pipeline_metrics(
+        self,
+        date_from: str,
+        date_to: str,
+        salesperson_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get pipeline metrics for a date range: leads in, qualified, won, and values.
+
+        Args:
+            date_from: Start date in YYYY-MM-DD format (inclusive)
+            date_to: End date in YYYY-MM-DD format (inclusive)
+            salesperson_name: Filter by salesperson (optional)
+
+        Returns:
+            Dict with counts and values for leads, qualified, won
+        """
+        from datetime import datetime, timedelta
+
+        user_id: Optional[int] = None
+        if salesperson_name:
+            user_id = self.find_user_id(salesperson_name)
+            if not user_id:
+                logger.warning("Salesperson '%s' not found for pipeline metrics", salesperson_name)
+
+        # Make date_to inclusive by adding one day
+        date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+        date_to_inclusive = (date_to_obj + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        # Base domain for date range (based on create_date for leads coming in)
+        base_domain = [
+            ['create_date', '>=', date_from],
+            ['create_date', '<', date_to_inclusive],
+        ]
+        if user_id:
+            base_domain.append(['user_id', '=', user_id])
+
+        try:
+            # 1. Total leads coming in (both leads and opportunities created in period)
+            leads_in_domain = base_domain + [['type', 'in', ['lead', 'opportunity']]]
+            leads_in_count = self._call_kw(
+                'crm.lead', 'search_count', [leads_in_domain],
+                {'context': {'active_test': False}}
+            ) or 0
+
+            # 2. Qualified leads (opportunities - type='opportunity')
+            qualified_domain = base_domain + [['type', '=', 'opportunity']]
+            qualified_count = self._call_kw(
+                'crm.lead', 'search_count', [qualified_domain],
+                {'context': {'active_test': False}}
+            ) or 0
+
+            # 3. Won deals (stage = 'Closed/ Won')
+            won_domain = base_domain + [['stage_id.name', '=', 'Closed/ Won']]
+            won_leads = self._call_kw(
+                'crm.lead', 'search_read', [won_domain],
+                {
+                    'fields': ['id', 'name', 'expected_revenue'],
+                    'context': {'active_test': False}
+                }
+            ) or []
+            won_count = len(won_leads)
+            won_value = sum(lead.get('expected_revenue', 0) or 0 for lead in won_leads)
+
+            # 4. Lost deals (probability=0, active=False)
+            lost_domain = base_domain + [
+                ['probability', '=', 0],
+                ['active', '=', False]
+            ]
+            lost_count = self._call_kw(
+                'crm.lead', 'search_count', [lost_domain],
+                {'context': {'active_test': False}}
+            ) or 0
+
+            return {
+                'leads_in': leads_in_count,
+                'qualified': qualified_count,
+                'won_count': won_count,
+                'won_value': round(won_value, 2),
+                'lost_count': lost_count,
+                'date_from': date_from,
+                'date_to': date_to,
+            }
+
+        except Exception as exc:
+            logger.error("Error fetching pipeline metrics: %s", exc)
+            return {
+                'leads_in': 0,
+                'qualified': 0,
+                'won_count': 0,
+                'won_value': 0,
+                'lost_count': 0,
+                'date_from': date_from,
+                'date_to': date_to,
+            }
+
     def get_lead_messages(
         self,
         lead_id: int,
