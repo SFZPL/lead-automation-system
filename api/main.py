@@ -5097,6 +5097,67 @@ def generate_call_flow(request: CallFlowGenerateRequest):
     job_title = lead.get('function') if isinstance(lead.get('function'), str) else 'Unknown'
     stage = lead.get('stage_id')[1] if lead.get('stage_id') and isinstance(lead.get('stage_id'), (list, tuple)) else 'Unknown'
 
+    # Fetch internal notes/comments from Odoo chatter
+    internal_notes = ""
+    try:
+        messages = odoo.get_lead_messages(
+            lead_id=request.lead_id,
+            limit=15,
+            message_types=['comment', 'notification']  # Internal notes and system notifications
+        )
+
+        # Filter and format relevant internal notes
+        note_entries = []
+        for msg in messages:
+            body = msg.get('body', '')
+            if body and isinstance(body, str):
+                # Strip HTML tags for cleaner text
+                import re
+                clean_body = re.sub(r'<[^>]+>', ' ', body)
+                clean_body = re.sub(r'\s+', ' ', clean_body).strip()
+
+                if clean_body and len(clean_body) > 10:  # Skip very short notes
+                    author = msg.get('author_name', 'Unknown')
+                    date = msg.get('date', '')[:10] if msg.get('date') else ''
+                    note_entries.append(f"[{date}] {author}: {clean_body[:300]}")
+
+        if note_entries:
+            internal_notes = "\n".join(note_entries[:8])  # Limit to 8 most recent notes
+    except Exception as e:
+        logger.warning(f"Could not fetch internal notes for lead {request.lead_id}: {e}")
+
+    # Check if this is an existing client (has previous won opportunities)
+    is_existing_client = False
+    previous_work_context = ""
+    try:
+        # Check for previous won deals with the same partner
+        if partner_name and partner_name != 'Unknown Company':
+            previous_deals = odoo._call_kw(
+                'crm.lead',
+                'search_read',
+                [[
+                    ['partner_name', 'ilike', partner_name],
+                    ['stage_id.is_won', '=', True],
+                    ['id', '!=', request.lead_id]
+                ]],
+                {
+                    'fields': ['name', 'date_closed', 'expected_revenue'],
+                    'limit': 5,
+                    'order': 'date_closed desc'
+                }
+            )
+
+            if previous_deals:
+                is_existing_client = True
+                deal_summaries = []
+                for deal in previous_deals:
+                    deal_name = deal.get('name', 'Unknown project')
+                    deal_date = deal.get('date_closed', '')[:7] if deal.get('date_closed') else 'Unknown date'
+                    deal_summaries.append(f"- {deal_name} ({deal_date})")
+                previous_work_context = "\n".join(deal_summaries[:3])
+    except Exception as e:
+        logger.warning(f"Could not check for previous deals: {e}")
+
     # Get knowledge base context about PrezLab
     kb_context = ""
     try:
@@ -5138,6 +5199,41 @@ INSTRUCTIONS:
 
 """)
 
+        # Build client type context
+        client_type_context = ""
+        if is_existing_client:
+            client_type_context = f"""
+CLIENT TYPE: RETURNING CLIENT (Previous PrezLab Customer)
+Previous projects with this client:
+{previous_work_context}
+
+IMPORTANT FOR RETURNING CLIENTS:
+- Acknowledge the existing relationship warmly
+- Reference past successful work if relevant
+- Focus on what's NEW or DIFFERENT about this inquiry
+- Ask about how things have evolved since the last project
+- Explore if there were any lessons learned they want to apply
+- Consider asking about expanding scope or new team members involved
+"""
+        else:
+            client_type_context = "CLIENT TYPE: New Prospect"
+
+        # Build internal notes context (only include if meaningful notes exist)
+        internal_notes_context = ""
+        if internal_notes:
+            internal_notes_context = f"""
+INTERNAL TEAM NOTES (from CRM):
+{internal_notes}
+
+IMPORTANT: Review these internal notes carefully. They may contain:
+- Specific requirements or preferences mentioned by the client
+- Timeline or budget constraints
+- Key contacts or decision-makers identified
+- Previous interactions or important context
+- Red flags or opportunities to address
+Use relevant insights from these notes to make your questions more targeted and informed.
+"""
+
         prompt_parts.append(f"""You are a PrezLab sales consultant preparing for a discovery call. Using a consultative, dialogue-friendly approach, create personalized questions for each section that help uncover the prospect's business challenges and how PrezLab's services can help.
 
 LEAD INFORMATION:
@@ -5146,6 +5242,8 @@ LEAD INFORMATION:
 - Job Title: {job_title}
 - Current Stage: {stage}
 - Enriched Notes: {description[:500] if description else 'No additional context available'}
+{client_type_context}
+{internal_notes_context}
 
 DISCOVERY CALL FLOW STRUCTURE (based on proven methodology):
 
@@ -5198,7 +5296,7 @@ Format as JSON:
   ]
 }}
 
-Make questions sound natural in conversation. Reference their context from enriched notes when relevant. Focus on business impact, not just creative/design needs.""")
+Make questions sound natural in conversation. Reference their context from enriched notes AND internal team notes when relevant. If this is a returning client, acknowledge the relationship and tailor questions accordingly. Focus on business impact, not just creative/design needs.""")
 
         prompt = "\n".join(prompt_parts)
 
