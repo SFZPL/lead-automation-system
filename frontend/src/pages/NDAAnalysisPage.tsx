@@ -156,7 +156,7 @@ ${doc.questionable_clauses.map((clause, i) => `
       // Send to Teams via API with entity info
       return api.post('/nda/forward-to-teams', {
         document_id: documentId,
-        recipient_email: 'saba.dababneh@prezlab.com',
+        recipient_email: 'mohammad.arabyat@prezlab.com',
         message: reportText,
         selected_entity: entity || null,
         counterparty_name: counterparty || null
