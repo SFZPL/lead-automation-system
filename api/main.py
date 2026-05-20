@@ -5763,6 +5763,33 @@ def debug_odoo_ping():
     except Exception as e:
         result["xmlrpc"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
+    # 5) XML-RPC authenticate call with dummy creds + 15s timeout
+    # If this hangs while version() works, the authenticate method itself is the problem.
+    try:
+        import xmlrpc.client
+        import http.client
+
+        class TimeoutTransport(xmlrpc.client.SafeTransport):
+            def __init__(self, timeout=15):
+                super().__init__()
+                self._timeout = timeout
+
+            def make_connection(self, host):
+                chost, self._extra_headers, x509 = self.get_host_info(host)
+                self._connection = host, http.client.HTTPSConnection(chost, None, timeout=self._timeout, **(x509 or {}))
+                return self._connection[1]
+
+        t0 = time.time()
+        common2 = xmlrpc.client.ServerProxy(
+            f"{config.ODOO_URL.rstrip('/')}/xmlrpc/2/common",
+            transport=TimeoutTransport(timeout=15),
+            allow_none=True,
+        )
+        uid = common2.authenticate(config.ODOO_DB, "debug-ping@example.invalid", "not-a-real-password", {})
+        result["authenticate"] = {"ok": True, "ms": int((time.time() - t0) * 1000), "uid": uid}
+    except Exception as e:
+        result["authenticate"] = {"ok": False, "ms": int((time.time() - t0) * 1000), "error": f"{type(e).__name__}: {e}"}
+
     return result
 
 
