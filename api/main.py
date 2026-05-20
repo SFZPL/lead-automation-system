@@ -5790,6 +5790,22 @@ def debug_odoo_ping():
     except Exception as e:
         result["authenticate"] = {"ok": False, "ms": int((time.time() - t0) * 1000), "error": f"{type(e).__name__}: {e}"}
 
+    # 6) /xmlrpc/2/object endpoint reachability — login calls this after authenticate.
+    # Using dummy uid/password: expect a fast AccessDenied-style fault, not a hang.
+    try:
+        t0 = time.time()
+        models = xmlrpc.client.ServerProxy(
+            f"{config.ODOO_URL.rstrip('/')}/xmlrpc/2/object",
+            transport=TimeoutTransport(timeout=15),
+            allow_none=True,
+        )
+        models.execute_kw(config.ODOO_DB, 1, "not-a-real-password", "res.users", "read", [1], {"fields": ["name"]})
+        result["object_endpoint"] = {"ok": True, "ms": int((time.time() - t0) * 1000), "note": "unexpected success"}
+    except Exception as e:
+        # A fast Fault here means the endpoint is reachable (expected).
+        # A timeout / socket error means it is NOT reachable, which would explain the login hang.
+        result["object_endpoint"] = {"ok": False, "ms": int((time.time() - t0) * 1000), "error": f"{type(e).__name__}: {str(e)[:300]}"}
+
     return result
 
 
