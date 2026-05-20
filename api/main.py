@@ -5596,6 +5596,34 @@ class UserResponse(BaseModel):
     role: str
 
 
+def _odoo_call_with_retry(fn, *args, op_name: str = "odoo_call", attempts: int = 3, backoff_seconds=(0.5, 1.5, 3.0), **kwargs):
+    """Run an Odoo XML-RPC call with retries on transient network errors.
+
+    Retries on socket.gaierror (DNS), ConnectionError, TimeoutError, and OSError
+    (covers errno 110 / -2). Does not retry on xmlrpc.client.Fault — those are
+    application-level responses from Odoo, not network problems.
+    """
+    import socket
+    import time as _time
+    import xmlrpc.client as _xmlrpc
+
+    last_exc = None
+    for attempt in range(attempts):
+        try:
+            return fn(*args, **kwargs)
+        except _xmlrpc.Fault:
+            raise
+        except (socket.gaierror, ConnectionError, TimeoutError, OSError) as e:
+            last_exc = e
+            logger.warning(
+                f"Odoo {op_name} attempt {attempt + 1}/{attempts} failed: "
+                f"{type(e).__name__}: {e}"
+            )
+            if attempt < attempts - 1:
+                _time.sleep(backoff_seconds[min(attempt, len(backoff_seconds) - 1)])
+    raise last_exc
+
+
 @app.post("/auth/login", response_model=LoginResponse)
 def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_service), db: Database = Depends(get_database)):
     """Authenticate user against Odoo and return access token."""
@@ -5612,12 +5640,14 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
         # that conflict with other applications
         common = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/common', allow_none=True)
 
-        # Authenticate and get UID
-        odoo_uid = common.authenticate(
+        # Authenticate and get UID (retried on transient network errors)
+        odoo_uid = _odoo_call_with_retry(
+            common.authenticate,
             config.ODOO_DB,
             request.email,
             request.password,
-            {}
+            {},
+            op_name="authenticate",
         )
 
         if not odoo_uid:
@@ -5625,14 +5655,16 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
 
         # Get user info
         models = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/object', allow_none=True)
-        user_info = models.execute_kw(
+        user_info = _odoo_call_with_retry(
+            models.execute_kw,
             config.ODOO_DB,
             odoo_uid,
             request.password,
             'res.users',
             'read',
             [odoo_uid],
-            {'fields': ['name', 'email']}
+            {'fields': ['name', 'email']},
+            op_name="read_user",
         )
 
         odoo_name = user_info[0].get('name', request.email) if user_info else request.email
@@ -5694,11 +5726,15 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
     except HTTPException:
         raise
     except Exception as e:
-        # Handle network/request errors from Odoo
+        import socket
+        # Treat transient network errors (DNS, TCP, timeout) as upstream failures.
+        if isinstance(e, (socket.gaierror, ConnectionError, TimeoutError, OSError)):
+            logger.error(f"Odoo authentication failed (network) — {type(e).__name__}: {e}", exc_info=True)
+            raise HTTPException(status_code=503, detail="Unable to reach Odoo, please try again")
         if "RequestException" in type(e).__name__ or "ConnectionError" in type(e).__name__:
-            logger.error(f"Odoo authentication failed: {e}")
+            logger.error(f"Odoo authentication failed: {type(e).__name__}: {e}", exc_info=True)
             raise HTTPException(status_code=401, detail="Unable to authenticate with Odoo")
-        logger.error(f"Login error: {e}")
+        logger.error(f"Login error — {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Authentication failed")
 
 
