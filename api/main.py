@@ -5596,32 +5596,54 @@ class UserResponse(BaseModel):
     role: str
 
 
-def _odoo_call_with_retry(fn, *args, op_name: str = "odoo_call", attempts: int = 3, backoff_seconds=(0.5, 1.5, 3.0), **kwargs):
-    """Run an Odoo XML-RPC call with retries on transient network errors.
+_RETRIABLE_HTTPX_NAMES = {
+    "ConnectError", "ConnectTimeout", "ReadTimeout", "WriteTimeout",
+    "PoolTimeout", "NetworkError", "RemoteProtocolError",
+}
 
-    Retries on socket.gaierror (DNS), ConnectionError, TimeoutError, and OSError
-    (covers errno 110 / -2). Does not retry on xmlrpc.client.Fault — those are
-    application-level responses from Odoo, not network problems.
-    """
+
+def _is_transient_network_error(e: BaseException) -> bool:
+    """True for transient DNS/TCP/HTTP errors worth retrying. Excludes app-level errors."""
     import socket
-    import time as _time
     import xmlrpc.client as _xmlrpc
+
+    if isinstance(e, _xmlrpc.Fault):
+        return False
+    if isinstance(e, (socket.gaierror, ConnectionError, TimeoutError)):
+        return True
+    if isinstance(e, OSError):
+        return True
+    # httpx errors (used by supabase-py via postgrest) — match by name to avoid import dep
+    return type(e).__name__ in _RETRIABLE_HTTPX_NAMES
+
+
+def _call_with_retry(fn, *args, op_name: str = "call", attempts: int = 3, backoff_seconds=(0.5, 1.5, 3.0), **kwargs):
+    """Run a network call with retries on transient errors (DNS, TCP, HTTP timeouts).
+
+    Does not retry application-level errors (xmlrpc Faults, HTTP 4xx responses
+    that supabase-py raises as APIError, etc.).
+    """
+    import time as _time
 
     last_exc = None
     for attempt in range(attempts):
         try:
             return fn(*args, **kwargs)
-        except _xmlrpc.Fault:
-            raise
-        except (socket.gaierror, ConnectionError, TimeoutError, OSError) as e:
+        except Exception as e:
+            if not _is_transient_network_error(e):
+                raise
             last_exc = e
             logger.warning(
-                f"Odoo {op_name} attempt {attempt + 1}/{attempts} failed: "
+                f"{op_name} attempt {attempt + 1}/{attempts} failed: "
                 f"{type(e).__name__}: {e}"
             )
             if attempt < attempts - 1:
                 _time.sleep(backoff_seconds[min(attempt, len(backoff_seconds) - 1)])
     raise last_exc
+
+
+# Kept for backwards compatibility with any earlier references.
+_odoo_call_with_retry = _call_with_retry
 
 
 @app.post("/auth/login", response_model=LoginResponse)
@@ -5672,32 +5694,48 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
         if not odoo_uid:
             raise HTTPException(status_code=401, detail="Invalid Odoo credentials")
 
-        # Check if user exists in our database
-        user = auth_service.db.get_user_by_email(request.email)
+        # Check if user exists in our database (Supabase — wrapped to survive transient DNS hiccups)
+        user = _call_with_retry(
+            auth_service.db.get_user_by_email,
+            request.email,
+            op_name="supabase.get_user_by_email",
+        )
 
         if not user:
             # Create new user automatically
             logger.info(f"Creating new user for Odoo account: {request.email}")
             password_hash = auth_service.hash_password(request.password)
-            user_id = auth_service.db.create_user(
+            user_id = _call_with_retry(
+                auth_service.db.create_user,
                 email=request.email,
                 name=odoo_name,
                 password_hash=password_hash,
-                role="user"
+                role="user",
+                op_name="supabase.create_user",
             )
-            user = auth_service.db.get_user_by_id(user_id)
+            user = _call_with_retry(
+                auth_service.db.get_user_by_id,
+                user_id,
+                op_name="supabase.get_user_by_id",
+            )
 
         # Store Odoo credentials in user settings
-        db.update_user_settings(
+        _call_with_retry(
+            db.update_user_settings,
             user_id=user["id"],
             odoo_url=config.ODOO_URL,
             odoo_db=config.ODOO_DB,
             odoo_username=request.email,
-            odoo_password=request.password  # In production, encrypt this
+            odoo_password=request.password,  # In production, encrypt this
+            op_name="supabase.update_user_settings",
         )
 
         # Update last login
-        auth_service.db.update_last_login(user["id"])
+        _call_with_retry(
+            auth_service.db.update_last_login,
+            user["id"],
+            op_name="supabase.update_last_login",
+        )
 
         # Create access token
         access_token = auth_service.create_access_token(
@@ -5709,7 +5747,13 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
         # Create refresh token for persistent login (never expires)
         refresh_token = auth_service.create_refresh_token()
         device_info = f"Teams App"  # Could be enhanced with more details
-        auth_service.db.create_refresh_token(user["id"], refresh_token, device_info)
+        _call_with_retry(
+            auth_service.db.create_refresh_token,
+            user["id"],
+            refresh_token,
+            device_info,
+            op_name="supabase.create_refresh_token",
+        )
 
         return LoginResponse(
             access_token=access_token,
@@ -5726,12 +5770,11 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
     except HTTPException:
         raise
     except Exception as e:
-        import socket
-        # Treat transient network errors (DNS, TCP, timeout) as upstream failures.
-        if isinstance(e, (socket.gaierror, ConnectionError, TimeoutError, OSError)):
-            logger.error(f"Odoo authentication failed (network) — {type(e).__name__}: {e}", exc_info=True)
-            raise HTTPException(status_code=503, detail="Unable to reach Odoo, please try again")
-        if "RequestException" in type(e).__name__ or "ConnectionError" in type(e).__name__:
+        # Treat transient network errors (DNS, TCP, timeout, httpx ConnectError) as upstream failures.
+        if _is_transient_network_error(e):
+            logger.error(f"Login failed (upstream network) — {type(e).__name__}: {e}", exc_info=True)
+            raise HTTPException(status_code=503, detail="Service temporarily unavailable, please try again")
+        if "RequestException" in type(e).__name__:
             logger.error(f"Odoo authentication failed: {type(e).__name__}: {e}", exc_info=True)
             raise HTTPException(status_code=401, detail="Unable to authenticate with Odoo")
         logger.error(f"Login error — {type(e).__name__}: {e}", exc_info=True)
@@ -5841,6 +5884,46 @@ def debug_odoo_ping():
         # A fast Fault here means the endpoint is reachable (expected).
         # A timeout / socket error means it is NOT reachable, which would explain the login hang.
         result["object_endpoint"] = {"ok": False, "ms": int((time.time() - t0) * 1000), "error": f"{type(e).__name__}: {str(e)[:300]}"}
+
+    # 7) Supabase reachability — login also hits Supabase, and that is where DNS has been failing.
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    result["supabase_url"] = supabase_url
+    if supabase_url:
+        sp_parsed = urlparse(supabase_url)
+        sp_host = sp_parsed.hostname or ""
+        sp_port = sp_parsed.port or (443 if sp_parsed.scheme == "https" else 80)
+        result["supabase_host"] = sp_host
+
+        # 7a) DNS
+        try:
+            t0 = time.time()
+            sp_ip = socket.gethostbyname(sp_host)
+            result["supabase_dns"] = {"ok": True, "ip": sp_ip, "ms": int((time.time() - t0) * 1000)}
+        except Exception as e:
+            result["supabase_dns"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        # 7b) TCP
+        if result.get("supabase_dns", {}).get("ok"):
+            try:
+                t0 = time.time()
+                s = socket.create_connection((sp_host, sp_port), timeout=10)
+                s.close()
+                result["supabase_tcp"] = {"ok": True, "ms": int((time.time() - t0) * 1000)}
+            except Exception as e:
+                result["supabase_tcp"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+        # 7c) Repeat DNS 5 times to detect flakiness (the failure mode we are chasing)
+        flaky = []
+        for i in range(5):
+            try:
+                t0 = time.time()
+                socket.gethostbyname(sp_host)
+                flaky.append({"i": i, "ok": True, "ms": int((time.time() - t0) * 1000)})
+            except Exception as e:
+                flaky.append({"i": i, "ok": False, "error": f"{type(e).__name__}: {e}"})
+        result["supabase_dns_repeat"] = flaky
+    else:
+        result["supabase"] = "SUPABASE_URL env var not set"
 
     return result
 
