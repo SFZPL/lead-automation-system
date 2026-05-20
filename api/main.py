@@ -5311,7 +5311,11 @@ Make questions sound natural in conversation. Reference their context from enric
         )
 
         import json
-        call_flow_data = json.loads(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        if not content:
+            logger.error(f"OpenAI returned empty content. Response: {response}")
+            raise ValueError("OpenAI returned empty response content")
+        call_flow_data = json.loads(content)
 
     except Exception as exc:
         logger.error(f"Failed to generate call flow content: {exc}")
@@ -5696,6 +5700,70 @@ def login(request: LoginRequest, auth_service: AuthService = Depends(get_auth_se
             raise HTTPException(status_code=401, detail="Unable to authenticate with Odoo")
         logger.error(f"Login error: {e}")
         raise HTTPException(status_code=500, detail="Authentication failed")
+
+
+@app.get("/debug/odoo-ping")
+def debug_odoo_ping():
+    """Temporary diagnostic endpoint — tests Odoo connectivity from this server. Remove after debugging."""
+    import socket
+    import ssl
+    import time
+    from urllib.parse import urlparse
+    from config import Config
+
+    config = Config()
+    result: Dict[str, Any] = {
+        "odoo_url": config.ODOO_URL,
+        "odoo_db": config.ODOO_DB,
+    }
+
+    parsed = urlparse(config.ODOO_URL)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    result["host"] = host
+    result["port"] = port
+
+    # 1) DNS
+    try:
+        t0 = time.time()
+        ip = socket.gethostbyname(host)
+        result["dns"] = {"ok": True, "ip": ip, "ms": int((time.time() - t0) * 1000)}
+    except Exception as e:
+        result["dns"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        return result
+
+    # 2) Raw TCP connect
+    try:
+        t0 = time.time()
+        sock = socket.create_connection((host, port), timeout=10)
+        sock.close()
+        result["tcp"] = {"ok": True, "ms": int((time.time() - t0) * 1000)}
+    except Exception as e:
+        result["tcp"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        return result
+
+    # 3) TLS handshake
+    try:
+        t0 = time.time()
+        ctx = ssl.create_default_context()
+        with socket.create_connection((host, port), timeout=10) as raw:
+            with ctx.wrap_socket(raw, server_hostname=host) as tls:
+                result["tls"] = {"ok": True, "ms": int((time.time() - t0) * 1000), "cipher": tls.cipher()[0] if tls.cipher() else None}
+    except Exception as e:
+        result["tls"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        return result
+
+    # 4) XML-RPC version call (same path login uses, no credentials needed)
+    try:
+        import xmlrpc.client
+        t0 = time.time()
+        common = xmlrpc.client.ServerProxy(f"{config.ODOO_URL.rstrip('/')}/xmlrpc/2/common", allow_none=True)
+        version = common.version()
+        result["xmlrpc"] = {"ok": True, "ms": int((time.time() - t0) * 1000), "version": version}
+    except Exception as e:
+        result["xmlrpc"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    return result
 
 
 class RefreshTokenRequest(BaseModel):
